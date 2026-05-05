@@ -1,0 +1,637 @@
+import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
+import '../../data/repositories/product_repository.dart';
+import '../../data/local/uza_database.dart';
+import 'package:drift/drift.dart' as drift;
+import 'dart:typed_data';
+
+import '../components/responsive_layout.dart';
+import '../../core/res/uza_colors.dart';
+import '../../core/services/api_service.dart';
+import '../../core/utils/picker_utils.dart';
+import '../../core/utils/crypto_utils.dart';
+import '../../core/utils/image_utils.dart';
+import '../../data/services/sync_service.dart';
+
+class ProductImage {
+  final Uint8List? bytes;
+  final String? url;
+  ProductImage({this.bytes, this.url});
+  bool get isEmpty => bytes == null && url == null;
+}
+
+class EditProductScreen extends StatefulWidget {
+  final int shopId;
+  final Product? product;
+  const EditProductScreen({super.key, required this.shopId, this.product});
+
+  @override
+  State<EditProductScreen> createState() => _EditProductScreenState();
+}
+
+class _EditProductScreenState extends State<EditProductScreen> {
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _nameController;
+  late TextEditingController _descController;
+  late TextEditingController _priceController;
+  int? _selectedCategoryId;
+  List<Category> _categories = [];
+  bool _isLoadingCategories = true;
+  late TextEditingController _stockController;
+  late TextEditingController _promoMsgController;
+
+  // Max 3 images
+  final List<ProductImage> _productImages = List.generate(
+    3,
+    (_) => ProductImage(),
+  );
+  bool _isUploading = false;
+  bool _isSaving = false;
+
+  bool _hidePrice = false;
+  bool _showStock = false;
+  int _boostStatus = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.product?.name);
+    _descController = TextEditingController(text: widget.product?.description);
+    _priceController = TextEditingController(
+      text: widget.product?.price?.toString() ?? '0.0',
+    );
+    _selectedCategoryId = widget.product?.categoryId;
+    _stockController = TextEditingController(
+      text: widget.product?.stockCount?.toString(),
+    );
+    _promoMsgController = TextEditingController(
+      text: widget.product?.promotionMessage,
+    );
+    _hidePrice = widget.product?.hidePrice ?? false;
+    _showStock = widget.product?.showStock ?? false;
+    _boostStatus = widget.product?.boostStatus ?? 0;
+
+    _loadCategories();
+
+    if (widget.product?.imageUrls != null) {
+      final urls = ImageUtils.getDecryptedList(widget.product!.imageUrls);
+      for (int i = 0; i < urls.length && i < 3; i++) {
+        _productImages[i] = ProductImage(url: urls[i]);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descController.dispose();
+    _priceController.dispose();
+    _stockController.dispose();
+    _promoMsgController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      // Ensure categories are synced from server before loading
+      final syncService = context.read<SyncService>();
+      await syncService.ensureCategoriesSynced();
+
+      final repo = context.read<ProductRepository>();
+      final cats = await repo.getCategories();
+      if (mounted) {
+        setState(() {
+          _categories = cats;
+          _isLoadingCategories = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingCategories = false);
+      }
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_isSaving) return;
+    setState(() {
+      _isUploading = true;
+      _isSaving = true;
+    });
+
+    try {
+      final apiService = context.read<ApiService>();
+      List<String> finalUrls = [];
+
+      for (int i = 0; i < _productImages.length; i++) {
+        final img = _productImages[i];
+        if (img.bytes != null) {
+          // Upload new image
+          final fileName =
+              "prod_${DateTime.now().millisecondsSinceEpoch}_$i.png";
+          final uploadedUrl = await apiService.uploadFile(
+            img.bytes!,
+            fileName,
+            folder: 'produits',
+          );
+          if (uploadedUrl != null) finalUrls.add(uploadedUrl);
+        } else if (img.url != null) {
+          // Keep existing image
+          finalUrls.add(img.url!);
+        }
+      }
+
+      final encryptedImages = CryptoUtils.encrypt(finalUrls.join(','));
+
+      final selectedCategory = _selectedCategoryId != null
+          ? _categories.firstWhere((c) => c.id == _selectedCategoryId)
+          : null;
+
+      final companion = ProductsCompanion(
+        id: widget.product != null
+            ? drift.Value(widget.product!.id)
+            : const drift.Value.absent(),
+        remoteId: widget.product != null
+            ? drift.Value(widget.product!.remoteId)
+            : const drift.Value.absent(),
+        shopId: drift.Value(widget.shopId),
+        name: drift.Value(_nameController.text),
+        description: drift.Value(_descController.text),
+        price: drift.Value(double.tryParse(_priceController.text) ?? 0.0),
+        imageUrls: drift.Value(encryptedImages),
+        categoryId: drift.Value(_selectedCategoryId),
+        category: drift.Value(selectedCategory?.name),
+        stockCount: drift.Value(int.tryParse(_stockController.text)),
+        isArrival: widget.product != null
+            ? drift.Value(widget.product!.isArrival)
+            : const drift.Value(false),
+        isPromotion: widget.product != null
+            ? drift.Value(widget.product!.isPromotion)
+            : const drift.Value(false),
+        hidePrice: drift.Value(_hidePrice),
+        showStock: drift.Value(_showStock),
+        boostStatus: drift.Value(_boostStatus),
+        isBoosted: drift.Value(_boostStatus == 2),
+        promotionMessage: drift.Value(_promoMsgController.text),
+        updatedAt: drift.Value(DateTime.now()),
+      );
+
+      if (!mounted) return;
+      final productRepo = context.read<ProductRepository>();
+      final syncService = context.read<SyncService>();
+      final navigator = Navigator.of(context);
+
+      int productId;
+      String action;
+      if (widget.product != null) {
+        await productRepo.updateProduct(companion);
+        productId = widget.product!.id;
+        action = 'UPDATE';
+      } else {
+        productId = await productRepo.addProduct(companion);
+        action = 'CREATE';
+      }
+
+      // Queue for background sync
+      await syncService.addToQueue(action, 'products', {
+        'id': productId,
+        'shop_id': widget.shopId,
+        'name': _nameController.text.trim(),
+        'description': _descController.text.trim(),
+        'price': double.tryParse(_priceController.text) ?? 0.0,
+        'image_urls': finalUrls.join(','), // Send raw URLs to server
+        'category_id': _selectedCategoryId,
+        'category': selectedCategory?.name,
+        'stock_count': int.tryParse(_stockController.text),
+        'is_arrival': widget.product?.isArrival ?? false,
+        'is_promotion': widget.product?.isPromotion ?? false,
+        'hide_price': _hidePrice,
+        'show_stock': _showStock,
+        'boost_status': _boostStatus,
+        'promotion_message': _promoMsgController.text.trim(),
+      });
+
+      // Trigger immediate push so the product appears on the server
+      syncService.forcePush();
+
+      if (!mounted) return;
+      navigator.pop();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pickImage(int index) async {
+    final bytes = await PickerUtils.pickImage(context);
+    if (bytes != null) {
+      setState(() {
+        _productImages[index] = ProductImage(bytes: bytes);
+      });
+    }
+  }
+
+  void _removeImage(int index) {
+    setState(() {
+      _productImages[index] = ProductImage();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          widget.product == null ? 'Ajouter un Produit' : 'Modifier le Produit',
+        ),
+        actions: [
+          if (_isUploading)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.check),
+            onPressed: _isSaving ? null : _save,
+          ),
+        ],
+      ),
+      body: ResponsiveLayout(
+        mobile: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: _buildForm(context),
+        ),
+        desktop: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 800),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(40),
+              child: Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(color: Colors.grey[200]!),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: _buildForm(context, isDesktop: true),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildForm(BuildContext context, {bool isDesktop = false}) {
+    return Form(
+      key: _formKey,
+      child: Column(
+        children: [
+          if (isDesktop)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildLeftFields()),
+                const SizedBox(width: 32),
+                Expanded(child: _buildRightFields()),
+              ],
+            )
+          else ...[
+            _buildLeftFields(),
+            const SizedBox(height: 16),
+            _buildRightFields(),
+          ],
+          const SizedBox(height: 32),
+          if (isDesktop)
+            SizedBox(
+              width: 300,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _isSaving ? null : _save,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: UzaColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('Enregistrer le produit'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLeftFields() {
+    return Column(
+      children: [
+        TextFormField(
+          controller: _nameController,
+          decoration: const InputDecoration(
+            labelText: 'Nom du produit',
+            border: OutlineInputBorder(),
+          ),
+          validator: (v) => v!.isEmpty ? 'Requis' : null,
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _priceController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Prix (\$)',
+            border: OutlineInputBorder(),
+          ),
+          validator: (v) => v!.isEmpty ? 'Requis' : null,
+        ),
+        const SizedBox(height: 16),
+        const SizedBox(height: 16),
+        _isLoadingCategories
+            ? const Center(child: CircularProgressIndicator())
+            : DropdownButtonFormField<int>(
+                value: _selectedCategoryId,
+                decoration: const InputDecoration(
+                  labelText: 'Catégorie',
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                ),
+                items: _categories
+                    .map(
+                      (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
+                    )
+                    .toList(),
+                onChanged: (val) => setState(() => _selectedCategoryId = val),
+                validator: (v) =>
+                    v == null ? 'Veuillez choisir une catégorie' : null,
+              ),
+        const SizedBox(height: 16),
+        const SizedBox(height: 16),
+        _buildDisplayOptions(),
+      ],
+    );
+  }
+
+  Widget _buildDisplayOptions() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Options d\'affichage',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        SwitchListTile(
+          title: const Text('Masquer le prix'),
+          subtitle: const Text('Le prix sera affiché comme "Sur demande"'),
+          value: _hidePrice,
+          onChanged: (v) => setState(() => _hidePrice = v),
+        ),
+        SwitchListTile(
+          title: const Text('Afficher le stock'),
+          subtitle: const Text('Affiche le nombre d\'articles restants'),
+          value: _showStock,
+          onChanged: (v) => setState(() => _showStock = v),
+        ),
+        const Divider(),
+        _buildStatusInfo(
+          'Booster ce produit 🚀',
+          _boostStatus,
+          isBoostTitle: true,
+          onAction: () {
+            setState(() => _boostStatus = 1); // Request
+          },
+        ),
+        if (_boostStatus == 2) ...[
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _promoMsgController,
+            decoration: const InputDecoration(
+              labelText: 'Message promotionnel (ex: -20% ce weekend !)',
+              border: OutlineInputBorder(),
+              hintText: 'Flash sale, Offre limitée, etc.',
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildStatusInfo(
+    String title,
+    int status, {
+    bool isBoostTitle = false,
+    required VoidCallback onAction,
+  }) {
+    Color statusColor = Colors.grey;
+    String statusText = "Non actif";
+    IconData statusIcon = Icons.info_outline;
+
+    if (status == 1) {
+      statusColor = Colors.orange;
+      statusText = "En attente de validation (Bureau)";
+      statusIcon = Icons.hourglass_empty;
+    } else if (status == 2) {
+      statusColor = Colors.green;
+      statusText = "Actif";
+      statusIcon = Icons.check_circle_outline;
+    } else if (status == 3) {
+      statusColor = Colors.red;
+      statusText = "Refusé / Expiré";
+      statusIcon = Icons.error_outline;
+    }
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: statusColor.withValues(alpha: 0.3)),
+      ),
+      color: statusColor.withValues(alpha: 0.05),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: isBoostTitle ? UzaColors.secondary : null,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(statusIcon, size: 14, color: statusColor),
+                          const SizedBox(width: 4),
+                          Text(
+                            statusText,
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (status == 0 || status == 3)
+                  ElevatedButton(
+                    onPressed: onAction,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: UzaColors.secondary,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      minimumSize: const Size(0, 36),
+                    ),
+                    child: const Text(
+                      'Demander',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+              ],
+            ),
+            if (status == 1)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  "Rendez-vous au bureau pour le paiement cash afin d'activer cette option.",
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[600],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRightFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Images du produit (Max 3)',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: List.generate(
+            3,
+            (index) => Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(right: index == 2 ? 0 : 8),
+                child: _buildImageSlot(index),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        TextFormField(
+          controller: _descController,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            labelText: 'Description',
+            border: OutlineInputBorder(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImageSlot(int index) {
+    final img = _productImages[index];
+
+    return AspectRatio(
+      aspectRatio: 1,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[300]!),
+        ),
+        child: Stack(
+          children: [
+            if (img.isEmpty)
+              InkWell(
+                onTap: () => _pickImage(index),
+                child: const Center(
+                  child: Icon(Icons.add_a_photo, color: Colors.grey),
+                ),
+              )
+            else
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox.expand(
+                  child: img.bytes != null
+                      ? Image.memory(img.bytes!, fit: BoxFit.cover)
+                      : CachedNetworkImage(
+                          imageUrl: img.url!,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) =>
+                              const Center(child: CircularProgressIndicator()),
+                          errorWidget: (context, url, error) =>
+                              const Icon(Icons.error),
+                        ),
+                ),
+              ),
+            if (!img.isEmpty)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: GestureDetector(
+                  onTap: () => _removeImage(index),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}

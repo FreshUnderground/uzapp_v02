@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Uzaapp - Votre hub de commerce local. Trouvez les meilleures boutiques et produits près de chez vous.">
+  <meta name="keywords" content="commerce, local, boutiques, produits, uzaapp, achat, vente">
+  <meta name="theme-color" content="#FE3E00">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://uzaapp.com/">
+  <meta property="og:title" content="Uzaapp - Hub de Commerce Local">
+  <meta property="og:description" content="Découvrez les produits et boutiques locaux sur Uzaapp. Connectez-vous directement avec les vendeurs.">
+  <meta property="og:image" content="https://uzaapp.com/icons/Icon-512.png">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="https://uzaapp.com/">
+  <meta property="twitter:title" content="Uzaapp - Hub de Commerce Local">
+  <meta property="twitter:description" content="Découvrez les produits et boutiques locaux sur Uzaapp.">
+  <meta property="twitter:image" content="https://uzaapp.com/icons/Icon-512.png">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="uzaapp">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Uzaapp</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Google Fonts Preload -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- sql.js is required for Drift web -->
+  <script src="sql-wasm.js"></script>
+
+  <script>
+    window.addEventListener('load', function() {
+      if (typeof initSqlJs !== 'undefined') {
+        console.log('Uzaapp: sql.js (WASM) is loaded and ready.');
+      } else {
+        console.warn('Uzaapp: sql.js (WASM) failed to load.');
+      }
+    });
+  </script>
+  <style>
+    body {
+      background-color: #ffffff;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      width: 100vw;
+      background: linear-gradient(180deg, #ffffff 0%, #fff5f2 100%);
+      font-family: 'Poppins', sans-serif;
+    }
+    .logo {
+      width: 120px;
+      height: 120px;
+      margin-bottom: 24px;
+      animation: pulse 2s infinite ease-in-out;
+    }
+    .brand-name {
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: 4px;
+      color: #FE3E00;
+      margin-bottom: 8px;
+    }
+    .brand-tagline {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      color: #757575;
+      margin-bottom: 40px;
+    }
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 2px solid rgba(254, 62, 0, 0.1);
+      border-top-color: #FE3E00;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.05); opacity: 1; }
+      100% { transform: scale(1); opacity: 0.8; }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading_screen" class="loading-container">
+    <img src="splash_logo.png" class="logo" alt="Uzaapp Logo" onerror="this.style.display='none'">
+    <div class="brand-name">UZAAPP</div>
+    <div class="brand-tagline">L'EXCELLENCE DU COMMERCE LOCAL</div>
+    <div class="spinner"></div>
+  </div>
+  <!-- This script adds the flutter initialization JS code -->
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Uzaapp - Produit</title>
+
+  <!-- Open Graph for WhatsApp preview -->
+  <meta property="og:title" content="Produit sur Uzaapp">
+  <meta property="og:description" content="Voir ce produit sur Uzaapp - La marketplace des téléphones et gadgets en RDC">
+  <meta property="og:image" content="https://uzaapp.com/assets/logo.png">
+  <meta property="og:url" content="">
+  <meta property="og:type" content="product">
+  <meta property="og:site_name" content="Uzaapp">
+
+  <!-- Twitter Card fallback -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Produit sur Uzaapp">
+  <meta name="twitter:description" content="Voir ce produit sur Uzaapp - La marketplace des téléphones et gadgets en RDC">
+  <meta name="twitter:image" content="https://uzaapp.com/assets/logo.png">
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 400px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+    .logo { width: 64px; height: 64px; margin-bottom: 16px; }
+    h1 { color: #FE3E00; font-size: 24px; margin-bottom: 8px; }
+    p { color: #666; margin-bottom: 24px; line-height: 1.5; }
+    .btn {
+      display: inline-block;
+      background: #FE3E00;
+      color: white;
+      text-decoration: none;
+      padding: 14px 32px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 16px;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #e03500; }
+    .store-links { margin-top: 24px; }
+    .store-links a { color: #019C94; text-decoration: underline; margin: 0 8px; }
+    .product-info { display: none; margin-top: 20px; padding: 16px; background: #f9f9f9; border-radius: 12px; text-align: left; }
+    .product-info img { width: 100%; border-radius: 8px; margin-bottom: 12px; }
+    .product-info .name { font-weight: 700; font-size: 18px; color: #222; }
+    .product-info .price { font-size: 20px; color: #FE3E00; font-weight: 700; margin-top: 4px; }
+    .product-info .condition { display: inline-block; background: #e8f5e9; color: #2e7d32; padding: 2px 10px; border-radius: 12px; font-size: 12px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <img src="/assets/logo.png" alt="Uzaapp" class="logo" onerror="this.style.display='none'">
+    <h1>Uzaapp</h1>
+    <p>La marketplace des téléphones et gadgets en RDC</p>
+
+    <div id="productInfo" class="product-info">
+      <img id="productImage" src="" alt="">
+      <div id="productName" class="name"></div>
+      <div id="productPrice" class="price"></div>
+      <div id="productCondition" class="condition"></div>
+    </div>
+
+    <a href="#" class="btn" id="openApp">Ouvrir dans l'app</a>
+    <div class="store-links">
+      <p style="margin-top:16px; font-size:14px;">Pas encore l'app?</p>
+      <a href="https://play.google.com/store/apps/details?id=com.uzaapp" target="_blank">Play Store</a>
+    </div>
+  </div>
+
+  <script>
+    // Extract product ID from URL path: /product/{id}
+    const pathParts = window.location.pathname.split('/product/');
+    const productId = pathParts.length > 1 ? pathParts[1].replace(/\/$/, '') : null;
+
+    if (productId) {
+      // Set deep link for app
+      document.getElementById('openApp').href = 'uzaapp://product/' + productId;
+
+      // Try to open the app, fallback stays on this page
+      setTimeout(function() {
+        window.location.href = 'uzaapp://product/' + productId;
+      }, 500);
+
+      // Fetch product info from API for display
+      fetch('/api/products?id=' + productId)
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          var product = Array.isArray(data) ? data[0] : data;
+          if (!product) return;
+
+          var infoEl = document.getElementById('productInfo');
+          infoEl.style.display = 'block';
+
+          if (product.image_urls) {
+            var images = product.image_urls.split(',');
+            document.getElementById('productImage').src = images[0];
+          }
+
+          document.getElementById('productName').textContent = product.name || '';
+
+          if (product.price) {
+            document.getElementById('productPrice').textContent = product.price + ' $';
+          }
+
+          if (product.condition && product.condition !== 'new') {
+            var labels = { like_new: 'Comme neuf', good: 'Bon état', fair: 'État correct', poor: 'Usé' };
+            document.getElementById('productCondition').textContent = labels[product.condition] || product.condition;
+          }
+
+          // Update OG tags dynamically
+          document.title = (product.name || 'Produit') + ' - Uzaapp';
+          document.querySelector('meta[property="og:title"]').content = (product.name || 'Produit') + ' - Uzaapp';
+          document.querySelector('meta[property="og:description"]').content = (product.name || '') + ' à ' + (product.price || '?') + '$ sur Uzaapp';
+          if (product.image_urls) {
+            document.querySelector('meta[property="og:image"]').content = product.image_urls.split(',')[0];
+          }
+          document.querySelector('meta[property="og:url"]').content = window.location.href;
+        })
+        .catch(function() {
+          // Silently fail — page still functional without product info
+        });
+    }
+  </script>
+</body>
+</html>

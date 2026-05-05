@@ -1,0 +1,4 @@
+RewriteEngine On
+
+# Route /product/{id} to the dynamic product page with OG tags
+RewriteRule ^product/(.+)$ api/product_page.php?id=$1 [L,QSA]
