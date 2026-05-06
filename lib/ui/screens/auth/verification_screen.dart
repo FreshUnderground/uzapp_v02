@@ -195,8 +195,9 @@ class _VerificationScreenState extends State<VerificationScreen>
       if (mounted) {
         _shakeController.forward().then((_) => _shakeController.reset());
         setState(() {
-          _errorMessage = 'Code invalide ou expiré';
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
         });
+        debugPrint('Verification error: $e');
         // Clear OTP fields
         for (final c in _otpControllers) {
           c.clear();
@@ -246,7 +247,10 @@ class _VerificationScreenState extends State<VerificationScreen>
               Expanded(
                 child: Text(
                   "Numéro non vérifié. La création de boutique nécessite une vérification.",
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ],

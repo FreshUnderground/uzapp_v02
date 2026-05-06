@@ -17,6 +17,7 @@ import 'data/repositories/shop_repository.dart';
 import 'data/repositories/story_repository.dart';
 import 'data/services/sync_service.dart';
 import 'ui/screens/home_screen.dart';
+import 'ui/screens/loading_screen.dart';
 import 'ui/screens/product_detail_screen.dart';
 import 'ui/screens/shop_profile_screen.dart';
 
@@ -247,12 +248,25 @@ class UzaApp extends StatelessWidget {
     syncService.startAutoSync(
       interval: const Duration(minutes: 1),
     ); // Faster for demo
-    // Eager initial sync — don't wait for the timer interval
-    syncService.checkFirstSync(); // Initialise isFirstSync flag from local DB
-    syncService.syncNow();
+
+    // Eager initial sync — defer to after build completes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      syncService.checkFirstSync(); // Initialise isFirstSync flag from local DB
+      syncService.syncNow();
+    });
 
     return Consumer2<SettingsService, SyncService>(
       builder: (context, settings, sync, child) {
+        // Show loading screen during first sync, then transition to app
+        if (sync.isFirstSync && sync.isSyncing) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'Uzaapp',
+            theme: UzaTheme.lightTheme,
+            home: const LoadingScreen(),
+          );
+        }
+
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'Uzaapp',

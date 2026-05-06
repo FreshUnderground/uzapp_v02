@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../core/res/uza_colors.dart';
@@ -14,30 +15,58 @@ class SearchHistory {
   static const int _maxItems = 10;
 
   static Future<List<String>> getHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getStringList(_key) ?? [];
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getStringList(_key) ?? [];
+    } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        return []; // Gracefully degrade on web
+      }
+      rethrow;
+    }
   }
 
   static Future<void> addSearch(String query) async {
     if (query.trim().isEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
-    final history = prefs.getStringList(_key) ?? [];
-    history.remove(query); // Remove duplicate
-    history.insert(0, query); // Add to top
-    if (history.length > _maxItems) history.removeLast();
-    await prefs.setStringList(_key, history);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final history = prefs.getStringList(_key) ?? [];
+      history.remove(query); // Remove duplicate
+      history.insert(0, query); // Add to top
+      if (history.length > _maxItems) history.removeLast();
+      await prefs.setStringList(_key, history);
+    } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        return; // Gracefully degrade on web
+      }
+      rethrow;
+    }
   }
 
   static Future<void> removeSearch(String query) async {
-    final prefs = await SharedPreferences.getInstance();
-    final history = prefs.getStringList(_key) ?? [];
-    history.remove(query);
-    await prefs.setStringList(_key, history);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final history = prefs.getStringList(_key) ?? [];
+      history.remove(query);
+      await prefs.setStringList(_key, history);
+    } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        return; // Gracefully degrade on web
+      }
+      rethrow;
+    }
   }
 
   static Future<void> clearHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_key);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_key);
+    } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        return; // Gracefully degrade on web
+      }
+      rethrow;
+    }
   }
 }
 

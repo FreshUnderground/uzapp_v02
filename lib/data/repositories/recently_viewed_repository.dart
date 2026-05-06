@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:convert';
 
 class RecentlyViewedItem {
@@ -28,14 +29,15 @@ class RecentlyViewedItem {
     'viewedAt': viewedAt.toIso8601String(),
   };
 
-  factory RecentlyViewedItem.fromJson(Map<String, dynamic> json) => RecentlyViewedItem(
-    id: json['id'],
-    type: json['type'],
-    title: json['title'],
-    imageUrl: json['imageUrl'],
-    price: json['price'],
-    viewedAt: DateTime.parse(json['viewedAt']),
-  );
+  factory RecentlyViewedItem.fromJson(Map<String, dynamic> json) =>
+      RecentlyViewedItem(
+        id: json['id'],
+        type: json['type'],
+        title: json['title'],
+        imageUrl: json['imageUrl'],
+        price: json['price'],
+        viewedAt: DateTime.parse(json['viewedAt']),
+      );
 }
 
 class RecentlyViewedRepository extends ChangeNotifier {
@@ -46,12 +48,20 @@ class RecentlyViewedRepository extends ChangeNotifier {
   List<RecentlyViewedItem> get items => _items;
 
   Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = prefs.getString(_key);
-    if (jsonStr != null) {
-      final list = jsonDecode(jsonStr) as List;
-      _items = list.map((e) => RecentlyViewedItem.fromJson(e)).toList();
-      notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString(_key);
+      if (jsonStr != null) {
+        final list = jsonDecode(jsonStr) as List;
+        _items = list.map((e) => RecentlyViewedItem.fromJson(e)).toList();
+        notifyListeners();
+      }
+    } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        // Gracefully degrade on web if plugin not ready
+        return;
+      }
+      debugPrint('RecentlyViewedRepository: Failed to load: $e');
     }
   }
 
@@ -64,14 +74,33 @@ class RecentlyViewedRepository extends ChangeNotifier {
   }
 
   Future<void> _save() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, jsonEncode(_items.map((e) => e.toJson()).toList()));
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _key,
+        jsonEncode(_items.map((e) => e.toJson()).toList()),
+      );
+    } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        // Gracefully degrade on web if plugin not ready
+        return;
+      }
+      debugPrint('RecentlyViewedRepository: Failed to save: $e');
+    }
   }
 
   Future<void> clear() async {
     _items.clear();
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_key);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_key);
+    } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        // Gracefully degrade on web if plugin not ready
+        return;
+      }
+      debugPrint('RecentlyViewedRepository: Failed to clear: $e');
+    }
   }
 }

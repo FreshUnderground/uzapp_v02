@@ -16,6 +16,13 @@ class ApiService {
 
   ApiService({required this.baseUrl});
 
+  /// Common headers for all API requests to avoid 403 blocks
+  Map<String, String> get _commonHeaders => {
+    'X-API-Key': _apiKey,
+    'User-Agent': 'UzaApp-Flutter/1.0',
+    'Accept': 'application/json',
+  };
+
   /// Format DateTime for MySQL (YYYY-MM-DD HH:MM:SS)
   String _formatDateForApi(DateTime date) {
     return '${date.year.toString().padLeft(4, '0')}-'
@@ -31,17 +38,18 @@ class ApiService {
     DateTime? updatedSince,
   }) async {
     try {
-      String url = '$baseUrl/shops.php';
+      String url = '$baseUrl/shops.php?api_key=$_apiKey';
       if (updatedSince != null) {
         url +=
-            '?updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
+            '&updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
       }
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {'X-API-Key': _apiKey},
-      );
+      final response = await http.get(Uri.parse(url), headers: _commonHeaders);
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+        final decoded = jsonDecode(response.body);
+        // Handle both paginated {data: [...]} and direct array responses
+        final List<dynamic> data = decoded is Map
+            ? (decoded['data'] ?? [])
+            : decoded;
         return data.cast<Map<String, dynamic>>();
       }
     } catch (e) {
@@ -55,18 +63,24 @@ class ApiService {
     DateTime? updatedSince,
   }) async {
     try {
-      String url = '$baseUrl/products.php';
+      String url = '$baseUrl/products.php?api_key=$_apiKey';
       if (updatedSince != null) {
         url +=
-            '?updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
+            '&updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
       }
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {'X-API-Key': _apiKey},
-      );
+      debugPrint('API: Fetching products from $url');
+      final response = await http.get(Uri.parse(url), headers: _commonHeaders);
+      debugPrint('API: Products response status: ${response.statusCode}');
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+        final decoded = jsonDecode(response.body);
+        // Handle both paginated {data: [...]} and direct array responses
+        final List<dynamic> data = decoded is Map
+            ? (decoded['data'] ?? [])
+            : decoded;
+        debugPrint('API: Fetched ${data.length} products');
         return data.cast<Map<String, dynamic>>();
+      } else {
+        debugPrint('API: Products fetch failed - ${response.body}');
       }
     } catch (e) {
       debugPrint("API ERROR (fetchProducts): $e");
@@ -79,18 +93,24 @@ class ApiService {
     DateTime? updatedSince,
   }) async {
     try {
-      String url = '$baseUrl/stories.php';
+      String url = '$baseUrl/stories.php?api_key=$_apiKey';
       if (updatedSince != null) {
         url +=
-            '?updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
+            '&updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
       }
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {'X-API-Key': _apiKey},
-      );
+      debugPrint('API: Fetching stories from $url');
+      final response = await http.get(Uri.parse(url), headers: _commonHeaders);
+      debugPrint('API: Stories response status: ${response.statusCode}');
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+        final decoded = jsonDecode(response.body);
+        // Handle both paginated {data: [...]} and direct array responses
+        final List<dynamic> data = decoded is Map
+            ? (decoded['data'] ?? [])
+            : decoded;
+        debugPrint('API: Fetched ${data.length} stories');
         return data.cast<Map<String, dynamic>>();
+      } else {
+        debugPrint('API: Stories fetch failed - ${response.body}');
       }
     } catch (e) {
       debugPrint("API ERROR (fetchStories): $e");
@@ -102,17 +122,25 @@ class ApiService {
     DateTime? updatedSince,
   }) async {
     try {
-      String url = '$baseUrl/categories.php';
+      String url = '$baseUrl/categories.php?api_key=$_apiKey';
       if (updatedSince != null) {
         url +=
-            '?updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
+            '&updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
       }
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {'X-API-Key': _apiKey},
-      );
+      debugPrint('API: Fetching categories from $url');
+      final response = await http.get(Uri.parse(url), headers: _commonHeaders);
+      debugPrint('API: Categories response status: ${response.statusCode}');
       if (response.statusCode == 200) {
-        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+        final decoded = jsonDecode(response.body);
+        // Handle both paginated {data: [...]} and direct array responses
+        final List<dynamic> data = decoded is Map
+            ? (decoded['data'] ?? [])
+            : decoded;
+        final categories = data.cast<Map<String, dynamic>>();
+        debugPrint('API: Fetched ${categories.length} categories');
+        return categories;
+      } else {
+        debugPrint('API: Categories fetch failed - ${response.body}');
       }
     } catch (e) {
       debugPrint("API ERROR (fetchCategories): $e");
@@ -236,7 +264,7 @@ class ApiService {
       if (entityType == 'shops' || entityType == 'products') {
         response = await http.post(
           Uri.parse('$baseUrl/sync.php'),
-          headers: {'Content-Type': 'application/json', 'X-API-Key': _apiKey},
+          headers: {..._commonHeaders, 'Content-Type': 'application/json'},
           body: jsonEncode({
             'entityType': entityType,
             'action': action,
@@ -247,7 +275,7 @@ class ApiService {
         final String endpoint = '$entityType.php';
         response = await http.post(
           Uri.parse('$baseUrl/$endpoint'),
-          headers: {'Content-Type': 'application/json', 'X-API-Key': _apiKey},
+          headers: {..._commonHeaders, 'Content-Type': 'application/json'},
           body: jsonEncode(data),
         );
       }

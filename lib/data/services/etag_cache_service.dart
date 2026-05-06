@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 /// Caches ETags for API responses to avoid re-downloading unchanged data.
 ///
@@ -22,6 +23,9 @@ class ETagCacheService {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getString('$_prefix$url');
     } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        return null; // Gracefully degrade on web if plugin not ready
+      }
       debugPrint('ETagCacheService: failed to read ETag for $url – $e');
       return null;
     }
@@ -33,6 +37,9 @@ class ETagCacheService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('$_prefix$url', etag);
     } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        return; // Gracefully degrade on web if plugin not ready
+      }
       debugPrint('ETagCacheService: failed to write ETag for $url – $e');
     }
   }
@@ -81,6 +88,9 @@ class ETagCacheService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('$_prefix$url');
     } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        return; // Gracefully degrade on web if plugin not ready
+      }
       debugPrint('ETagCacheService: failed to remove ETag for $url – $e');
     }
   }
@@ -95,6 +105,9 @@ class ETagCacheService {
       }
       debugPrint('ETagCacheService: cleared ${keys.length} cached ETags');
     } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        return; // Gracefully degrade on web if plugin not ready
+      }
       debugPrint('ETagCacheService: failed to clear ETags – $e');
     }
   }
@@ -105,6 +118,9 @@ class ETagCacheService {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getKeys().where((k) => k.startsWith(_prefix)).length;
     } catch (e) {
+      if (kIsWeb || e.toString().contains('MissingPluginException')) {
+        return 0; // Gracefully degrade on web if plugin not ready
+      }
       debugPrint('ETagCacheService: failed to count ETags – $e');
       return 0;
     }

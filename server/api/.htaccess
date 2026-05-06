@@ -1,4 +1,16 @@
+# CORS Configuration for Flutter Web
+# This file should be placed in /htdocs/uzaapp.com/api/.htaccess
+
+# Enable Rewrite Engine
 RewriteEngine On
+
+# Add CORS Headers to All Responses
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS, PUT, DELETE"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, X-API-Key, User-Agent, Accept"
+    Header always set Access-Control-Max-Age "86400"
+</IfModule>
 
 # Redirect /api/shops to /api/shops.php
 RewriteCond %{REQUEST_FILENAME} !-f
