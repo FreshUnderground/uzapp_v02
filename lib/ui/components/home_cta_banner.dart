@@ -4,6 +4,9 @@ import '../../core/services/auth_service.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../../core/res/uza_colors.dart';
+import '../utils/page_transitions.dart';
+import '../screens/create_shop_screen.dart';
+import '../screens/edit_product_screen.dart';
 
 class HomeCTABanner extends StatelessWidget {
   const HomeCTABanner({super.key});
@@ -13,23 +16,12 @@ class HomeCTABanner extends StatelessWidget {
     final authService = context.watch<AuthService>();
     final shopRepo = context.read<ShopRepository>();
     final user = authService.firebaseUser;
-
-    if (user == null) {
-      return _buildBanner(
-        context,
-        title: 'Démarrez votre business',
-        subtitle: 'Vendez vos produits à des milliers de clients localement.',
-        buttonText: 'Se Connecter',
-        color: UzaColors.primary,
-        icon: Icons.rocket_launch,
-        onTap: () {
-          // Navigate to Login/Profile
-        },
-      );
-    }
+    final userId = user?.uid;
 
     return StreamBuilder<Shop?>(
-      stream: shopRepo.watchUserShop(user.uid),
+      stream: userId != null
+          ? shopRepo.watchUserShop(userId)
+          : Stream.value(null),
       builder: (context, snapshot) {
         final hasShop = snapshot.hasData && snapshot.data != null;
 
@@ -37,16 +29,21 @@ class HomeCTABanner extends StatelessWidget {
           return _buildBanner(
             context,
             title: 'Créez votre boutique',
-            subtitle: 'Ouvrez votre espace de vente en quelques secondes.',
+            subtitle:
+                'Vendez vos produits à des milliers de clients localement.',
             buttonText: 'Ouvrir ma Boutique',
             color: UzaColors.secondary,
             icon: Icons.storefront,
             onTap: () {
-              // Navigate to Shop Creation
+              Navigator.push(
+                context,
+                SlideUpRoute(page: const CreateShopScreen()),
+              );
             },
           );
         }
 
+        final shop = snapshot.data!;
         return _buildBanner(
           context,
           title: 'Vendez plus aujourd\'hui',
@@ -56,7 +53,10 @@ class HomeCTABanner extends StatelessWidget {
           color: Colors.green[700]!,
           icon: Icons.add_a_photo,
           onTap: () {
-            // Navigate to Product Addition
+            Navigator.push(
+              context,
+              SlideUpRoute(page: EditProductScreen(shopId: shop.id)),
+            );
           },
         );
       },

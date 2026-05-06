@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
+import '../../data/services/sync_service.dart';
 import 'package:drift/drift.dart' as drift;
 
 class AdminValidationScreen extends StatelessWidget {
@@ -11,7 +12,7 @@ class AdminValidationScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Validation Admin'),
@@ -19,11 +20,16 @@ class AdminValidationScreen extends StatelessWidget {
             tabs: [
               Tab(text: 'Boutiques'),
               Tab(text: 'Produits'),
+              Tab(text: 'Vérification'),
             ],
           ),
         ),
-        body: const TabBarView(
-          children: [_PendingShopsList(), _PendingProductsList()],
+        body: TabBarView(
+          children: [
+            const _PendingShopsList(),
+            const _PendingProductsList(),
+            _ShopVerificationList(),
+          ],
         ),
       ),
     );
@@ -196,6 +202,146 @@ class _PendingProductsList extends StatelessWidget {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(approve ? 'Produit Boosté !' : 'Refusé !')),
+      );
+    }
+  }
+}
+
+class _ShopVerificationList extends StatelessWidget {
+  const _ShopVerificationList();
+
+  @override
+  Widget build(BuildContext context) {
+    final db = context.read<UzaDatabase>();
+
+    return StreamBuilder<List<Shop>>(
+      stream:
+          (db.select(db.shops)
+                ..where((t) => t.isVerified.equals(false))
+                ..orderBy([(t) => drift.OrderingTerm.desc(t.updatedAt)]))
+              .watch(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(
+            child: Text('Aucune boutique en attente de vérification.'),
+          );
+        }
+
+        return ListView.builder(
+          itemCount: snapshot.data!.length,
+          itemBuilder: (context, index) {
+            final shop = snapshot.data![index];
+            return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            shop.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Colors.orange.withValues(alpha: 0.5),
+                            ),
+                          ),
+                          child: const Text(
+                            'Non vérifié',
+                            style: TextStyle(
+                              color: Colors.orange,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Téléphone: ${shop.phone ?? "N/A"}',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                    ),
+                    if (shop.address != null && shop.address!.isNotEmpty)
+                      Text(
+                        'Adresse: ${shop.address}',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                      ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => _verifyShop(context, shop, false),
+                          child: const Text(
+                            'Rejeter',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () => _verifyShop(context, shop, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Vérifier'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _verifyShop(BuildContext context, Shop shop, bool verify) async {
+    final shopRepo = context.read<ShopRepository>();
+    final syncService = context.read<SyncService>();
+
+    final companion = ShopsCompanion(
+      id: drift.Value(shop.id),
+      isVerified: drift.Value(verify),
+      verifiedAt: verify
+          ? drift.Value(DateTime.now())
+          : const drift.Value.absent(),
+    );
+
+    await shopRepo.updateShop(companion);
+
+    // Queue sync update
+    await syncService.addToQueue('UPDATE', 'shops', {
+      'id': shop.id,
+      'is_verified': verify ? 1 : 0,
+      'verified_at': verify ? DateTime.now().toIso8601String() : null,
+    });
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            verify ? 'Boutique vérifiée !' : 'Vérification retirée',
+          ),
+        ),
       );
     }
   }

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
+import 'package:video_player/video_player.dart';
 import '../../data/local/uza_database.dart';
+import '../../data/repositories/story_repository.dart';
+import '../../core/utils/crypto_utils.dart';
 
 class StoryViewScreen extends StatefulWidget {
   final List<Story> stories;
@@ -30,6 +34,14 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   bool _isPaused = false;
   double _dragOffset = 0.0;
 
+  // Media sub-items for the current story
+  List<StoryMediaData> _currentMediaItems = [];
+  int _mediaIndex = 0;
+
+  // Video player for video media
+  VideoPlayerController? _videoController;
+  bool _isVideoInitialized = false;
+
   @override
   void initState() {
     super.initState();
@@ -45,14 +57,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       if (status == AnimationStatus.completed) {
         _animController.stop();
         _animController.reset();
-        setState(() {
-          if (_currentIndex + 1 < widget.stories.length) {
-            _currentIndex++;
-            _loadStory(story: widget.stories[_currentIndex]);
-          } else {
-            _closeViewer();
-          }
-        });
+        _advanceMediaOrStory();
       }
     });
   }
@@ -61,7 +66,55 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   void dispose() {
     _pageController.dispose();
     _animController.dispose();
+    _disposeVideoController();
     super.dispose();
+  }
+
+  void _disposeVideoController() {
+    _videoController?.removeListener(_onVideoUpdate);
+    _videoController?.dispose();
+    _videoController = null;
+    _isVideoInitialized = false;
+  }
+
+  void _onVideoUpdate() {
+    if (_videoController != null &&
+        _videoController!.value.isInitialized &&
+        !_videoController!.value.isPlaying &&
+        _videoController!.value.position >= _videoController!.value.duration) {
+      // Video finished playing, advance to next media
+      _advanceMediaOrStory();
+    }
+  }
+
+  void _advanceMediaOrStory() {
+    setState(() {
+      // If current story has more media items, go to next media
+      if (_mediaIndex + 1 < _currentMediaItems.length) {
+        _mediaIndex++;
+        _setupCurrentMedia();
+      } else {
+        // Move to next story
+        if (_currentIndex + 1 < widget.stories.length) {
+          _currentIndex++;
+          _loadStory(story: widget.stories[_currentIndex]);
+        } else {
+          _closeViewer();
+        }
+      }
+    });
+  }
+
+  void _goToPreviousMediaOrStory() {
+    setState(() {
+      if (_mediaIndex > 0) {
+        _mediaIndex--;
+        _setupCurrentMedia();
+      } else if (_currentIndex > 0) {
+        _currentIndex--;
+        _loadStory(story: widget.stories[_currentIndex]);
+      }
+    });
   }
 
   void _closeViewer() {
@@ -73,10 +126,12 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   }
 
   void _loadStory({required Story story, bool animateToPage = true}) {
-    _animController.stop();
-    _animController.reset();
-    _animController.duration = const Duration(seconds: 5);
-    _animController.forward();
+    _disposeVideoController();
+    _mediaIndex = 0;
+    _currentMediaItems = [];
+
+    // Load media items for this story
+    _loadMediaItems(story.id);
 
     if (animateToPage && _pageController.hasClients) {
       _pageController.animateToPage(
@@ -87,8 +142,105 @@ class _StoryViewScreenState extends State<StoryViewScreen>
     }
   }
 
+  Future<void> _loadMediaItems(int storyId) async {
+    try {
+      final storyRepo = context.read<StoryRepository>();
+      final mediaItems = await storyRepo.getStoryMedia(storyId);
+
+      if (mounted) {
+        setState(() {
+          _currentMediaItems = mediaItems;
+        });
+        _setupCurrentMedia();
+      }
+    } catch (e) {
+      // Fallback: no media items, use the story's main mediaUrl
+      if (mounted) {
+        setState(() {
+          _currentMediaItems = [];
+        });
+        _setupCurrentMedia();
+      }
+    }
+  }
+
+  /// Get the current media URL (either from StoryMedia or the story's main mediaUrl)
+  String _getCurrentMediaUrl() {
+    final story = widget.stories[_currentIndex];
+    if (_currentMediaItems.isNotEmpty &&
+        _mediaIndex < _currentMediaItems.length) {
+      final url = _currentMediaItems[_mediaIndex].mediaUrl;
+      return CryptoUtils.decrypt(url);
+    }
+    return story.mediaUrl;
+  }
+
+  /// Get the current media type
+  String _getCurrentMediaType() {
+    final story = widget.stories[_currentIndex];
+    if (_currentMediaItems.isNotEmpty &&
+        _mediaIndex < _currentMediaItems.length) {
+      return _currentMediaItems[_mediaIndex].mediaType;
+    }
+    return story.mediaType;
+  }
+
+  /// Total media count for current story (includes StoryMedia or just the main one)
+  int _getMediaCount() {
+    if (_currentMediaItems.isNotEmpty) return _currentMediaItems.length;
+    return 1; // Fallback to single media
+  }
+
+  void _setupCurrentMedia() {
+    _disposeVideoController();
+    _animController.stop();
+    _animController.reset();
+
+    final mediaType = _getCurrentMediaType();
+    if (mediaType == 'video') {
+      _setupVideoPlayer();
+    } else {
+      // Image: use timer-based progress
+      _animController.duration = const Duration(seconds: 5);
+      if (!_isPaused) {
+        _animController.forward();
+      }
+    }
+  }
+
+  void _setupVideoPlayer() {
+    final url = _getCurrentMediaUrl();
+    _videoController = VideoPlayerController.networkUrl(Uri.parse(url));
+    _videoController!
+        .initialize()
+        .then((_) {
+          if (mounted) {
+            setState(() => _isVideoInitialized = true);
+            _videoController!.play();
+            _videoController!.addListener(_onVideoUpdate);
+
+            // Set animation duration to video duration for progress bar
+            final duration = _videoController!.value.duration;
+            if (duration.inMilliseconds > 0) {
+              _animController.duration = duration;
+            } else {
+              _animController.duration = const Duration(seconds: 15);
+            }
+            if (!_isPaused) {
+              _animController.forward();
+            }
+          }
+        })
+        .catchError((e) {
+          // Video failed to load, skip to next
+          debugPrint('Video player error: $e');
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted) _advanceMediaOrStory();
+          });
+        });
+  }
+
   String _getRelativeTime(DateTime createdAt) {
-    // If createdAt is in UTC (from server), convert to local for accurate diff
     final localCreatedAt = createdAt.isUtc ? createdAt.toLocal() : createdAt;
     final diff = DateTime.now().difference(localCreatedAt);
     if (diff.isNegative) return "À l'instant";
@@ -100,20 +252,10 @@ class _StoryViewScreenState extends State<StoryViewScreen>
 
   void _onHorizontalTap(double relativeDx, double effectiveWidth) {
     if (relativeDx < effectiveWidth / 3) {
-      setState(() {
-        if (_currentIndex - 1 >= 0) {
-          _currentIndex--;
-          _loadStory(story: widget.stories[_currentIndex]);
-        }
-      });
+      _goToPreviousMediaOrStory();
     } else if (relativeDx > 2 * effectiveWidth / 3) {
       setState(() {
-        if (_currentIndex + 1 < widget.stories.length) {
-          _currentIndex++;
-          _loadStory(story: widget.stories[_currentIndex]);
-        } else {
-          _closeViewer();
-        }
+        _advanceMediaOrStory();
       });
     }
   }
@@ -121,30 +263,37 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   void _onLongPressStart(LongPressStartDetails _) {
     setState(() => _isPaused = true);
     _animController.stop();
+    _videoController?.pause();
   }
 
   void _onLongPressEnd(LongPressEndDetails _) {
     setState(() => _isPaused = false);
     _animController.forward();
+    _videoController?.play();
   }
 
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width > 700;
     final screenHeight = MediaQuery.of(context).size.height;
+    final story = widget.stories[_currentIndex];
+    final mediaUrl = _getCurrentMediaUrl();
+    final mediaType = _getCurrentMediaType();
+    final mediaCount = _getMediaCount();
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
           // Blurred background for desktop
-          if (isDesktop)
+          if (isDesktop && mediaType != 'video')
             Positioned.fill(
               child: CachedNetworkImage(
-                imageUrl: widget.stories[_currentIndex].mediaUrl,
+                imageUrl: mediaUrl,
                 fit: BoxFit.cover,
                 color: Colors.black.withValues(alpha: 0.6),
                 colorBlendMode: BlendMode.darken,
+                errorWidget: (_, __, ___) => Container(color: Colors.black),
               ),
             ),
 
@@ -195,18 +344,12 @@ class _StoryViewScreenState extends State<StoryViewScreen>
                       onLongPressEnd: _onLongPressEnd,
                       child: Stack(
                         children: [
-                          // Story content with crossfade
+                          // Story content
                           AnimatedSwitcher(
                             duration: const Duration(milliseconds: 300),
                             switchInCurve: Curves.easeIn,
                             switchOutCurve: Curves.easeOut,
-                            child: CachedNetworkImage(
-                              key: ValueKey(_currentIndex),
-                              imageUrl: widget.stories[_currentIndex].mediaUrl,
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                              height: double.infinity,
-                            ),
+                            child: _buildMediaContent(mediaUrl, mediaType),
                           ),
 
                           // Pause indicator
@@ -233,23 +376,8 @@ class _StoryViewScreenState extends State<StoryViewScreen>
                             right: 10.0,
                             child: Column(
                               children: [
-                                // Progress bars
-                                Row(
-                                  children: widget.stories
-                                      .asMap()
-                                      .map((i, e) {
-                                        return MapEntry(
-                                          i,
-                                          AnimatedBar(
-                                            animController: _animController,
-                                            position: i,
-                                            currentIndex: _currentIndex,
-                                          ),
-                                        );
-                                      })
-                                      .values
-                                      .toList(),
-                                ),
+                                // Progress bars (one per media item in current story)
+                                _buildMediaProgressBar(mediaCount),
 
                                 // Header row with shop info
                                 Padding(
@@ -257,7 +385,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
                                     horizontal: 4.0,
                                     vertical: 12.0,
                                   ),
-                                  child: _buildStoryHeader(),
+                                  child: _buildStoryHeader(story, mediaCount),
                                 ),
                               ],
                             ),
@@ -270,7 +398,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
                             right: 0,
                             child: Center(
                               child: _StoryViewCount(
-                                storyId: widget.stories[_currentIndex].id,
+                                storyId: story.id,
                                 getViewCount: widget.getViewCount,
                               ),
                             ),
@@ -288,8 +416,83 @@ class _StoryViewScreenState extends State<StoryViewScreen>
     );
   }
 
-  Widget _buildStoryHeader() {
-    final story = widget.stories[_currentIndex];
+  Widget _buildMediaContent(String mediaUrl, String mediaType) {
+    if (mediaType == 'video') {
+      if (_isVideoInitialized && _videoController != null) {
+        return FittedBox(
+          fit: BoxFit.cover,
+          key: ValueKey('video_$_mediaIndex'),
+          child: SizedBox(
+            width: _videoController!.value.size.width,
+            height: _videoController!.value.size.height,
+            child: VideoPlayer(_videoController!),
+          ),
+        );
+      } else {
+        return Container(
+          key: ValueKey('video_loading_$_mediaIndex'),
+          color: Colors.black,
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          ),
+        );
+      }
+    }
+
+    return CachedNetworkImage(
+      key: ValueKey('img_$_mediaIndex'),
+      imageUrl: mediaUrl,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      errorWidget: (_, __, ___) => Container(
+        color: Colors.grey[900],
+        child: const Center(
+          child: Icon(Icons.broken_image, color: Colors.white54, size: 48),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMediaProgressBar(int mediaCount) {
+    if (mediaCount <= 1 && _currentMediaItems.isEmpty) {
+      // Single story, single media — show story-level progress bars
+      return Row(
+        children: widget.stories
+            .asMap()
+            .map((i, e) {
+              return MapEntry(
+                i,
+                AnimatedBar(
+                  animController: _animController,
+                  position: i,
+                  currentIndex: _currentIndex,
+                ),
+              );
+            })
+            .values
+            .toList(),
+      );
+    }
+
+    // Multi-media story — show media-level progress bars
+    return Row(
+      children: List.generate(mediaCount, (i) {
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1.5),
+            child: _MediaProgressBar(
+              animController: _animController,
+              isComplete: i < _mediaIndex,
+              isCurrent: i == _mediaIndex,
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildStoryHeader(Story story, int mediaCount) {
     final shop = widget.shopLookup[story.shopId];
 
     return Row(
@@ -305,29 +508,103 @@ class _StoryViewScreenState extends State<StoryViewScreen>
               : null,
         ),
         const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              shop?.name ?? 'Boutique',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                shop?.name ?? 'Boutique',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
-            ),
-            Text(
-              _getRelativeTime(story.createdAt),
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-          ],
+              Row(
+                children: [
+                  Text(
+                    _getRelativeTime(story.createdAt),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  if (mediaCount > 1) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      '${_mediaIndex + 1}/$mediaCount',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
         ),
-        const Spacer(),
         IconButton(
           icon: const Icon(Icons.close, color: Colors.white, size: 28),
           onPressed: _closeViewer,
         ),
       ],
+    );
+  }
+}
+
+/// Progress bar for a single media item within a story.
+class _MediaProgressBar extends StatelessWidget {
+  final AnimationController animController;
+  final bool isComplete;
+  final bool isCurrent;
+
+  const _MediaProgressBar({
+    required this.animController,
+    required this.isComplete,
+    required this.isCurrent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          children: [
+            // Background
+            Container(
+              height: 3.0,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(1.5),
+              ),
+            ),
+            // Fill
+            if (isComplete)
+              Container(
+                height: 3.0,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(1.5),
+                ),
+              )
+            else if (isCurrent)
+              AnimatedBuilder(
+                animation: animController,
+                builder: (context, child) {
+                  return Container(
+                    height: 3.0,
+                    width: constraints.maxWidth * animController.value,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(1.5),
+                    ),
+                  );
+                },
+              ),
+          ],
+        );
+      },
     );
   }
 }

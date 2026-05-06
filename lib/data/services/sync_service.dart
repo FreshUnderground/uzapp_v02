@@ -6,6 +6,7 @@ import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/notification_service.dart';
+import '../repositories/story_repository.dart';
 
 enum SyncStatus { idle, syncing, error, offline }
 
@@ -52,7 +53,14 @@ class SyncService extends ChangeNotifier {
 
   static const Duration _requestTimeout = Duration(seconds: 10);
 
-  SyncService(this.db, this.api, {this.notificationService});
+  SyncService(
+    this.db,
+    this.api, {
+    this.notificationService,
+    this.storyRepository,
+  });
+
+  final StoryRepository? storyRepository;
 
   void startAutoSync({Duration interval = const Duration(minutes: 5)}) {
     _syncTimer?.cancel();
@@ -77,6 +85,19 @@ class SyncService extends ChangeNotifier {
       debugPrint("Starting background sync...");
       await pushLocalChanges();
       await pullRemoteUpdates();
+
+      // Clean up expired stories during each sync cycle
+      if (storyRepository != null) {
+        try {
+          final deleted = await storyRepository!.deleteExpiredStories();
+          if (deleted > 0) {
+            debugPrint('Cleaned up $deleted expired stories');
+          }
+        } catch (e) {
+          debugPrint('STORY CLEANUP ERROR: $e');
+        }
+      }
+
       _lastSyncTime = DateTime.now();
       _syncStatus = SyncStatus.idle;
       debugPrint("Sync completed at $_lastSyncTime");
@@ -399,7 +420,7 @@ class SyncService extends ChangeNotifier {
                 mediaType: st['media_type'] as String? ?? 'image',
                 expiresAt:
                     DateTime.tryParse(st['expires_at'] as String? ?? '') ??
-                    DateTime.now().add(const Duration(hours: 24)),
+                    DateTime.now().add(const Duration(days: 7)),
                 createdAt: Value(
                   DateTime.tryParse(st['created_at'] as String? ?? '') ??
                       DateTime.now(),
@@ -409,6 +430,42 @@ class SyncService extends ChangeNotifier {
             );
           }
         });
+      }
+
+      // Sync story_media items after stories are inserted
+      // (We need the auto-generated local story IDs)
+      if (remoteStories.isNotEmpty) {
+        try {
+          for (var st in remoteStories) {
+            if (st['media_items'] is! List) continue;
+            final String rId = (st['id'] ?? st['remote_id'])?.toString() ?? '';
+            if (rId.isEmpty) continue;
+
+            // Find the local story by remoteId
+            final localStory = await (db.select(
+              db.stories,
+            )..where((t) => t.remoteId.equals(rId))).getSingleOrNull();
+            if (localStory == null) continue;
+
+            for (var mi in st['media_items'] as List) {
+              final mediaItem = mi as Map<String, dynamic>;
+              await db
+                  .into(db.storyMedia)
+                  .insertOnConflictUpdate(
+                    StoryMediaCompanion.insert(
+                      storyId: localStory.id,
+                      mediaUrl: mediaItem['media_url'] as String? ?? '',
+                      mediaType: Value(
+                        mediaItem['media_type'] as String? ?? 'image',
+                      ),
+                      sortOrder: Value(mediaItem['sort_order'] as int? ?? 0),
+                    ),
+                  );
+            }
+          }
+        } catch (e) {
+          debugPrint('STORY_MEDIA SYNC ERROR: $e');
+        }
       }
 
       debugPrint(

@@ -16,12 +16,13 @@ import 'profile_screen.dart';
 import 'story_feed_screen.dart';
 import 'discover_feed_screen.dart';
 import 'arrivages_screen.dart';
+import 'category_products_screen.dart';
 import '../../core/services/auth_service.dart';
 import 'create_shop_screen.dart';
-import 'edit_product_screen.dart';
 import '../components/responsive_layout.dart';
 import 'create_story_screen.dart';
 import '../../data/repositories/shop_repository.dart';
+import '../../data/repositories/story_repository.dart';
 import '../components/animated_bottom_nav.dart';
 import '../../data/services/sync_service.dart';
 import '../components/skeletons.dart';
@@ -309,22 +310,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final authService = context.watch<AuthService>();
     final shopRepo = context.read<ShopRepository>();
     final user = authService.firebaseUser;
-
-    if (user == null) {
-      return FloatingActionButton(
-        onPressed: () {
-          _onItemTapped(3); // Go to Profile/Login
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(tr(context, 'login_to_continue'))),
-          );
-        },
-        backgroundColor: UzaColors.primary,
-        child: const Icon(Icons.login),
-      );
-    }
+    final userId = user?.uid;
 
     return StreamBuilder<Shop?>(
-      stream: shopRepo.watchUserShop(user.uid),
+      stream: userId != null
+          ? shopRepo.watchUserShop(userId)
+          : Stream.value(null),
       builder: (context, snapshot) {
         final hasShop = snapshot.hasData && snapshot.data != null;
 
@@ -403,6 +394,7 @@ class _HomeContentState extends State<_HomeContent> {
   @override
   Widget build(BuildContext context) {
     final productRepo = context.watch<ProductRepository>();
+    final storyRepo = context.watch<StoryRepository>();
     final syncService = context.watch<SyncService>();
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth > 900;
@@ -441,18 +433,12 @@ class _HomeContentState extends State<_HomeContent> {
                         ),
                         child: TapAnimator(
                           onTap: () {
-                            final homeState = context
-                                .findAncestorStateOfType<_HomeScreenState>();
-                            if (homeState != null) {
-                              homeState._onItemTapped(1); // Switch to Explorer
-                            } else {
-                              Navigator.push(
-                                context,
-                                FadeThroughRoute(
-                                  page: const SearchScreen(showAppBar: true),
-                                ),
-                              );
-                            }
+                            Navigator.push(
+                              context,
+                              FadeThroughRoute(
+                                page: const SearchScreen(showAppBar: true),
+                              ),
+                            );
                           },
                           child: Container(
                             height: 48,
@@ -518,19 +504,10 @@ class _HomeContentState extends State<_HomeContent> {
                         final authService = context.read<AuthService>();
                         final shopRepo = context.read<ShopRepository>();
                         final user = authService.firebaseUser;
-                        if (user == null) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(tr(context, 'login_to_continue')),
-                              ),
-                            );
-                          }
-                          return;
-                        }
-                        final shop = await shopRepo
-                            .watchUserShop(user.uid)
-                            .first;
+                        final userId = user?.uid;
+                        final shop = userId != null
+                            ? await shopRepo.watchUserShop(userId).first
+                            : null;
                         if (!context.mounted) return;
                         if (shop == null) {
                           Navigator.push(
@@ -550,10 +527,195 @@ class _HomeContentState extends State<_HomeContent> {
                   ),
                 ),
 
-                // 3. Category Shortcuts
+                // 3. Arrivages (Story-based)
+                SliverToBoxAdapter(
+                  child: StreamBuilder<Map<int, List<Story>>>(
+                    stream: storyRepo.watchArrivagesGroupedByShop(),
+                    builder: (context, snapshot) {
+                      final grouped = snapshot.data ?? {};
+                      if (grouped.isEmpty) {
+                        return const SizedBox.shrink();
+                      }
+                      final shopIds = grouped.keys.toList();
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildSectionHeader(
+                            'Arrivages',
+                            onAction: () => Navigator.push(
+                              context,
+                              SlideUpRoute(page: const ArrivagesScreen()),
+                            ),
+                          ),
+                          SizedBox(
+                            height: 190,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              padding: EdgeInsets.symmetric(horizontal: hPad),
+                              itemCount: shopIds.length,
+                              itemBuilder: (context, index) {
+                                final shopId = shopIds[index];
+                                final stories = grouped[shopId]!;
+                                final firstStory = stories.first;
+                                return GestureDetector(
+                                  onTap: () {
+                                    final storyRepo = context
+                                        .read<StoryRepository>();
+                                    storyRepo.logStoryView(stories.first.id);
+                                    widget.onOpenStory(stories, 0);
+                                  },
+                                  child: Container(
+                                    width: 140,
+                                    margin: const EdgeInsets.only(right: 12),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.08,
+                                          ),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 3),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          Image.network(
+                                            firstStory.mediaUrl,
+                                            fit: BoxFit.cover,
+                                            errorBuilder:
+                                                (context, error, stackTrace) {
+                                                  return Container(
+                                                    color: Colors.grey[200],
+                                                    child: Icon(
+                                                      Icons.image_not_supported,
+                                                      color: Colors.grey[400],
+                                                    ),
+                                                  );
+                                                },
+                                          ),
+                                          Container(
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                                colors: [
+                                                  Colors.transparent,
+                                                  Colors.black.withValues(
+                                                    alpha: 0.6,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          Positioned(
+                                            left: 8,
+                                            right: 8,
+                                            bottom: 8,
+                                            child: Row(
+                                              children: [
+                                                Container(
+                                                  width: 24,
+                                                  height: 24,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white,
+                                                    shape: BoxShape.circle,
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: Colors.black
+                                                            .withValues(
+                                                              alpha: 0.2,
+                                                            ),
+                                                        blurRadius: 4,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  child: const Icon(
+                                                    Icons.store,
+                                                    size: 14,
+                                                    color: UzaColors.secondary,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Expanded(
+                                                  child: FutureBuilder<Shop?>(
+                                                    future: context
+                                                        .read<ShopRepository>()
+                                                        .getShopById(shopId),
+                                                    builder:
+                                                        (context, snapshot) {
+                                                          return Text(
+                                                            snapshot
+                                                                    .data
+                                                                    ?.name ??
+                                                                '...',
+                                                            style:
+                                                                const TextStyle(
+                                                                  color: Colors
+                                                                      .white,
+                                                                  fontSize: 11,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w600,
+                                                                ),
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                          );
+                                                        },
+                                                  ),
+                                                ),
+                                                if (stories.length > 1)
+                                                  Container(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 5,
+                                                          vertical: 2,
+                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      color: UzaColors.primary,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            8,
+                                                          ),
+                                                    ),
+                                                    child: Text(
+                                                      '${stories.length}',
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 9,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+
+                // 4. Category Shortcuts
                 SliverToBoxAdapter(child: _buildCategoryShortcuts()),
 
-                // 4. Nouveautés (Horizontal Scroll)
+                // 5. Nouveautés (Horizontal Scroll)
                 SliverToBoxAdapter(
                   child: _buildSectionHeader(
                     'Nouveautés',
@@ -660,7 +822,7 @@ class _HomeContentState extends State<_HomeContent> {
                   ),
                 ),
 
-                // 5. Populaires (Grid)
+                // 6. Populaires (Grid)
                 SliverToBoxAdapter(
                   child: _buildSectionHeader(tr(context, 'popular')),
                 ),
@@ -794,11 +956,11 @@ class _HomeContentState extends State<_HomeContent> {
     final hPad = MediaQuery.of(context).size.width < 360 ? 12.0 : 16.0;
 
     return StreamBuilder<List<Category>>(
-      stream: productRepo.watchCategories(),
+      stream: productRepo.watchRootCategories(),
       builder: (context, snapshot) {
         final categories = snapshot.data ?? [];
-        // Show up to 6 categories, fallback to empty if loading
-        final displayCategories = categories.take(6).toList();
+        // Show up to 5 root categories
+        final displayCategories = categories.take(5).toList();
 
         if (displayCategories.isEmpty) {
           // Fallback: show skeleton placeholders while loading
@@ -806,7 +968,7 @@ class _HomeContentState extends State<_HomeContent> {
             padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: List.generate(4, (_) {
+              children: List.generate(5, (_) {
                 return Expanded(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -848,10 +1010,9 @@ class _HomeContentState extends State<_HomeContent> {
                     Navigator.push(
                       context,
                       SlideUpRoute(
-                        page: SearchScreen(
-                          showAppBar: true,
-                          initialCategoryId: category.id,
-                          initialCategoryName: category.name,
+                        page: CategoryProductsScreen(
+                          categoryId: category.id,
+                          categoryName: category.name,
                         ),
                       ),
                     );
@@ -900,7 +1061,8 @@ class _HomeContentState extends State<_HomeContent> {
     }
     if (name.contains('ordinateur') ||
         name.contains('pc') ||
-        name.contains('laptop')) {
+        name.contains('laptop') ||
+        name.contains('ordi')) {
       return Icons.laptop;
     }
     if (name.contains('accessoire')) {
@@ -924,7 +1086,8 @@ class _HomeContentState extends State<_HomeContent> {
     }
     if (name.contains('aliment') ||
         name.contains('food') ||
-        name.contains('resto')) {
+        name.contains('resto') ||
+        name.contains('restau')) {
       return Icons.fastfood;
     }
     if (name.contains('beauté') || name.contains('cosmétique')) {
@@ -935,6 +1098,9 @@ class _HomeContentState extends State<_HomeContent> {
     }
     if (name.contains('tv') || name.contains('télé')) {
       return Icons.tv;
+    }
+    if (name.contains('auto') || name.contains('vehicul')) {
+      return Icons.directions_car;
     }
     return Icons.category;
   }

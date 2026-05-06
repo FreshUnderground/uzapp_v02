@@ -21,10 +21,8 @@ class ShopProfileScreen extends StatelessWidget {
 
   const ShopProfileScreen({super.key, required this.shop});
 
-  bool _isOwnerVerified(BuildContext context) {
-    final authService = context.read<AuthService>();
-    return shop.isVerified ||
-        (authService.user?.uid == shop.ownerId && authService.isPhoneVerified);
+  bool _isShopVerified(BuildContext context) {
+    return shop.isVerified;
   }
 
   @override
@@ -156,7 +154,7 @@ class ShopProfileScreen extends StatelessWidget {
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
-                                        if (_isOwnerVerified(context)) ...[
+                                        if (_isShopVerified(context)) ...[
                                           const SizedBox(width: 8),
                                           const Icon(
                                             Icons.verified,
@@ -221,7 +219,7 @@ class ShopProfileScreen extends StatelessWidget {
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                  if (_isOwnerVerified(context)) ...[
+                                  if (_isShopVerified(context)) ...[
                                     const SizedBox(width: 6),
                                     const Icon(
                                       Icons.verified,

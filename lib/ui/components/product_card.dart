@@ -14,6 +14,7 @@ class ProductCard extends StatefulWidget {
   final String? condition;
   final String? shopPhone;
   final String? thumbnailUrl;
+  final double? distanceKm;
 
   const ProductCard({
     super.key,
@@ -22,6 +23,7 @@ class ProductCard extends StatefulWidget {
     this.condition,
     this.shopPhone,
     this.thumbnailUrl,
+    this.distanceKm,
   });
 
   @override
@@ -84,8 +86,9 @@ class _ProductCardState extends State<ProductCard> {
                               final firstImage = images.isNotEmpty
                                   ? images.first
                                   : '';
-                              if (firstImage.isEmpty)
+                              if (firstImage.isEmpty) {
                                 return ImageUtils.buildPlaceholder();
+                              }
                               return ImageUtils.buildCachedImage(
                                 firstImage,
                                 fit: BoxFit.cover,
@@ -212,15 +215,41 @@ class _ProductCardState extends State<ProductCard> {
                           if (shop == null || shop.name.isEmpty) {
                             return const SizedBox.shrink();
                           }
-                          return Text(
-                            shop.name,
-                            style: TextStyle(
-                              color: Colors.grey[500],
-                              fontSize: 8.5,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          return Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  shop.name,
+                                  style: TextStyle(
+                                    color: Colors.grey[500],
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (widget.distanceKm != null)
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.location_on,
+                                      size: 10,
+                                      color: UzaColors.primary,
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      '~${_formatDistance(widget.distanceKm!)}',
+                                      style: TextStyle(
+                                        color: UzaColors.primary,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                            ],
                           );
                         },
                       ),
@@ -233,6 +262,16 @@ class _ProductCardState extends State<ProductCard> {
         ),
       ),
     );
+  }
+
+  String _formatDistance(double km) {
+    if (km < 1) {
+      return '${(km * 1000).round()} m';
+    }
+    if (km < 10) {
+      return '${km.toStringAsFixed(1)} km';
+    }
+    return '${km.round()} km';
   }
 
   Widget _buildBadge(String label, Color color, {IconData? icon}) {

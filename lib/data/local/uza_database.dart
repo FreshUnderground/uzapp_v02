@@ -41,6 +41,9 @@ class Shops extends Table {
   IntColumn get responseTimeMinutes => integer().nullable()();
   TextColumn get commune => text().nullable()();
   TextColumn get city => text().nullable()();
+  DateTimeColumn get verifiedAt => dateTime().nullable()();
+  RealColumn get latitude => real().nullable()();
+  RealColumn get longitude => real().nullable()();
 }
 
 class Categories extends Table {
@@ -49,6 +52,9 @@ class Categories extends Table {
   TextColumn get name => text().withLength(min: 1, max: 100)();
   TextColumn get icon => text().nullable()();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+  IntColumn get parentId => integer().nullable()();
+  IntColumn get level => integer().withDefault(const Constant(0))();
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
 }
 
 class Products extends Table {
@@ -83,6 +89,7 @@ class Products extends Table {
   TextColumn get condition => text().withDefault(const Constant('new'))();
   IntColumn get reportCount => integer().withDefault(const Constant(0))();
   BoolColumn get isSold => boolean().withDefault(const Constant(false))();
+  TextColumn get metadata => text().nullable()();
 }
 
 class Stories extends Table {
@@ -91,7 +98,17 @@ class Stories extends Table {
   IntColumn get shopId => integer().references(Shops, #id)();
   TextColumn get mediaUrl => text()();
   TextColumn get mediaType => text()(); // 'image' or 'video'
+  BoolColumn get isArrivage => boolean().withDefault(const Constant(false))();
   DateTimeColumn get expiresAt => dateTime()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+class StoryMedia extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get storyId => integer().references(Stories, #id)();
+  TextColumn get mediaUrl => text()();
+  TextColumn get mediaType => text().withDefault(const Constant('image'))();
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -136,7 +153,8 @@ class UserProfiles extends Table {
   TextColumn get phone => text().withLength(min: 7, max: 20)();
   TextColumn get name => text().nullable()();
   TextColumn get avatarUrl => text().nullable()();
-  BoolColumn get isPhoneVerified => boolean().withDefault(const Constant(false))();
+  BoolColumn get isPhoneVerified =>
+      boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 
   @override
@@ -214,13 +232,14 @@ class AppPreferences extends Table {
     WishlistProducts,
     FollowedShops,
     ProductReviews,
+    StoryMedia,
   ],
 )
 class UzaDatabase extends _$UzaDatabase {
   UzaDatabase() : super(ensureConnection());
 
   @override
-  int get schemaVersion => 20;
+  int get schemaVersion => 22;
 
   @override
   MigrationStrategy get migration {
@@ -296,6 +315,40 @@ class UzaDatabase extends _$UzaDatabase {
         }
         if (from < 20) {
           await m.addColumn(userProfiles, userProfiles.isPhoneVerified);
+        }
+        if (from < 21) {
+          await customStatement(
+            'ALTER TABLE categories ADD COLUMN parent_id INTEGER',
+          );
+          await customStatement(
+            'ALTER TABLE categories ADD COLUMN level INTEGER NOT NULL DEFAULT 0',
+          );
+          await customStatement(
+            'ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0',
+          );
+          await customStatement(
+            'ALTER TABLE products ADD COLUMN metadata TEXT',
+          );
+          await customStatement(
+            'ALTER TABLE shops ADD COLUMN verified_at INTEGER',
+          );
+          await customStatement('ALTER TABLE shops ADD COLUMN latitude REAL');
+          await customStatement('ALTER TABLE shops ADD COLUMN longitude REAL');
+          await customStatement("""
+            CREATE TABLE story_media (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              story_id INTEGER NOT NULL REFERENCES stories(id),
+              media_url TEXT NOT NULL,
+              media_type TEXT NOT NULL DEFAULT 'image',
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+            )
+          """);
+        }
+        if (from < 22) {
+          await customStatement(
+            'ALTER TABLE stories ADD COLUMN is_arrivage INTEGER NOT NULL DEFAULT 0',
+          );
         }
       },
     );

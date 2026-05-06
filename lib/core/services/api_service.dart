@@ -93,7 +93,7 @@ class ApiService {
     DateTime? updatedSince,
   }) async {
     try {
-      String url = '$baseUrl/stories.php?api_key=$_apiKey';
+      String url = '$baseUrl/stories.php?api_key=$_apiKey&include_media=1';
       if (updatedSince != null) {
         url +=
             '&updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
@@ -205,7 +205,7 @@ class ApiService {
   }) async {
     try {
       final uri = Uri.parse(
-        '$baseUrl/stories.php?page=$page&per_page=$perPage',
+        '$baseUrl/stories.php?page=$page&per_page=$perPage&include_media=1',
       );
       final response = await http.get(uri, headers: {'X-API-Key': _apiKey});
       if (response.statusCode == 200) {

@@ -15,4 +15,8 @@ ini_set('display_errors', 1);
 
 // Set timezone
 date_default_timezone_set('UTC');
+
+// FCM Server Key (legacy API) for push notifications
+// Get this from Firebase Console > Project Settings > Cloud Messaging
+// define('FCM_SERVER_KEY', 'YOUR_LEGACY_SERVER_KEY_HERE');
 ?>

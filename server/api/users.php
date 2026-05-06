@@ -61,11 +61,18 @@ try {
         $stmt = $db->prepare("SELECT * FROM users WHERE phone = ?");
         $stmt->execute([$phone]);
         $user = $stmt->fetch();
+        if ($user) {
+            $user['is_phone_verified'] = (bool)$user['is_phone_verified'];
+        }
         echo json_encode($user ? $user : ['error' => 'User not found']);
     } else {
         // List all users (only for admin/sync purposes if needed)
         $stmt = $db->query("SELECT * FROM users LIMIT 100");
-        echo json_encode($stmt->fetchAll());
+        $users = $stmt->fetchAll();
+        foreach ($users as &$user) {
+            $user['is_phone_verified'] = (bool)$user['is_phone_verified'];
+        }
+        echo json_encode($users);
     }
 
 } catch (Exception $e) {

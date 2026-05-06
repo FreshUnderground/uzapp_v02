@@ -320,6 +320,28 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Called from the unified shop creation flow.
+  /// Creates/updates the user session without going through the OTP screen.
+  Future<void> registerFromShopFlow(
+    String phone, {
+    bool isPhoneVerified = false,
+    String? name,
+    String? avatarUrl,
+  }) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      await _completeSignIn(phone, isPhoneVerified: isPhoneVerified);
+      // Update name/avatar if provided
+      if (name != null || avatarUrl != null) {
+        await _repository.updateProfile(name: name, avatarUrl: avatarUrl);
+      }
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> signOut() async {
     _currentUser = null;
     _isPhoneVerified = false;

@@ -111,6 +111,10 @@ try {
         $shop['boost_status'] = (int)$shop['boost_status'];
         $shop['banner_status'] = (int)$shop['banner_status'];
         $shop['is_boosted'] = (bool)$shop['is_boosted'];
+        $shop['is_verified'] = (bool)$shop['is_verified'];
+        if ($shop['verified_at']) {
+            $shop['verified_at'] = date('c', strtotime($shop['verified_at']));
+        }
     }
 
     if ($updatedSince) {

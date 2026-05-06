@@ -13,6 +13,12 @@ import '../../core/utils/picker_utils.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
 import '../../data/services/sync_service.dart';
+import 'dart:convert';
+import '../components/category_forms/vehicule_form.dart';
+import '../components/category_forms/restaurant_form.dart';
+import '../components/category_forms/phone_tablet_form.dart';
+import '../components/category_forms/informatique_form.dart';
+import '../components/category_forms/gadget_form.dart';
 
 class ProductImage {
   final Uint8List? bytes;
@@ -53,6 +59,20 @@ class _EditProductScreenState extends State<EditProductScreen> {
   bool _showStock = false;
   int _boostStatus = 0;
 
+  // Category-specific form keys
+  final GlobalKey<VehiculeFormState> _vehiculeFormKey =
+      GlobalKey<VehiculeFormState>();
+  final GlobalKey<RestaurantFormState> _restaurantFormKey =
+      GlobalKey<RestaurantFormState>();
+  final GlobalKey<PhoneTabletFormState> _phoneTabletFormKey =
+      GlobalKey<PhoneTabletFormState>();
+  final GlobalKey<InformatiqueFormState> _informatiqueFormKey =
+      GlobalKey<InformatiqueFormState>();
+  final GlobalKey<GadgetFormState> _gadgetFormKey =
+      GlobalKey<GadgetFormState>();
+
+  Map<String, dynamic>? _existingMetadata;
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +91,17 @@ class _EditProductScreenState extends State<EditProductScreen> {
     _hidePrice = widget.product?.hidePrice ?? false;
     _showStock = widget.product?.showStock ?? false;
     _boostStatus = widget.product?.boostStatus ?? 0;
+
+    // Parse existing metadata for category forms
+    if (widget.product?.metadata != null &&
+        widget.product!.metadata!.isNotEmpty) {
+      try {
+        _existingMetadata =
+            jsonDecode(widget.product!.metadata!) as Map<String, dynamic>;
+      } catch (_) {
+        _existingMetadata = null;
+      }
+    }
 
     _loadCategories();
 
@@ -113,8 +144,113 @@ class _EditProductScreenState extends State<EditProductScreen> {
     }
   }
 
+  Category? get _selectedCategory {
+    if (_selectedCategoryId == null) return null;
+    try {
+      return _categories.firstWhere((c) => c.id == _selectedCategoryId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _getFormType(Category? category) {
+    if (category == null) return null;
+    final name = category.name.toLowerCase();
+    if (name.contains('phone') || name.contains('tablet')) return 'phone';
+    if (name.contains('vehicul') || name.contains('auto')) return 'vehicule';
+    if (name.contains('restaurant') || name.contains('restau'))
+      return 'restaurant';
+    if (name.contains('informatique') || name.contains('ordi'))
+      return 'informatique';
+    if (name.contains('gadget')) return 'gadget';
+    return null;
+  }
+
+  bool _isRentalCategory(Category? category) {
+    if (category == null) return false;
+    final name = category.name.toLowerCase();
+    return name.contains('location') ||
+        name.contains('rental') ||
+        name.contains('louer');
+  }
+
+  Widget _buildCategoryForm() {
+    final category = _selectedCategory;
+    final formType = _getFormType(category);
+    final initialData = _existingMetadata;
+
+    switch (formType) {
+      case 'vehicule':
+        return VehiculeForm(
+          key: _vehiculeFormKey,
+          initialData: initialData,
+          isRental: _isRentalCategory(category),
+        );
+      case 'restaurant':
+        return RestaurantForm(
+          key: _restaurantFormKey,
+          initialData: initialData,
+        );
+      case 'phone':
+        return PhoneTabletForm(
+          key: _phoneTabletFormKey,
+          initialData: initialData,
+        );
+      case 'informatique':
+        return InformatiqueForm(
+          key: _informatiqueFormKey,
+          initialData: initialData,
+        );
+      case 'gadget':
+        return GadgetForm(key: _gadgetFormKey, initialData: initialData);
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Map<String, dynamic>? _collectCategoryFormData() {
+    final category = _selectedCategory;
+    final formType = _getFormType(category);
+
+    switch (formType) {
+      case 'vehicule':
+        return _vehiculeFormKey.currentState?.getData();
+      case 'restaurant':
+        return _restaurantFormKey.currentState?.getData();
+      case 'phone':
+        return _phoneTabletFormKey.currentState?.getData();
+      case 'informatique':
+        return _informatiqueFormKey.currentState?.getData();
+      case 'gadget':
+        return _gadgetFormKey.currentState?.getData();
+      default:
+        return null;
+    }
+  }
+
+  bool _validateCategoryForm() {
+    final category = _selectedCategory;
+    final formType = _getFormType(category);
+
+    switch (formType) {
+      case 'vehicule':
+        return _vehiculeFormKey.currentState?.validate() ?? true;
+      case 'restaurant':
+        return _restaurantFormKey.currentState?.validate() ?? true;
+      case 'phone':
+        return _phoneTabletFormKey.currentState?.validate() ?? true;
+      case 'informatique':
+        return _informatiqueFormKey.currentState?.validate() ?? true;
+      case 'gadget':
+        return _gadgetFormKey.currentState?.validate() ?? true;
+      default:
+        return true;
+    }
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_validateCategoryForm()) return;
     if (_isSaving) return;
     setState(() {
       _isUploading = true;
@@ -149,6 +285,11 @@ class _EditProductScreenState extends State<EditProductScreen> {
           ? _categories.firstWhere((c) => c.id == _selectedCategoryId)
           : null;
 
+      final categoryFormData = _collectCategoryFormData();
+      final metadataJson = categoryFormData != null
+          ? jsonEncode(categoryFormData)
+          : null;
+
       final companion = ProductsCompanion(
         id: widget.product != null
             ? drift.Value(widget.product!.id)
@@ -176,6 +317,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
         isBoosted: drift.Value(_boostStatus == 2),
         promotionMessage: drift.Value(_promoMsgController.text),
         updatedAt: drift.Value(DateTime.now()),
+        metadata: drift.Value(metadataJson),
       );
 
       if (!mounted) return;
@@ -211,6 +353,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
         'show_stock': _showStock,
         'boost_status': _boostStatus,
         'promotion_message': _promoMsgController.text.trim(),
+        'metadata': metadataJson,
       });
 
       // Trigger immediate push so the product appears on the server
@@ -388,6 +531,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                     v == null ? 'Veuillez choisir une catégorie' : null,
               ),
         const SizedBox(height: 16),
+        _buildCategoryForm(),
         const SizedBox(height: 16),
         _buildDisplayOptions(),
       ],

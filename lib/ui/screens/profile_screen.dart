@@ -418,6 +418,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _buildSectionTitle(tr(context, 'my_shops')),
               _buildShopCard(shop!),
               const SizedBox(height: 12),
+              if (!shop.isVerified) ...[
+                _buildVerifyShopBanner(shop),
+                const SizedBox(height: 12),
+              ],
               _buildSellerQuickActions(shop),
               const SizedBox(height: 12),
               _buildSectionTitle(tr(context, 'my_products')),
@@ -609,6 +613,59 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         trailing: const Icon(Icons.chevron_right, size: 20),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      ),
+    );
+  }
+
+  // ─── Verify Shop Banner ─────────────────────────────────────────
+
+  Widget _buildVerifyShopBanner(Shop shop) {
+    return ModernCard(
+      backgroundColor: Colors.orange.withValues(alpha: 0.08),
+      hasBorder: true,
+      padding: const EdgeInsets.all(16),
+      onTap: () => Navigator.push(
+        context,
+        SlideUpRoute(page: const CreateShopScreen(showVerificationOnly: true)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.verified_user_outlined,
+              color: Colors.orange,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Vérifier votre boutique',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: Colors.orange,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Gagnez la confiance des clients avec un badge vérifié.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.arrow_forward, color: Colors.orange),
+        ],
       ),
     );
   }
@@ -1434,10 +1491,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         children: [
           const SizedBox(height: 40),
-          Icon(Icons.person_outline, size: 80, color: Colors.grey[300]),
+          Icon(Icons.storefront, size: 80, color: Colors.grey[300]),
           const SizedBox(height: 16),
           Text(
-            tr(context, 'login_prompt'),
+            'Explorez librement et créez votre boutique quand vous êtes prêt.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 16, color: Colors.grey),
           ),
@@ -1447,18 +1504,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: ElevatedButton(
               onPressed: () => Navigator.push(
                 context,
-                SlideUpRoute(page: const LoginScreen()),
+                SlideUpRoute(page: const CreateShopScreen()),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: UzaColors.primary,
+                backgroundColor: UzaColors.secondary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              child: Text(tr(context, 'login')),
+              child: const Text(
+                'Créer ma boutique',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () => Navigator.push(
+              context,
+              SlideUpRoute(page: const LoginScreen()),
+            ),
+            child: const Text('J\'ai déjà un compte'),
           ),
         ],
       ),

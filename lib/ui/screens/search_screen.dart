@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
@@ -29,6 +30,9 @@ class _SearchScreenState extends State<SearchScreen> {
   late int? _selectedCategoryId;
   late String? _selectedCategoryName;
   int _refreshKey = 0;
+  bool _nearbyEnabled = false;
+  Position? _userPosition;
+  bool _locationLoading = false;
 
   @override
   void initState() {
@@ -53,6 +57,78 @@ class _SearchScreenState extends State<SearchScreen> {
       }
       _refreshKey++;
     });
+  }
+
+  Future<void> _requestLocation() async {
+    setState(() => _locationLoading = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Activez la localisation pour utiliser cette fonction.',
+              ),
+            ),
+          );
+        }
+        setState(() {
+          _nearbyEnabled = false;
+          _locationLoading = false;
+        });
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Permission de localisation refusee.'),
+            ),
+          );
+        }
+        setState(() {
+          _nearbyEnabled = false;
+          _locationLoading = false;
+        });
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+        ),
+      );
+      if (mounted) {
+        setState(() {
+          _userPosition = position;
+          _locationLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur de localisation.')),
+        );
+        setState(() {
+          _nearbyEnabled = false;
+          _locationLoading = false;
+        });
+      }
+    }
+  }
+
+  void _toggleNearby(bool value) {
+    setState(() => _nearbyEnabled = value);
+    if (value && _userPosition == null) {
+      _requestLocation();
+    }
   }
 
   String _sortByToString(SortBy sortBy) {
@@ -184,189 +260,243 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
 
-            // ─── Search Filters ──────────────────────────────────
+            // ─── Search Filters + Nearby Toggle ─────────────────
             SliverToBoxAdapter(
               child: StreamBuilder<List<Category>>(
                 stream: productRepo.watchCategories(),
                 builder: (context, snapshot) {
                   final categoryNames =
                       snapshot.data?.map((c) => c.name).toList() ?? [];
-                  return SearchFilters(
-                    key: ValueKey('filters_$_refreshKey'),
-                    categories: categoryNames,
-                    onFiltersChanged: _onFiltersChanged,
-                    initialState: _filterState,
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SearchFilters(
+                        key: ValueKey('filters_$_refreshKey'),
+                        categories: categoryNames,
+                        onFiltersChanged: _onFiltersChanged,
+                        initialState: _filterState,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: FilterChip(
+                          label: Text(
+                            _locationLoading
+                                ? 'Localisation...'
+                                : 'A proximite',
+                          ),
+                          selected: _nearbyEnabled,
+                          onSelected: _toggleNearby,
+                          selectedColor: UzaColors.primary.withValues(
+                            alpha: 0.15,
+                          ),
+                          checkmarkColor: UzaColors.primary,
+                          avatar: Icon(
+                            Icons.near_me,
+                            size: 16,
+                            color: _nearbyEnabled
+                                ? UzaColors.primary
+                                : Colors.grey,
+                          ),
+                          labelStyle: TextStyle(
+                            color: _nearbyEnabled
+                                ? UzaColors.primary
+                                : Colors.black87,
+                            fontWeight: _nearbyEnabled
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: _nearbyEnabled
+                                  ? UzaColors.primary
+                                  : Colors.grey[300]!,
+                            ),
+                          ),
+                          backgroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),
             ),
 
-            // ─── Results Header ──────────────────────────────────
-            StreamBuilder<List<Product>>(
-              key: ValueKey(
-                'search_grid_${_selectedCategoryId}_${_filterState.hashCode}_$_refreshKey',
-              ),
-              stream: productRepo.watchProductsFiltered(
-                categoryId: _selectedCategoryId,
-                category: _filterState.category,
-                minPrice: _filterState.minPrice,
-                maxPrice: _filterState.maxPrice,
-                condition: _filterState.condition,
-                sortBy: _sortByToString(_filterState.sortBy),
-              ),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return _buildSkeletonSliver();
-                }
+            // ─── Results ─────────────────────────────────────────
+            if (_nearbyEnabled)
+              _buildNearbyResultsSliver(productRepo)
+            else
+              StreamBuilder<List<Product>>(
+                key: ValueKey(
+                  'search_grid_${_selectedCategoryId}_${_filterState.hashCode}_$_refreshKey',
+                ),
+                stream: productRepo.watchProductsFiltered(
+                  categoryId: _selectedCategoryId,
+                  category: _filterState.category,
+                  minPrice: _filterState.minPrice,
+                  maxPrice: _filterState.maxPrice,
+                  condition: _filterState.condition,
+                  sortBy: _sortByToString(_filterState.sortBy),
+                ),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return _buildSkeletonSliver();
+                  }
 
-                final hasFilters =
-                    _selectedCategoryId != null ||
-                    _filterState.hasActiveFilters;
+                  final hasFilters =
+                      _selectedCategoryId != null ||
+                      _filterState.hasActiveFilters;
 
-                // Header
-                final headerSliver = SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            hasFilters
-                                ? _selectedCategoryId != null
-                                      ? 'En : $_selectedCategoryName'
-                                      : 'Résultats filtrés'
-                                : 'Suggestions pour vous',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        if (snapshot.hasData && snapshot.data!.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: UzaColors.primary.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                  // Header
+                  final headerSliver = SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
                             child: Text(
-                              '${snapshot.data!.length}',
+                              hasFilters
+                                  ? _selectedCategoryId != null
+                                        ? 'En : $_selectedCategoryName'
+                                        : 'Resultats filtres'
+                                  : 'Suggestions pour vous',
                               style: const TextStyle(
-                                fontSize: 12,
+                                fontSize: 18,
                                 fontWeight: FontWeight.bold,
-                                color: UzaColors.primary,
                               ),
                             ),
                           ),
-                        if (hasFilters)
-                          TextButton(
-                            onPressed: () => setState(() {
-                              _selectedCategoryId = null;
-                              _selectedCategoryName = null;
-                              _filterState = const SearchFilterState();
-                              _refreshKey++;
-                            }),
-                            child: const Text('Réinitialiser'),
+                          if (snapshot.hasData && snapshot.data!.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: UzaColors.primary.withValues(
+                                  alpha: 0.08,
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${snapshot.data!.length}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: UzaColors.primary,
+                                ),
+                              ),
+                            ),
+                          if (hasFilters)
+                            TextButton(
+                              onPressed: () => setState(() {
+                                _selectedCategoryId = null;
+                                _selectedCategoryName = null;
+                                _filterState = const SearchFilterState();
+                                _refreshKey++;
+                              }),
+                              child: const Text('Reinitialiser'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return MultiSliver(
+                      slivers: [
+                        headerSliver,
+                        SliverToBoxAdapter(
+                          child: Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(32.0),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.search_off_rounded,
+                                    size: 48,
+                                    color: Colors.grey[300],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Aucun produit ne correspond a vos criteres.',
+                                    style: TextStyle(
+                                      color: Colors.grey[500],
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
+                        ),
                       ],
-                    ),
-                  ),
-                );
+                    );
+                  }
 
-                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  final displayItems = snapshot.data!;
+
+                  // When no filters active, show trending + recently added sections
+                  if (!hasFilters) {
+                    return MultiSliver(
+                      slivers: [
+                        headerSliver,
+                        _buildTrendingSection(productRepo),
+                        _buildRecentlyAddedSection(displayItems),
+                      ],
+                    );
+                  }
+
+                  // Filtered results grid with staggered animation
                   return MultiSliver(
                     slivers: [
                       headerSliver,
-                      SliverToBoxAdapter(
-                        child: Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(32.0),
-                            child: Column(
-                              children: [
-                                Icon(
-                                  Icons.search_off_rounded,
-                                  size: 48,
-                                  color: Colors.grey[300],
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Aucun produit ne correspond à vos critères.',
-                                  style: TextStyle(
-                                    color: Colors.grey[500],
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                      SliverPadding(
+                        padding: const EdgeInsets.all(16),
+                        sliver: SliverGrid(
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount:
+                                    MediaQuery.of(context).size.width > 1200
+                                    ? 5
+                                    : MediaQuery.of(context).size.width > 800
+                                    ? 3
+                                    : 2,
+                                childAspectRatio:
+                                    MediaQuery.of(context).size.width > 700
+                                    ? 0.75
+                                    : 0.86,
+                                crossAxisSpacing: 16,
+                                mainAxisSpacing: 16,
+                              ),
+                          delegate: SliverChildBuilderDelegate((
+                            context,
+                            index,
+                          ) {
+                            final product = displayItems[index];
+                            return StaggeredListItem(
+                              index: index,
+                              child: ProductCard(
+                                product: product,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          ProductDetailScreen(product: product),
+                                    ),
+                                  );
+                                },
+                              ),
+                            );
+                          }, childCount: displayItems.length),
                         ),
                       ),
                     ],
                   );
-                }
-
-                final displayItems = snapshot.data!;
-
-                // When no filters active, show trending + recently added sections
-                if (!hasFilters) {
-                  return MultiSliver(
-                    slivers: [
-                      headerSliver,
-                      _buildTrendingSection(productRepo),
-                      _buildRecentlyAddedSection(displayItems),
-                    ],
-                  );
-                }
-
-                // Filtered results grid with staggered animation
-                return MultiSliver(
-                  slivers: [
-                    headerSliver,
-                    SliverPadding(
-                      padding: const EdgeInsets.all(16),
-                      sliver: SliverGrid(
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount:
-                              MediaQuery.of(context).size.width > 1200
-                              ? 5
-                              : MediaQuery.of(context).size.width > 800
-                              ? 3
-                              : 2,
-                          childAspectRatio:
-                              MediaQuery.of(context).size.width > 700
-                              ? 0.75
-                              : 0.86,
-                          crossAxisSpacing: 16,
-                          mainAxisSpacing: 16,
-                        ),
-                        delegate: SliverChildBuilderDelegate((context, index) {
-                          final product = displayItems[index];
-                          return StaggeredListItem(
-                            index: index,
-                            child: ProductCard(
-                              product: product,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        ProductDetailScreen(product: product),
-                                  ),
-                                );
-                              },
-                            ),
-                          );
-                        }, childCount: displayItems.length),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
+                },
+              ),
           ],
         ),
       ),
@@ -679,6 +809,186 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         );
       },
+    );
+  }
+
+  // ─── Nearby Results Sliver ───────────────────────────────────────
+
+  Widget _buildNearbyResultsSliver(ProductRepository productRepo) {
+    if (_locationLoading) {
+      return SliverFillRemaining(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(color: UzaColors.primary),
+              const SizedBox(height: 12),
+              Text(
+                'Obtention de votre position...',
+                style: TextStyle(color: Colors.grey[500]),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_userPosition == null) {
+      return SliverFillRemaining(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.location_off, size: 48, color: Colors.grey),
+              const SizedBox(height: 12),
+              const Text(
+                'Localisation non disponible',
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: _requestLocation,
+                child: const Text('Autoriser la localisation'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SliverToBoxAdapter(
+      child: FutureBuilder<List<(Product, double)>>(
+        future: productRepo.searchProductsNearbyWithDistance(
+          userLat: _userPosition!.latitude,
+          userLng: _userPosition!.longitude,
+          categoryId: _selectedCategoryId,
+        ),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: CircularProgressIndicator(color: UzaColors.primary),
+              ),
+            );
+          }
+
+          final results = snapshot.data ?? [];
+
+          if (results.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.search_off_rounded,
+                      size: 48,
+                      color: Colors.grey[300],
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Aucun produit trouve a proximite',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          final products = results.map((r) => r.$1).toList();
+          final distances = {for (final r in results) r.$1.id: r.$2};
+          final screenWidth = MediaQuery.of(context).size.width;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'A proximite',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: UzaColors.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${results.length}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: UzaColors.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: screenWidth > 1200
+                        ? 5
+                        : screenWidth > 800
+                        ? 3
+                        : 2,
+                    childAspectRatio: screenWidth > 700 ? 0.75 : 0.86,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                  ),
+                  itemCount: products.length,
+                  itemBuilder: (context, index) {
+                    final product = products[index];
+                    return StaggeredListItem(
+                      index: index,
+                      child: ProductCard(
+                        product: product,
+                        distanceKm: distances[product.id],
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  ProductDetailScreen(product: product),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 

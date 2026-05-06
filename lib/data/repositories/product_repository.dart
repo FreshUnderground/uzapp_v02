@@ -1,3 +1,4 @@
+import 'dart:math' show cos, sqrt, sin, atan2, pi;
 import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
 import '../services/sync_service.dart';
@@ -16,10 +17,50 @@ class ProductRepository {
     )..where((t) => t.shopId.equals(shopId))).watch();
   }
 
-  Stream<List<Category>> watchCategories() {
-    return (db.select(
-      db.categories,
-    )..orderBy([(t) => OrderingTerm.asc(t.name)])).watch();
+  Stream<List<Category>> watchCategories({int? parentId}) {
+    return (db.select(db.categories)
+          ..where((t) {
+            if (parentId != null) {
+              return t.parentId.equals(parentId);
+            }
+            return const Constant(true);
+          })
+          ..orderBy([(t) => OrderingTerm.asc(t.name)]))
+        .watch();
+  }
+
+  Stream<List<Category>> watchCategoriesByParent(int? parentId) {
+    return (db.select(db.categories)
+          ..where(
+            (t) => parentId != null
+                ? t.parentId.equals(parentId)
+                : t.parentId.isNull(),
+          )
+          ..orderBy([
+            (t) => OrderingTerm.asc(t.sortOrder),
+            (t) => OrderingTerm.asc(t.name),
+          ]))
+        .watch();
+  }
+
+  Stream<List<Category>> watchRootCategories() {
+    return (db.select(db.categories)
+          ..where((t) => t.level.equals(0))
+          ..orderBy([
+            (t) => OrderingTerm.asc(t.sortOrder),
+            (t) => OrderingTerm.asc(t.name),
+          ]))
+        .watch();
+  }
+
+  Future<List<Category>> getCategoryChildren(int categoryId) {
+    return (db.select(db.categories)
+          ..where((t) => t.parentId.equals(categoryId))
+          ..orderBy([
+            (t) => OrderingTerm.asc(t.sortOrder),
+            (t) => OrderingTerm.asc(t.name),
+          ]))
+        .get();
   }
 
   Future<List<Category>> getCategories() {
@@ -611,6 +652,115 @@ class ProductRepository {
     }
     return results;
   }
+
+  /// Search products by proximity using Haversine formula.
+  /// Returns products sorted by distance (closest first).
+  Future<List<Product>> searchProductsNearby({
+    required double userLat,
+    required double userLng,
+    double radiusKm = 50,
+    String? query,
+    int? categoryId,
+  }) async {
+    final results = await _searchProductsNearbyWithDistance(
+      userLat: userLat,
+      userLng: userLng,
+      radiusKm: radiusKm,
+      query: query,
+      categoryId: categoryId,
+    );
+    return results.map((r) => r.$1).toList();
+  }
+
+  /// Same as [searchProductsNearby] but also returns distance in km for each product.
+  Future<List<(Product, double)>> searchProductsNearbyWithDistance({
+    required double userLat,
+    required double userLng,
+    double radiusKm = 50,
+    String? query,
+    int? categoryId,
+  }) => _searchProductsNearbyWithDistance(
+    userLat: userLat,
+    userLng: userLng,
+    radiusKm: radiusKm,
+    query: query,
+    categoryId: categoryId,
+  );
+
+  Future<List<(Product, double)>> _searchProductsNearbyWithDistance({
+    required double userLat,
+    required double userLng,
+    double radiusKm = 50,
+    String? query,
+    int? categoryId,
+  }) async {
+    final lowerQuery = query != null && query.isNotEmpty
+        ? '%${query.toLowerCase()}%'
+        : null;
+
+    final select = db.select(db.products).join([
+      innerJoin(db.shops, db.shops.id.equalsExp(db.products.shopId)),
+    ]);
+
+    select.where(
+      db.shops.latitude.isNotNull() & db.shops.longitude.isNotNull(),
+    );
+
+    if (lowerQuery != null) {
+      select.where(
+        db.products.name.lower().like(lowerQuery) |
+            db.products.description.lower().like(lowerQuery) |
+            db.products.category.lower().like(lowerQuery),
+      );
+    }
+
+    if (categoryId != null) {
+      select.where(db.products.categoryId.equals(categoryId));
+    }
+
+    final results = await select.get();
+
+    final List<(Product, double)> productDistances = [];
+    for (final row in results) {
+      final product = row.readTable(db.products);
+      final shop = row.readTable(db.shops);
+      if (shop.latitude != null && shop.longitude != null) {
+        final distance = _haversineDistance(
+          userLat,
+          userLng,
+          shop.latitude!,
+          shop.longitude!,
+        );
+        if (distance <= radiusKm) {
+          productDistances.add((product, distance));
+        }
+      }
+    }
+
+    productDistances.sort((a, b) => a.$2.compareTo(b.$2));
+    return productDistances;
+  }
+
+  static double _haversineDistance(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
+    const R = 6371.0; // Earth radius in kilometers
+    final dLat = _toRadians(lat2 - lat1);
+    final dLon = _toRadians(lon2 - lon1);
+    final a =
+        sin(dLat / 2) * sin(dLat / 2) +
+        cos(_toRadians(lat1)) *
+            cos(_toRadians(lat2)) *
+            sin(dLon / 2) *
+            sin(dLon / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return R * c;
+  }
+
+  static double _toRadians(double degrees) => degrees * pi / 180.0;
 
   /// Fetch products from local DB with pagination
   Future<PaginatedResult<Product>> getProductsPaginated({

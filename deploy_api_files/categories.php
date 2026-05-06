@@ -51,29 +51,81 @@ try {
 
     // GET Logic
     $updatedSince = isset($_GET['updated_since']) ? $_GET['updated_since'] : null;
+    $tree = isset($_GET['tree']) && $_GET['tree'] == '1';
+    $parentId = isset($_GET['parent_id']) ? (int)$_GET['parent_id'] : null;
+    $level = isset($_GET['level']) ? (int)$_GET['level'] : null;
+
+    $buildCategoryTree = function (array $categories, ?int $parentId = null) use (&$buildCategoryTree) {
+        $tree = [];
+        foreach ($categories as $category) {
+            $catParentId = $category['parent_id'] !== null ? (int)$category['parent_id'] : null;
+            if ($catParentId === $parentId) {
+                $children = $buildCategoryTree($categories, $category['id']);
+                if (!empty($children)) {
+                    $category['children'] = $children;
+                }
+                $tree[] = $category;
+            }
+        }
+        return $tree;
+    };
+
+    if ($tree) {
+        $stmt = $db->prepare("SELECT * FROM categories ORDER BY sort_order ASC, name ASC");
+        $stmt->execute();
+        $allCategories = $stmt->fetchAll();
+
+        foreach ($allCategories as &$category) {
+            $category['id'] = (int)$category['id'];
+            $category['level'] = isset($category['level']) ? (int)$category['level'] : 0;
+            $category['sort_order'] = isset($category['sort_order']) ? (int)$category['sort_order'] : 0;
+            $category['parent_id'] = $category['parent_id'] !== null ? (int)$category['parent_id'] : null;
+        }
+
+        $treeData = $buildCategoryTree($allCategories);
+        echo json_encode(['success' => true, 'data' => $treeData]);
+        exit;
+    }
+
+    $where = [];
+    $params = [];
+    if ($parentId !== null) {
+        $where[] = "parent_id = ?";
+        $params[] = $parentId;
+    }
+    if ($level !== null) {
+        $where[] = "level = ?";
+        $params[] = $level;
+    }
+    $whereClause = $where ? "WHERE " . implode(" AND ", $where) : "";
 
     if ($updatedSince) {
-        $query = "SELECT * FROM categories WHERE updated_at > ? ORDER BY id DESC";
+        $updatedWhere = $where ? $whereClause . " AND updated_at > ?" : "WHERE updated_at > ?";
+        $updatedParams = array_merge($params, [$updatedSince]);
+        $query = "SELECT * FROM categories $updatedWhere ORDER BY id DESC";
         $stmt = $db->prepare($query);
-        $stmt->execute([$updatedSince]);
+        $stmt->execute($updatedParams);
         $categories = $stmt->fetchAll();
     } else {
         $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
         $perPage = min(max(1, (int)($_GET['per_page'] ?? 100)), 200);
         $offset = ($page - 1) * $perPage;
 
-        $countStmt = $db->prepare("SELECT COUNT(*) as total FROM categories");
-        $countStmt->execute();
+        $countStmt = $db->prepare("SELECT COUNT(*) as total FROM categories $whereClause");
+        $countStmt->execute($params);
         $total = (int)$countStmt->fetch()['total'];
 
-        $query = "SELECT * FROM categories ORDER BY id DESC LIMIT ? OFFSET ?";
+        $query = "SELECT * FROM categories $whereClause ORDER BY id DESC LIMIT ? OFFSET ?";
         $stmt = $db->prepare($query);
-        $stmt->execute([$perPage, $offset]);
+        $stmt->execute(array_merge($params, [$perPage, $offset]));
         $categories = $stmt->fetchAll();
     }
 
     foreach ($categories as &$category) {
         $category['id'] = (int)$category['id'];
+        $category['level'] = isset($category['level']) ? (int)$category['level'] : 0;
+        $category['sort_order'] = isset($category['sort_order']) ? (int)$category['sort_order'] : 0;
+        $category['parent_id'] = $category['parent_id'] !== null ? (int)$category['parent_id'] : null;
     }
 
     if ($updatedSince) {

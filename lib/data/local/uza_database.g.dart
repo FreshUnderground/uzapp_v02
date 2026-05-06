@@ -300,6 +300,39 @@ class $ShopsTable extends Shops with TableInfo<$ShopsTable, Shop> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _verifiedAtMeta = const VerificationMeta(
+    'verifiedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> verifiedAt = GeneratedColumn<DateTime>(
+    'verified_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _latitudeMeta = const VerificationMeta(
+    'latitude',
+  );
+  @override
+  late final GeneratedColumn<double> latitude = GeneratedColumn<double>(
+    'latitude',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _longitudeMeta = const VerificationMeta(
+    'longitude',
+  );
+  @override
+  late final GeneratedColumn<double> longitude = GeneratedColumn<double>(
+    'longitude',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -328,6 +361,9 @@ class $ShopsTable extends Shops with TableInfo<$ShopsTable, Shop> {
     responseTimeMinutes,
     commune,
     city,
+    verifiedAt,
+    latitude,
+    longitude,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -508,6 +544,24 @@ class $ShopsTable extends Shops with TableInfo<$ShopsTable, Shop> {
         city.isAcceptableOrUnknown(data['city']!, _cityMeta),
       );
     }
+    if (data.containsKey('verified_at')) {
+      context.handle(
+        _verifiedAtMeta,
+        verifiedAt.isAcceptableOrUnknown(data['verified_at']!, _verifiedAtMeta),
+      );
+    }
+    if (data.containsKey('latitude')) {
+      context.handle(
+        _latitudeMeta,
+        latitude.isAcceptableOrUnknown(data['latitude']!, _latitudeMeta),
+      );
+    }
+    if (data.containsKey('longitude')) {
+      context.handle(
+        _longitudeMeta,
+        longitude.isAcceptableOrUnknown(data['longitude']!, _longitudeMeta),
+      );
+    }
     return context;
   }
 
@@ -623,6 +677,18 @@ class $ShopsTable extends Shops with TableInfo<$ShopsTable, Shop> {
         DriftSqlType.string,
         data['${effectivePrefix}city'],
       ),
+      verifiedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}verified_at'],
+      ),
+      latitude: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}latitude'],
+      ),
+      longitude: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}longitude'],
+      ),
     );
   }
 
@@ -662,6 +728,9 @@ class Shop extends DataClass implements Insertable<Shop> {
   final int? responseTimeMinutes;
   final String? commune;
   final String? city;
+  final DateTime? verifiedAt;
+  final double? latitude;
+  final double? longitude;
   const Shop({
     required this.id,
     this.remoteId,
@@ -689,6 +758,9 @@ class Shop extends DataClass implements Insertable<Shop> {
     this.responseTimeMinutes,
     this.commune,
     this.city,
+    this.verifiedAt,
+    this.latitude,
+    this.longitude,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -757,6 +829,15 @@ class Shop extends DataClass implements Insertable<Shop> {
     if (!nullToAbsent || city != null) {
       map['city'] = Variable<String>(city);
     }
+    if (!nullToAbsent || verifiedAt != null) {
+      map['verified_at'] = Variable<DateTime>(verifiedAt);
+    }
+    if (!nullToAbsent || latitude != null) {
+      map['latitude'] = Variable<double>(latitude);
+    }
+    if (!nullToAbsent || longitude != null) {
+      map['longitude'] = Variable<double>(longitude);
+    }
     return map;
   }
 
@@ -822,6 +903,15 @@ class Shop extends DataClass implements Insertable<Shop> {
           ? const Value.absent()
           : Value(commune),
       city: city == null && nullToAbsent ? const Value.absent() : Value(city),
+      verifiedAt: verifiedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(verifiedAt),
+      latitude: latitude == null && nullToAbsent
+          ? const Value.absent()
+          : Value(latitude),
+      longitude: longitude == null && nullToAbsent
+          ? const Value.absent()
+          : Value(longitude),
     );
   }
 
@@ -861,6 +951,9 @@ class Shop extends DataClass implements Insertable<Shop> {
       ),
       commune: serializer.fromJson<String?>(json['commune']),
       city: serializer.fromJson<String?>(json['city']),
+      verifiedAt: serializer.fromJson<DateTime?>(json['verifiedAt']),
+      latitude: serializer.fromJson<double?>(json['latitude']),
+      longitude: serializer.fromJson<double?>(json['longitude']),
     );
   }
   @override
@@ -895,6 +988,9 @@ class Shop extends DataClass implements Insertable<Shop> {
       'responseTimeMinutes': serializer.toJson<int?>(responseTimeMinutes),
       'commune': serializer.toJson<String?>(commune),
       'city': serializer.toJson<String?>(city),
+      'verifiedAt': serializer.toJson<DateTime?>(verifiedAt),
+      'latitude': serializer.toJson<double?>(latitude),
+      'longitude': serializer.toJson<double?>(longitude),
     };
   }
 
@@ -925,6 +1021,9 @@ class Shop extends DataClass implements Insertable<Shop> {
     Value<int?> responseTimeMinutes = const Value.absent(),
     Value<String?> commune = const Value.absent(),
     Value<String?> city = const Value.absent(),
+    Value<DateTime?> verifiedAt = const Value.absent(),
+    Value<double?> latitude = const Value.absent(),
+    Value<double?> longitude = const Value.absent(),
   }) => Shop(
     id: id ?? this.id,
     remoteId: remoteId.present ? remoteId.value : this.remoteId,
@@ -954,6 +1053,9 @@ class Shop extends DataClass implements Insertable<Shop> {
         : this.responseTimeMinutes,
     commune: commune.present ? commune.value : this.commune,
     city: city.present ? city.value : this.city,
+    verifiedAt: verifiedAt.present ? verifiedAt.value : this.verifiedAt,
+    latitude: latitude.present ? latitude.value : this.latitude,
+    longitude: longitude.present ? longitude.value : this.longitude,
   );
   Shop copyWithCompanion(ShopsCompanion data) {
     return Shop(
@@ -1001,6 +1103,11 @@ class Shop extends DataClass implements Insertable<Shop> {
           : this.responseTimeMinutes,
       commune: data.commune.present ? data.commune.value : this.commune,
       city: data.city.present ? data.city.value : this.city,
+      verifiedAt: data.verifiedAt.present
+          ? data.verifiedAt.value
+          : this.verifiedAt,
+      latitude: data.latitude.present ? data.latitude.value : this.latitude,
+      longitude: data.longitude.present ? data.longitude.value : this.longitude,
     );
   }
 
@@ -1032,7 +1139,10 @@ class Shop extends DataClass implements Insertable<Shop> {
           ..write('isVerified: $isVerified, ')
           ..write('responseTimeMinutes: $responseTimeMinutes, ')
           ..write('commune: $commune, ')
-          ..write('city: $city')
+          ..write('city: $city, ')
+          ..write('verifiedAt: $verifiedAt, ')
+          ..write('latitude: $latitude, ')
+          ..write('longitude: $longitude')
           ..write(')'))
         .toString();
   }
@@ -1065,6 +1175,9 @@ class Shop extends DataClass implements Insertable<Shop> {
     responseTimeMinutes,
     commune,
     city,
+    verifiedAt,
+    latitude,
+    longitude,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -1095,7 +1208,10 @@ class Shop extends DataClass implements Insertable<Shop> {
           other.isVerified == this.isVerified &&
           other.responseTimeMinutes == this.responseTimeMinutes &&
           other.commune == this.commune &&
-          other.city == this.city);
+          other.city == this.city &&
+          other.verifiedAt == this.verifiedAt &&
+          other.latitude == this.latitude &&
+          other.longitude == this.longitude);
 }
 
 class ShopsCompanion extends UpdateCompanion<Shop> {
@@ -1125,6 +1241,9 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
   final Value<int?> responseTimeMinutes;
   final Value<String?> commune;
   final Value<String?> city;
+  final Value<DateTime?> verifiedAt;
+  final Value<double?> latitude;
+  final Value<double?> longitude;
   const ShopsCompanion({
     this.id = const Value.absent(),
     this.remoteId = const Value.absent(),
@@ -1152,6 +1271,9 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
     this.responseTimeMinutes = const Value.absent(),
     this.commune = const Value.absent(),
     this.city = const Value.absent(),
+    this.verifiedAt = const Value.absent(),
+    this.latitude = const Value.absent(),
+    this.longitude = const Value.absent(),
   });
   ShopsCompanion.insert({
     this.id = const Value.absent(),
@@ -1180,6 +1302,9 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
     this.responseTimeMinutes = const Value.absent(),
     this.commune = const Value.absent(),
     this.city = const Value.absent(),
+    this.verifiedAt = const Value.absent(),
+    this.latitude = const Value.absent(),
+    this.longitude = const Value.absent(),
   }) : name = Value(name),
        type = Value(type);
   static Insertable<Shop> custom({
@@ -1209,6 +1334,9 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
     Expression<int>? responseTimeMinutes,
     Expression<String>? commune,
     Expression<String>? city,
+    Expression<DateTime>? verifiedAt,
+    Expression<double>? latitude,
+    Expression<double>? longitude,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1238,6 +1366,9 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
         'response_time_minutes': responseTimeMinutes,
       if (commune != null) 'commune': commune,
       if (city != null) 'city': city,
+      if (verifiedAt != null) 'verified_at': verifiedAt,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
     });
   }
 
@@ -1268,6 +1399,9 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
     Value<int?>? responseTimeMinutes,
     Value<String?>? commune,
     Value<String?>? city,
+    Value<DateTime?>? verifiedAt,
+    Value<double?>? latitude,
+    Value<double?>? longitude,
   }) {
     return ShopsCompanion(
       id: id ?? this.id,
@@ -1296,6 +1430,9 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
       responseTimeMinutes: responseTimeMinutes ?? this.responseTimeMinutes,
       commune: commune ?? this.commune,
       city: city ?? this.city,
+      verifiedAt: verifiedAt ?? this.verifiedAt,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
     );
   }
 
@@ -1382,6 +1519,15 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
     if (city.present) {
       map['city'] = Variable<String>(city.value);
     }
+    if (verifiedAt.present) {
+      map['verified_at'] = Variable<DateTime>(verifiedAt.value);
+    }
+    if (latitude.present) {
+      map['latitude'] = Variable<double>(latitude.value);
+    }
+    if (longitude.present) {
+      map['longitude'] = Variable<double>(longitude.value);
+    }
     return map;
   }
 
@@ -1413,7 +1559,10 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
           ..write('isVerified: $isVerified, ')
           ..write('responseTimeMinutes: $responseTimeMinutes, ')
           ..write('commune: $commune, ')
-          ..write('city: $city')
+          ..write('city: $city, ')
+          ..write('verifiedAt: $verifiedAt, ')
+          ..write('latitude: $latitude, ')
+          ..write('longitude: $longitude')
           ..write(')'))
         .toString();
   }
@@ -1483,8 +1632,50 @@ class $CategoriesTable extends Categories
     requiredDuringInsert: false,
     defaultValue: currentDateAndTime,
   );
+  static const VerificationMeta _parentIdMeta = const VerificationMeta(
+    'parentId',
+  );
   @override
-  List<GeneratedColumn> get $columns => [id, remoteId, name, icon, updatedAt];
+  late final GeneratedColumn<int> parentId = GeneratedColumn<int>(
+    'parent_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _levelMeta = const VerificationMeta('level');
+  @override
+  late final GeneratedColumn<int> level = GeneratedColumn<int>(
+    'level',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    remoteId,
+    name,
+    icon,
+    updatedAt,
+    parentId,
+    level,
+    sortOrder,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1526,6 +1717,24 @@ class $CategoriesTable extends Categories
         updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
       );
     }
+    if (data.containsKey('parent_id')) {
+      context.handle(
+        _parentIdMeta,
+        parentId.isAcceptableOrUnknown(data['parent_id']!, _parentIdMeta),
+      );
+    }
+    if (data.containsKey('level')) {
+      context.handle(
+        _levelMeta,
+        level.isAcceptableOrUnknown(data['level']!, _levelMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
     return context;
   }
 
@@ -1555,6 +1764,18 @@ class $CategoriesTable extends Categories
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
       )!,
+      parentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}parent_id'],
+      ),
+      level: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}level'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
     );
   }
 
@@ -1570,12 +1791,18 @@ class Category extends DataClass implements Insertable<Category> {
   final String name;
   final String? icon;
   final DateTime updatedAt;
+  final int? parentId;
+  final int level;
+  final int sortOrder;
   const Category({
     required this.id,
     this.remoteId,
     required this.name,
     this.icon,
     required this.updatedAt,
+    this.parentId,
+    required this.level,
+    required this.sortOrder,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1589,6 +1816,11 @@ class Category extends DataClass implements Insertable<Category> {
       map['icon'] = Variable<String>(icon);
     }
     map['updated_at'] = Variable<DateTime>(updatedAt);
+    if (!nullToAbsent || parentId != null) {
+      map['parent_id'] = Variable<int>(parentId);
+    }
+    map['level'] = Variable<int>(level);
+    map['sort_order'] = Variable<int>(sortOrder);
     return map;
   }
 
@@ -1601,6 +1833,11 @@ class Category extends DataClass implements Insertable<Category> {
       name: Value(name),
       icon: icon == null && nullToAbsent ? const Value.absent() : Value(icon),
       updatedAt: Value(updatedAt),
+      parentId: parentId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(parentId),
+      level: Value(level),
+      sortOrder: Value(sortOrder),
     );
   }
 
@@ -1615,6 +1852,9 @@ class Category extends DataClass implements Insertable<Category> {
       name: serializer.fromJson<String>(json['name']),
       icon: serializer.fromJson<String?>(json['icon']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      parentId: serializer.fromJson<int?>(json['parentId']),
+      level: serializer.fromJson<int>(json['level']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
     );
   }
   @override
@@ -1626,6 +1866,9 @@ class Category extends DataClass implements Insertable<Category> {
       'name': serializer.toJson<String>(name),
       'icon': serializer.toJson<String?>(icon),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'parentId': serializer.toJson<int?>(parentId),
+      'level': serializer.toJson<int>(level),
+      'sortOrder': serializer.toJson<int>(sortOrder),
     };
   }
 
@@ -1635,12 +1878,18 @@ class Category extends DataClass implements Insertable<Category> {
     String? name,
     Value<String?> icon = const Value.absent(),
     DateTime? updatedAt,
+    Value<int?> parentId = const Value.absent(),
+    int? level,
+    int? sortOrder,
   }) => Category(
     id: id ?? this.id,
     remoteId: remoteId.present ? remoteId.value : this.remoteId,
     name: name ?? this.name,
     icon: icon.present ? icon.value : this.icon,
     updatedAt: updatedAt ?? this.updatedAt,
+    parentId: parentId.present ? parentId.value : this.parentId,
+    level: level ?? this.level,
+    sortOrder: sortOrder ?? this.sortOrder,
   );
   Category copyWithCompanion(CategoriesCompanion data) {
     return Category(
@@ -1649,6 +1898,9 @@ class Category extends DataClass implements Insertable<Category> {
       name: data.name.present ? data.name.value : this.name,
       icon: data.icon.present ? data.icon.value : this.icon,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      parentId: data.parentId.present ? data.parentId.value : this.parentId,
+      level: data.level.present ? data.level.value : this.level,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
     );
   }
 
@@ -1659,13 +1911,25 @@ class Category extends DataClass implements Insertable<Category> {
           ..write('remoteId: $remoteId, ')
           ..write('name: $name, ')
           ..write('icon: $icon, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('parentId: $parentId, ')
+          ..write('level: $level, ')
+          ..write('sortOrder: $sortOrder')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, remoteId, name, icon, updatedAt);
+  int get hashCode => Object.hash(
+    id,
+    remoteId,
+    name,
+    icon,
+    updatedAt,
+    parentId,
+    level,
+    sortOrder,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1674,7 +1938,10 @@ class Category extends DataClass implements Insertable<Category> {
           other.remoteId == this.remoteId &&
           other.name == this.name &&
           other.icon == this.icon &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.parentId == this.parentId &&
+          other.level == this.level &&
+          other.sortOrder == this.sortOrder);
 }
 
 class CategoriesCompanion extends UpdateCompanion<Category> {
@@ -1683,12 +1950,18 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
   final Value<String> name;
   final Value<String?> icon;
   final Value<DateTime> updatedAt;
+  final Value<int?> parentId;
+  final Value<int> level;
+  final Value<int> sortOrder;
   const CategoriesCompanion({
     this.id = const Value.absent(),
     this.remoteId = const Value.absent(),
     this.name = const Value.absent(),
     this.icon = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.parentId = const Value.absent(),
+    this.level = const Value.absent(),
+    this.sortOrder = const Value.absent(),
   });
   CategoriesCompanion.insert({
     this.id = const Value.absent(),
@@ -1696,6 +1969,9 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     required String name,
     this.icon = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.parentId = const Value.absent(),
+    this.level = const Value.absent(),
+    this.sortOrder = const Value.absent(),
   }) : name = Value(name);
   static Insertable<Category> custom({
     Expression<int>? id,
@@ -1703,6 +1979,9 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     Expression<String>? name,
     Expression<String>? icon,
     Expression<DateTime>? updatedAt,
+    Expression<int>? parentId,
+    Expression<int>? level,
+    Expression<int>? sortOrder,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1710,6 +1989,9 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
       if (name != null) 'name': name,
       if (icon != null) 'icon': icon,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (parentId != null) 'parent_id': parentId,
+      if (level != null) 'level': level,
+      if (sortOrder != null) 'sort_order': sortOrder,
     });
   }
 
@@ -1719,6 +2001,9 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     Value<String>? name,
     Value<String?>? icon,
     Value<DateTime>? updatedAt,
+    Value<int?>? parentId,
+    Value<int>? level,
+    Value<int>? sortOrder,
   }) {
     return CategoriesCompanion(
       id: id ?? this.id,
@@ -1726,6 +2011,9 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
       name: name ?? this.name,
       icon: icon ?? this.icon,
       updatedAt: updatedAt ?? this.updatedAt,
+      parentId: parentId ?? this.parentId,
+      level: level ?? this.level,
+      sortOrder: sortOrder ?? this.sortOrder,
     );
   }
 
@@ -1747,6 +2035,15 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
+    if (parentId.present) {
+      map['parent_id'] = Variable<int>(parentId.value);
+    }
+    if (level.present) {
+      map['level'] = Variable<int>(level.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
     return map;
   }
 
@@ -1757,7 +2054,10 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
           ..write('remoteId: $remoteId, ')
           ..write('name: $name, ')
           ..write('icon: $icon, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('parentId: $parentId, ')
+          ..write('level: $level, ')
+          ..write('sortOrder: $sortOrder')
           ..write(')'))
         .toString();
   }
@@ -2079,6 +2379,17 @@ class $ProductsTable extends Products with TableInfo<$ProductsTable, Product> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _metadataMeta = const VerificationMeta(
+    'metadata',
+  );
+  @override
+  late final GeneratedColumn<String> metadata = GeneratedColumn<String>(
+    'metadata',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -2106,6 +2417,7 @@ class $ProductsTable extends Products with TableInfo<$ProductsTable, Product> {
     condition,
     reportCount,
     isSold,
+    metadata,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2293,6 +2605,12 @@ class $ProductsTable extends Products with TableInfo<$ProductsTable, Product> {
         isSold.isAcceptableOrUnknown(data['is_sold']!, _isSoldMeta),
       );
     }
+    if (data.containsKey('metadata')) {
+      context.handle(
+        _metadataMeta,
+        metadata.isAcceptableOrUnknown(data['metadata']!, _metadataMeta),
+      );
+    }
     return context;
   }
 
@@ -2402,6 +2720,10 @@ class $ProductsTable extends Products with TableInfo<$ProductsTable, Product> {
         DriftSqlType.bool,
         data['${effectivePrefix}is_sold'],
       )!,
+      metadata: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}metadata'],
+      ),
     );
   }
 
@@ -2437,6 +2759,7 @@ class Product extends DataClass implements Insertable<Product> {
   final String condition;
   final int reportCount;
   final bool isSold;
+  final String? metadata;
   const Product({
     required this.id,
     this.remoteId,
@@ -2463,6 +2786,7 @@ class Product extends DataClass implements Insertable<Product> {
     required this.condition,
     required this.reportCount,
     required this.isSold,
+    this.metadata,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2506,6 +2830,9 @@ class Product extends DataClass implements Insertable<Product> {
     map['condition'] = Variable<String>(condition);
     map['report_count'] = Variable<int>(reportCount);
     map['is_sold'] = Variable<bool>(isSold);
+    if (!nullToAbsent || metadata != null) {
+      map['metadata'] = Variable<String>(metadata);
+    }
     return map;
   }
 
@@ -2550,6 +2877,9 @@ class Product extends DataClass implements Insertable<Product> {
       condition: Value(condition),
       reportCount: Value(reportCount),
       isSold: Value(isSold),
+      metadata: metadata == null && nullToAbsent
+          ? const Value.absent()
+          : Value(metadata),
     );
   }
 
@@ -2584,6 +2914,7 @@ class Product extends DataClass implements Insertable<Product> {
       condition: serializer.fromJson<String>(json['condition']),
       reportCount: serializer.fromJson<int>(json['reportCount']),
       isSold: serializer.fromJson<bool>(json['isSold']),
+      metadata: serializer.fromJson<String?>(json['metadata']),
     );
   }
   @override
@@ -2615,6 +2946,7 @@ class Product extends DataClass implements Insertable<Product> {
       'condition': serializer.toJson<String>(condition),
       'reportCount': serializer.toJson<int>(reportCount),
       'isSold': serializer.toJson<bool>(isSold),
+      'metadata': serializer.toJson<String?>(metadata),
     };
   }
 
@@ -2644,6 +2976,7 @@ class Product extends DataClass implements Insertable<Product> {
     String? condition,
     int? reportCount,
     bool? isSold,
+    Value<String?> metadata = const Value.absent(),
   }) => Product(
     id: id ?? this.id,
     remoteId: remoteId.present ? remoteId.value : this.remoteId,
@@ -2672,6 +3005,7 @@ class Product extends DataClass implements Insertable<Product> {
     condition: condition ?? this.condition,
     reportCount: reportCount ?? this.reportCount,
     isSold: isSold ?? this.isSold,
+    metadata: metadata.present ? metadata.value : this.metadata,
   );
   Product copyWithCompanion(ProductsCompanion data) {
     return Product(
@@ -2720,6 +3054,7 @@ class Product extends DataClass implements Insertable<Product> {
           ? data.reportCount.value
           : this.reportCount,
       isSold: data.isSold.present ? data.isSold.value : this.isSold,
+      metadata: data.metadata.present ? data.metadata.value : this.metadata,
     );
   }
 
@@ -2750,7 +3085,8 @@ class Product extends DataClass implements Insertable<Product> {
           ..write('boostStatus: $boostStatus, ')
           ..write('condition: $condition, ')
           ..write('reportCount: $reportCount, ')
-          ..write('isSold: $isSold')
+          ..write('isSold: $isSold, ')
+          ..write('metadata: $metadata')
           ..write(')'))
         .toString();
   }
@@ -2782,6 +3118,7 @@ class Product extends DataClass implements Insertable<Product> {
     condition,
     reportCount,
     isSold,
+    metadata,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -2811,7 +3148,8 @@ class Product extends DataClass implements Insertable<Product> {
           other.boostStatus == this.boostStatus &&
           other.condition == this.condition &&
           other.reportCount == this.reportCount &&
-          other.isSold == this.isSold);
+          other.isSold == this.isSold &&
+          other.metadata == this.metadata);
 }
 
 class ProductsCompanion extends UpdateCompanion<Product> {
@@ -2840,6 +3178,7 @@ class ProductsCompanion extends UpdateCompanion<Product> {
   final Value<String> condition;
   final Value<int> reportCount;
   final Value<bool> isSold;
+  final Value<String?> metadata;
   const ProductsCompanion({
     this.id = const Value.absent(),
     this.remoteId = const Value.absent(),
@@ -2866,6 +3205,7 @@ class ProductsCompanion extends UpdateCompanion<Product> {
     this.condition = const Value.absent(),
     this.reportCount = const Value.absent(),
     this.isSold = const Value.absent(),
+    this.metadata = const Value.absent(),
   });
   ProductsCompanion.insert({
     this.id = const Value.absent(),
@@ -2893,6 +3233,7 @@ class ProductsCompanion extends UpdateCompanion<Product> {
     this.condition = const Value.absent(),
     this.reportCount = const Value.absent(),
     this.isSold = const Value.absent(),
+    this.metadata = const Value.absent(),
   }) : shopId = Value(shopId),
        name = Value(name),
        imageUrls = Value(imageUrls);
@@ -2922,6 +3263,7 @@ class ProductsCompanion extends UpdateCompanion<Product> {
     Expression<String>? condition,
     Expression<int>? reportCount,
     Expression<bool>? isSold,
+    Expression<String>? metadata,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -2949,6 +3291,7 @@ class ProductsCompanion extends UpdateCompanion<Product> {
       if (condition != null) 'condition': condition,
       if (reportCount != null) 'report_count': reportCount,
       if (isSold != null) 'is_sold': isSold,
+      if (metadata != null) 'metadata': metadata,
     });
   }
 
@@ -2978,6 +3321,7 @@ class ProductsCompanion extends UpdateCompanion<Product> {
     Value<String>? condition,
     Value<int>? reportCount,
     Value<bool>? isSold,
+    Value<String?>? metadata,
   }) {
     return ProductsCompanion(
       id: id ?? this.id,
@@ -3005,6 +3349,7 @@ class ProductsCompanion extends UpdateCompanion<Product> {
       condition: condition ?? this.condition,
       reportCount: reportCount ?? this.reportCount,
       isSold: isSold ?? this.isSold,
+      metadata: metadata ?? this.metadata,
     );
   }
 
@@ -3086,6 +3431,9 @@ class ProductsCompanion extends UpdateCompanion<Product> {
     if (isSold.present) {
       map['is_sold'] = Variable<bool>(isSold.value);
     }
+    if (metadata.present) {
+      map['metadata'] = Variable<String>(metadata.value);
+    }
     return map;
   }
 
@@ -3116,7 +3464,8 @@ class ProductsCompanion extends UpdateCompanion<Product> {
           ..write('boostStatus: $boostStatus, ')
           ..write('condition: $condition, ')
           ..write('reportCount: $reportCount, ')
-          ..write('isSold: $isSold')
+          ..write('isSold: $isSold, ')
+          ..write('metadata: $metadata')
           ..write(')'))
         .toString();
   }
@@ -3185,6 +3534,21 @@ class $StoriesTable extends Stories with TableInfo<$StoriesTable, Story> {
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _isArrivageMeta = const VerificationMeta(
+    'isArrivage',
+  );
+  @override
+  late final GeneratedColumn<bool> isArrivage = GeneratedColumn<bool>(
+    'is_arrivage',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_arrivage" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _expiresAtMeta = const VerificationMeta(
     'expiresAt',
   );
@@ -3215,6 +3579,7 @@ class $StoriesTable extends Stories with TableInfo<$StoriesTable, Story> {
     shopId,
     mediaUrl,
     mediaType,
+    isArrivage,
     expiresAt,
     createdAt,
   ];
@@ -3263,6 +3628,12 @@ class $StoriesTable extends Stories with TableInfo<$StoriesTable, Story> {
     } else if (isInserting) {
       context.missing(_mediaTypeMeta);
     }
+    if (data.containsKey('is_arrivage')) {
+      context.handle(
+        _isArrivageMeta,
+        isArrivage.isAcceptableOrUnknown(data['is_arrivage']!, _isArrivageMeta),
+      );
+    }
     if (data.containsKey('expires_at')) {
       context.handle(
         _expiresAtMeta,
@@ -3306,6 +3677,10 @@ class $StoriesTable extends Stories with TableInfo<$StoriesTable, Story> {
         DriftSqlType.string,
         data['${effectivePrefix}media_type'],
       )!,
+      isArrivage: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_arrivage'],
+      )!,
       expiresAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}expires_at'],
@@ -3329,6 +3704,7 @@ class Story extends DataClass implements Insertable<Story> {
   final int shopId;
   final String mediaUrl;
   final String mediaType;
+  final bool isArrivage;
   final DateTime expiresAt;
   final DateTime createdAt;
   const Story({
@@ -3337,6 +3713,7 @@ class Story extends DataClass implements Insertable<Story> {
     required this.shopId,
     required this.mediaUrl,
     required this.mediaType,
+    required this.isArrivage,
     required this.expiresAt,
     required this.createdAt,
   });
@@ -3350,6 +3727,7 @@ class Story extends DataClass implements Insertable<Story> {
     map['shop_id'] = Variable<int>(shopId);
     map['media_url'] = Variable<String>(mediaUrl);
     map['media_type'] = Variable<String>(mediaType);
+    map['is_arrivage'] = Variable<bool>(isArrivage);
     map['expires_at'] = Variable<DateTime>(expiresAt);
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
@@ -3364,6 +3742,7 @@ class Story extends DataClass implements Insertable<Story> {
       shopId: Value(shopId),
       mediaUrl: Value(mediaUrl),
       mediaType: Value(mediaType),
+      isArrivage: Value(isArrivage),
       expiresAt: Value(expiresAt),
       createdAt: Value(createdAt),
     );
@@ -3380,6 +3759,7 @@ class Story extends DataClass implements Insertable<Story> {
       shopId: serializer.fromJson<int>(json['shopId']),
       mediaUrl: serializer.fromJson<String>(json['mediaUrl']),
       mediaType: serializer.fromJson<String>(json['mediaType']),
+      isArrivage: serializer.fromJson<bool>(json['isArrivage']),
       expiresAt: serializer.fromJson<DateTime>(json['expiresAt']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
@@ -3393,6 +3773,7 @@ class Story extends DataClass implements Insertable<Story> {
       'shopId': serializer.toJson<int>(shopId),
       'mediaUrl': serializer.toJson<String>(mediaUrl),
       'mediaType': serializer.toJson<String>(mediaType),
+      'isArrivage': serializer.toJson<bool>(isArrivage),
       'expiresAt': serializer.toJson<DateTime>(expiresAt),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
@@ -3404,6 +3785,7 @@ class Story extends DataClass implements Insertable<Story> {
     int? shopId,
     String? mediaUrl,
     String? mediaType,
+    bool? isArrivage,
     DateTime? expiresAt,
     DateTime? createdAt,
   }) => Story(
@@ -3412,6 +3794,7 @@ class Story extends DataClass implements Insertable<Story> {
     shopId: shopId ?? this.shopId,
     mediaUrl: mediaUrl ?? this.mediaUrl,
     mediaType: mediaType ?? this.mediaType,
+    isArrivage: isArrivage ?? this.isArrivage,
     expiresAt: expiresAt ?? this.expiresAt,
     createdAt: createdAt ?? this.createdAt,
   );
@@ -3422,6 +3805,9 @@ class Story extends DataClass implements Insertable<Story> {
       shopId: data.shopId.present ? data.shopId.value : this.shopId,
       mediaUrl: data.mediaUrl.present ? data.mediaUrl.value : this.mediaUrl,
       mediaType: data.mediaType.present ? data.mediaType.value : this.mediaType,
+      isArrivage: data.isArrivage.present
+          ? data.isArrivage.value
+          : this.isArrivage,
       expiresAt: data.expiresAt.present ? data.expiresAt.value : this.expiresAt,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
@@ -3435,6 +3821,7 @@ class Story extends DataClass implements Insertable<Story> {
           ..write('shopId: $shopId, ')
           ..write('mediaUrl: $mediaUrl, ')
           ..write('mediaType: $mediaType, ')
+          ..write('isArrivage: $isArrivage, ')
           ..write('expiresAt: $expiresAt, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
@@ -3448,6 +3835,7 @@ class Story extends DataClass implements Insertable<Story> {
     shopId,
     mediaUrl,
     mediaType,
+    isArrivage,
     expiresAt,
     createdAt,
   );
@@ -3460,6 +3848,7 @@ class Story extends DataClass implements Insertable<Story> {
           other.shopId == this.shopId &&
           other.mediaUrl == this.mediaUrl &&
           other.mediaType == this.mediaType &&
+          other.isArrivage == this.isArrivage &&
           other.expiresAt == this.expiresAt &&
           other.createdAt == this.createdAt);
 }
@@ -3470,6 +3859,7 @@ class StoriesCompanion extends UpdateCompanion<Story> {
   final Value<int> shopId;
   final Value<String> mediaUrl;
   final Value<String> mediaType;
+  final Value<bool> isArrivage;
   final Value<DateTime> expiresAt;
   final Value<DateTime> createdAt;
   const StoriesCompanion({
@@ -3478,6 +3868,7 @@ class StoriesCompanion extends UpdateCompanion<Story> {
     this.shopId = const Value.absent(),
     this.mediaUrl = const Value.absent(),
     this.mediaType = const Value.absent(),
+    this.isArrivage = const Value.absent(),
     this.expiresAt = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
@@ -3487,6 +3878,7 @@ class StoriesCompanion extends UpdateCompanion<Story> {
     required int shopId,
     required String mediaUrl,
     required String mediaType,
+    this.isArrivage = const Value.absent(),
     required DateTime expiresAt,
     this.createdAt = const Value.absent(),
   }) : shopId = Value(shopId),
@@ -3499,6 +3891,7 @@ class StoriesCompanion extends UpdateCompanion<Story> {
     Expression<int>? shopId,
     Expression<String>? mediaUrl,
     Expression<String>? mediaType,
+    Expression<bool>? isArrivage,
     Expression<DateTime>? expiresAt,
     Expression<DateTime>? createdAt,
   }) {
@@ -3508,6 +3901,7 @@ class StoriesCompanion extends UpdateCompanion<Story> {
       if (shopId != null) 'shop_id': shopId,
       if (mediaUrl != null) 'media_url': mediaUrl,
       if (mediaType != null) 'media_type': mediaType,
+      if (isArrivage != null) 'is_arrivage': isArrivage,
       if (expiresAt != null) 'expires_at': expiresAt,
       if (createdAt != null) 'created_at': createdAt,
     });
@@ -3519,6 +3913,7 @@ class StoriesCompanion extends UpdateCompanion<Story> {
     Value<int>? shopId,
     Value<String>? mediaUrl,
     Value<String>? mediaType,
+    Value<bool>? isArrivage,
     Value<DateTime>? expiresAt,
     Value<DateTime>? createdAt,
   }) {
@@ -3528,6 +3923,7 @@ class StoriesCompanion extends UpdateCompanion<Story> {
       shopId: shopId ?? this.shopId,
       mediaUrl: mediaUrl ?? this.mediaUrl,
       mediaType: mediaType ?? this.mediaType,
+      isArrivage: isArrivage ?? this.isArrivage,
       expiresAt: expiresAt ?? this.expiresAt,
       createdAt: createdAt ?? this.createdAt,
     );
@@ -3551,6 +3947,9 @@ class StoriesCompanion extends UpdateCompanion<Story> {
     if (mediaType.present) {
       map['media_type'] = Variable<String>(mediaType.value);
     }
+    if (isArrivage.present) {
+      map['is_arrivage'] = Variable<bool>(isArrivage.value);
+    }
     if (expiresAt.present) {
       map['expires_at'] = Variable<DateTime>(expiresAt.value);
     }
@@ -3568,6 +3967,7 @@ class StoriesCompanion extends UpdateCompanion<Story> {
           ..write('shopId: $shopId, ')
           ..write('mediaUrl: $mediaUrl, ')
           ..write('mediaType: $mediaType, ')
+          ..write('isArrivage: $isArrivage, ')
           ..write('expiresAt: $expiresAt, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
@@ -7555,6 +7955,403 @@ class ProductReviewsCompanion extends UpdateCompanion<ProductReview> {
   }
 }
 
+class $StoryMediaTable extends StoryMedia
+    with TableInfo<$StoryMediaTable, StoryMediaData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $StoryMediaTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _storyIdMeta = const VerificationMeta(
+    'storyId',
+  );
+  @override
+  late final GeneratedColumn<int> storyId = GeneratedColumn<int>(
+    'story_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES stories (id)',
+    ),
+  );
+  static const VerificationMeta _mediaUrlMeta = const VerificationMeta(
+    'mediaUrl',
+  );
+  @override
+  late final GeneratedColumn<String> mediaUrl = GeneratedColumn<String>(
+    'media_url',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _mediaTypeMeta = const VerificationMeta(
+    'mediaType',
+  );
+  @override
+  late final GeneratedColumn<String> mediaType = GeneratedColumn<String>(
+    'media_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('image'),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    storyId,
+    mediaUrl,
+    mediaType,
+    sortOrder,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'story_media';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<StoryMediaData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('story_id')) {
+      context.handle(
+        _storyIdMeta,
+        storyId.isAcceptableOrUnknown(data['story_id']!, _storyIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_storyIdMeta);
+    }
+    if (data.containsKey('media_url')) {
+      context.handle(
+        _mediaUrlMeta,
+        mediaUrl.isAcceptableOrUnknown(data['media_url']!, _mediaUrlMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_mediaUrlMeta);
+    }
+    if (data.containsKey('media_type')) {
+      context.handle(
+        _mediaTypeMeta,
+        mediaType.isAcceptableOrUnknown(data['media_type']!, _mediaTypeMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  StoryMediaData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return StoryMediaData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      storyId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}story_id'],
+      )!,
+      mediaUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}media_url'],
+      )!,
+      mediaType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}media_type'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $StoryMediaTable createAlias(String alias) {
+    return $StoryMediaTable(attachedDatabase, alias);
+  }
+}
+
+class StoryMediaData extends DataClass implements Insertable<StoryMediaData> {
+  final int id;
+  final int storyId;
+  final String mediaUrl;
+  final String mediaType;
+  final int sortOrder;
+  final DateTime createdAt;
+  const StoryMediaData({
+    required this.id,
+    required this.storyId,
+    required this.mediaUrl,
+    required this.mediaType,
+    required this.sortOrder,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['story_id'] = Variable<int>(storyId);
+    map['media_url'] = Variable<String>(mediaUrl);
+    map['media_type'] = Variable<String>(mediaType);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  StoryMediaCompanion toCompanion(bool nullToAbsent) {
+    return StoryMediaCompanion(
+      id: Value(id),
+      storyId: Value(storyId),
+      mediaUrl: Value(mediaUrl),
+      mediaType: Value(mediaType),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory StoryMediaData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return StoryMediaData(
+      id: serializer.fromJson<int>(json['id']),
+      storyId: serializer.fromJson<int>(json['storyId']),
+      mediaUrl: serializer.fromJson<String>(json['mediaUrl']),
+      mediaType: serializer.fromJson<String>(json['mediaType']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'storyId': serializer.toJson<int>(storyId),
+      'mediaUrl': serializer.toJson<String>(mediaUrl),
+      'mediaType': serializer.toJson<String>(mediaType),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  StoryMediaData copyWith({
+    int? id,
+    int? storyId,
+    String? mediaUrl,
+    String? mediaType,
+    int? sortOrder,
+    DateTime? createdAt,
+  }) => StoryMediaData(
+    id: id ?? this.id,
+    storyId: storyId ?? this.storyId,
+    mediaUrl: mediaUrl ?? this.mediaUrl,
+    mediaType: mediaType ?? this.mediaType,
+    sortOrder: sortOrder ?? this.sortOrder,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  StoryMediaData copyWithCompanion(StoryMediaCompanion data) {
+    return StoryMediaData(
+      id: data.id.present ? data.id.value : this.id,
+      storyId: data.storyId.present ? data.storyId.value : this.storyId,
+      mediaUrl: data.mediaUrl.present ? data.mediaUrl.value : this.mediaUrl,
+      mediaType: data.mediaType.present ? data.mediaType.value : this.mediaType,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('StoryMediaData(')
+          ..write('id: $id, ')
+          ..write('storyId: $storyId, ')
+          ..write('mediaUrl: $mediaUrl, ')
+          ..write('mediaType: $mediaType, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, storyId, mediaUrl, mediaType, sortOrder, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is StoryMediaData &&
+          other.id == this.id &&
+          other.storyId == this.storyId &&
+          other.mediaUrl == this.mediaUrl &&
+          other.mediaType == this.mediaType &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt);
+}
+
+class StoryMediaCompanion extends UpdateCompanion<StoryMediaData> {
+  final Value<int> id;
+  final Value<int> storyId;
+  final Value<String> mediaUrl;
+  final Value<String> mediaType;
+  final Value<int> sortOrder;
+  final Value<DateTime> createdAt;
+  const StoryMediaCompanion({
+    this.id = const Value.absent(),
+    this.storyId = const Value.absent(),
+    this.mediaUrl = const Value.absent(),
+    this.mediaType = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  StoryMediaCompanion.insert({
+    this.id = const Value.absent(),
+    required int storyId,
+    required String mediaUrl,
+    this.mediaType = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  }) : storyId = Value(storyId),
+       mediaUrl = Value(mediaUrl);
+  static Insertable<StoryMediaData> custom({
+    Expression<int>? id,
+    Expression<int>? storyId,
+    Expression<String>? mediaUrl,
+    Expression<String>? mediaType,
+    Expression<int>? sortOrder,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (storyId != null) 'story_id': storyId,
+      if (mediaUrl != null) 'media_url': mediaUrl,
+      if (mediaType != null) 'media_type': mediaType,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  StoryMediaCompanion copyWith({
+    Value<int>? id,
+    Value<int>? storyId,
+    Value<String>? mediaUrl,
+    Value<String>? mediaType,
+    Value<int>? sortOrder,
+    Value<DateTime>? createdAt,
+  }) {
+    return StoryMediaCompanion(
+      id: id ?? this.id,
+      storyId: storyId ?? this.storyId,
+      mediaUrl: mediaUrl ?? this.mediaUrl,
+      mediaType: mediaType ?? this.mediaType,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (storyId.present) {
+      map['story_id'] = Variable<int>(storyId.value);
+    }
+    if (mediaUrl.present) {
+      map['media_url'] = Variable<String>(mediaUrl.value);
+    }
+    if (mediaType.present) {
+      map['media_type'] = Variable<String>(mediaType.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('StoryMediaCompanion(')
+          ..write('id: $id, ')
+          ..write('storyId: $storyId, ')
+          ..write('mediaUrl: $mediaUrl, ')
+          ..write('mediaType: $mediaType, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$UzaDatabase extends GeneratedDatabase {
   _$UzaDatabase(QueryExecutor e) : super(e);
   $UzaDatabaseManager get managers => $UzaDatabaseManager(this);
@@ -7574,6 +8371,7 @@ abstract class _$UzaDatabase extends GeneratedDatabase {
   );
   late final $FollowedShopsTable followedShops = $FollowedShopsTable(this);
   late final $ProductReviewsTable productReviews = $ProductReviewsTable(this);
+  late final $StoryMediaTable storyMedia = $StoryMediaTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -7593,6 +8391,7 @@ abstract class _$UzaDatabase extends GeneratedDatabase {
     wishlistProducts,
     followedShops,
     productReviews,
+    storyMedia,
   ];
 }
 
@@ -7624,6 +8423,9 @@ typedef $$ShopsTableCreateCompanionBuilder =
       Value<int?> responseTimeMinutes,
       Value<String?> commune,
       Value<String?> city,
+      Value<DateTime?> verifiedAt,
+      Value<double?> latitude,
+      Value<double?> longitude,
     });
 typedef $$ShopsTableUpdateCompanionBuilder =
     ShopsCompanion Function({
@@ -7653,6 +8455,9 @@ typedef $$ShopsTableUpdateCompanionBuilder =
       Value<int?> responseTimeMinutes,
       Value<String?> commune,
       Value<String?> city,
+      Value<DateTime?> verifiedAt,
+      Value<double?> latitude,
+      Value<double?> longitude,
     });
 
 final class $$ShopsTableReferences
@@ -7870,6 +8675,21 @@ class $$ShopsTableFilterComposer extends Composer<_$UzaDatabase, $ShopsTable> {
 
   ColumnFilters<String> get city => $composableBuilder(
     column: $table.city,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get verifiedAt => $composableBuilder(
+    column: $table.verifiedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get latitude => $composableBuilder(
+    column: $table.latitude,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get longitude => $composableBuilder(
+    column: $table.longitude,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8112,6 +8932,21 @@ class $$ShopsTableOrderingComposer
     column: $table.city,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<DateTime> get verifiedAt => $composableBuilder(
+    column: $table.verifiedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get latitude => $composableBuilder(
+    column: $table.latitude,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get longitude => $composableBuilder(
+    column: $table.longitude,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ShopsTableAnnotationComposer
@@ -8218,6 +9053,17 @@ class $$ShopsTableAnnotationComposer
 
   GeneratedColumn<String> get city =>
       $composableBuilder(column: $table.city, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get verifiedAt => $composableBuilder(
+    column: $table.verifiedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get latitude =>
+      $composableBuilder(column: $table.latitude, builder: (column) => column);
+
+  GeneratedColumn<double> get longitude =>
+      $composableBuilder(column: $table.longitude, builder: (column) => column);
 
   Expression<T> productsRefs<T extends Object>(
     Expression<T> Function($$ProductsTableAnnotationComposer a) f,
@@ -8379,6 +9225,9 @@ class $$ShopsTableTableManager
                 Value<int?> responseTimeMinutes = const Value.absent(),
                 Value<String?> commune = const Value.absent(),
                 Value<String?> city = const Value.absent(),
+                Value<DateTime?> verifiedAt = const Value.absent(),
+                Value<double?> latitude = const Value.absent(),
+                Value<double?> longitude = const Value.absent(),
               }) => ShopsCompanion(
                 id: id,
                 remoteId: remoteId,
@@ -8406,6 +9255,9 @@ class $$ShopsTableTableManager
                 responseTimeMinutes: responseTimeMinutes,
                 commune: commune,
                 city: city,
+                verifiedAt: verifiedAt,
+                latitude: latitude,
+                longitude: longitude,
               ),
           createCompanionCallback:
               ({
@@ -8435,6 +9287,9 @@ class $$ShopsTableTableManager
                 Value<int?> responseTimeMinutes = const Value.absent(),
                 Value<String?> commune = const Value.absent(),
                 Value<String?> city = const Value.absent(),
+                Value<DateTime?> verifiedAt = const Value.absent(),
+                Value<double?> latitude = const Value.absent(),
+                Value<double?> longitude = const Value.absent(),
               }) => ShopsCompanion.insert(
                 id: id,
                 remoteId: remoteId,
@@ -8462,6 +9317,9 @@ class $$ShopsTableTableManager
                 responseTimeMinutes: responseTimeMinutes,
                 commune: commune,
                 city: city,
+                verifiedAt: verifiedAt,
+                latitude: latitude,
+                longitude: longitude,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -8593,6 +9451,9 @@ typedef $$CategoriesTableCreateCompanionBuilder =
       required String name,
       Value<String?> icon,
       Value<DateTime> updatedAt,
+      Value<int?> parentId,
+      Value<int> level,
+      Value<int> sortOrder,
     });
 typedef $$CategoriesTableUpdateCompanionBuilder =
     CategoriesCompanion Function({
@@ -8601,6 +9462,9 @@ typedef $$CategoriesTableUpdateCompanionBuilder =
       Value<String> name,
       Value<String?> icon,
       Value<DateTime> updatedAt,
+      Value<int?> parentId,
+      Value<int> level,
+      Value<int> sortOrder,
     });
 
 final class $$CategoriesTableReferences
@@ -8658,6 +9522,21 @@ class $$CategoriesTableFilterComposer
 
   ColumnFilters<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get parentId => $composableBuilder(
+    column: $table.parentId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get level => $composableBuilder(
+    column: $table.level,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8720,6 +9599,21 @@ class $$CategoriesTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get parentId => $composableBuilder(
+    column: $table.parentId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get level => $composableBuilder(
+    column: $table.level,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CategoriesTableAnnotationComposer
@@ -8745,6 +9639,15 @@ class $$CategoriesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get parentId =>
+      $composableBuilder(column: $table.parentId, builder: (column) => column);
+
+  GeneratedColumn<int> get level =>
+      $composableBuilder(column: $table.level, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
 
   Expression<T> productsRefs<T extends Object>(
     Expression<T> Function($$ProductsTableAnnotationComposer a) f,
@@ -8805,12 +9708,18 @@ class $$CategoriesTableTableManager
                 Value<String> name = const Value.absent(),
                 Value<String?> icon = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
+                Value<int?> parentId = const Value.absent(),
+                Value<int> level = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
               }) => CategoriesCompanion(
                 id: id,
                 remoteId: remoteId,
                 name: name,
                 icon: icon,
                 updatedAt: updatedAt,
+                parentId: parentId,
+                level: level,
+                sortOrder: sortOrder,
               ),
           createCompanionCallback:
               ({
@@ -8819,12 +9728,18 @@ class $$CategoriesTableTableManager
                 required String name,
                 Value<String?> icon = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
+                Value<int?> parentId = const Value.absent(),
+                Value<int> level = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
               }) => CategoriesCompanion.insert(
                 id: id,
                 remoteId: remoteId,
                 name: name,
                 icon: icon,
                 updatedAt: updatedAt,
+                parentId: parentId,
+                level: level,
+                sortOrder: sortOrder,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -8909,6 +9824,7 @@ typedef $$ProductsTableCreateCompanionBuilder =
       Value<String> condition,
       Value<int> reportCount,
       Value<bool> isSold,
+      Value<String?> metadata,
     });
 typedef $$ProductsTableUpdateCompanionBuilder =
     ProductsCompanion Function({
@@ -8937,6 +9853,7 @@ typedef $$ProductsTableUpdateCompanionBuilder =
       Value<String> condition,
       Value<int> reportCount,
       Value<bool> isSold,
+      Value<String?> metadata,
     });
 
 final class $$ProductsTableReferences
@@ -9182,6 +10099,11 @@ class $$ProductsTableFilterComposer
 
   ColumnFilters<bool> get isSold => $composableBuilder(
     column: $table.isSold,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get metadata => $composableBuilder(
+    column: $table.metadata,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9456,6 +10378,11 @@ class $$ProductsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get metadata => $composableBuilder(
+    column: $table.metadata,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$ShopsTableOrderingComposer get shopId {
     final $$ShopsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -9598,6 +10525,9 @@ class $$ProductsTableAnnotationComposer
 
   GeneratedColumn<bool> get isSold =>
       $composableBuilder(column: $table.isSold, builder: (column) => column);
+
+  GeneratedColumn<String> get metadata =>
+      $composableBuilder(column: $table.metadata, builder: (column) => column);
 
   $$ShopsTableAnnotationComposer get shopId {
     final $$ShopsTableAnnotationComposer composer = $composerBuilder(
@@ -9806,6 +10736,7 @@ class $$ProductsTableTableManager
                 Value<String> condition = const Value.absent(),
                 Value<int> reportCount = const Value.absent(),
                 Value<bool> isSold = const Value.absent(),
+                Value<String?> metadata = const Value.absent(),
               }) => ProductsCompanion(
                 id: id,
                 remoteId: remoteId,
@@ -9832,6 +10763,7 @@ class $$ProductsTableTableManager
                 condition: condition,
                 reportCount: reportCount,
                 isSold: isSold,
+                metadata: metadata,
               ),
           createCompanionCallback:
               ({
@@ -9860,6 +10792,7 @@ class $$ProductsTableTableManager
                 Value<String> condition = const Value.absent(),
                 Value<int> reportCount = const Value.absent(),
                 Value<bool> isSold = const Value.absent(),
+                Value<String?> metadata = const Value.absent(),
               }) => ProductsCompanion.insert(
                 id: id,
                 remoteId: remoteId,
@@ -9886,6 +10819,7 @@ class $$ProductsTableTableManager
                 condition: condition,
                 reportCount: reportCount,
                 isSold: isSold,
+                metadata: metadata,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -10079,6 +11013,7 @@ typedef $$StoriesTableCreateCompanionBuilder =
       required int shopId,
       required String mediaUrl,
       required String mediaType,
+      Value<bool> isArrivage,
       required DateTime expiresAt,
       Value<DateTime> createdAt,
     });
@@ -10089,6 +11024,7 @@ typedef $$StoriesTableUpdateCompanionBuilder =
       Value<int> shopId,
       Value<String> mediaUrl,
       Value<String> mediaType,
+      Value<bool> isArrivage,
       Value<DateTime> expiresAt,
       Value<DateTime> createdAt,
     });
@@ -10112,6 +11048,24 @@ final class $$StoriesTableReferences
     if (item == null) return manager;
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<$StoryMediaTable, List<StoryMediaData>>
+  _storyMediaRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
+    db.storyMedia,
+    aliasName: $_aliasNameGenerator(db.stories.id, db.storyMedia.storyId),
+  );
+
+  $$StoryMediaTableProcessedTableManager get storyMediaRefs {
+    final manager = $$StoryMediaTableTableManager(
+      $_db,
+      $_db.storyMedia,
+    ).filter((f) => f.storyId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_storyMediaRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
     );
   }
 }
@@ -10142,6 +11096,11 @@ class $$StoriesTableFilterComposer
 
   ColumnFilters<String> get mediaType => $composableBuilder(
     column: $table.mediaType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isArrivage => $composableBuilder(
+    column: $table.isArrivage,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10177,6 +11136,31 @@ class $$StoriesTableFilterComposer
     );
     return composer;
   }
+
+  Expression<bool> storyMediaRefs(
+    Expression<bool> Function($$StoryMediaTableFilterComposer f) f,
+  ) {
+    final $$StoryMediaTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.storyMedia,
+      getReferencedColumn: (t) => t.storyId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StoryMediaTableFilterComposer(
+            $db: $db,
+            $table: $db.storyMedia,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$StoriesTableOrderingComposer
@@ -10205,6 +11189,11 @@ class $$StoriesTableOrderingComposer
 
   ColumnOrderings<String> get mediaType => $composableBuilder(
     column: $table.mediaType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isArrivage => $composableBuilder(
+    column: $table.isArrivage,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -10263,6 +11252,11 @@ class $$StoriesTableAnnotationComposer
   GeneratedColumn<String> get mediaType =>
       $composableBuilder(column: $table.mediaType, builder: (column) => column);
 
+  GeneratedColumn<bool> get isArrivage => $composableBuilder(
+    column: $table.isArrivage,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get expiresAt =>
       $composableBuilder(column: $table.expiresAt, builder: (column) => column);
 
@@ -10291,6 +11285,31 @@ class $$StoriesTableAnnotationComposer
     );
     return composer;
   }
+
+  Expression<T> storyMediaRefs<T extends Object>(
+    Expression<T> Function($$StoryMediaTableAnnotationComposer a) f,
+  ) {
+    final $$StoryMediaTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.storyMedia,
+      getReferencedColumn: (t) => t.storyId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StoryMediaTableAnnotationComposer(
+            $db: $db,
+            $table: $db.storyMedia,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$StoriesTableTableManager
@@ -10306,7 +11325,7 @@ class $$StoriesTableTableManager
           $$StoriesTableUpdateCompanionBuilder,
           (Story, $$StoriesTableReferences),
           Story,
-          PrefetchHooks Function({bool shopId})
+          PrefetchHooks Function({bool shopId, bool storyMediaRefs})
         > {
   $$StoriesTableTableManager(_$UzaDatabase db, $StoriesTable table)
     : super(
@@ -10326,6 +11345,7 @@ class $$StoriesTableTableManager
                 Value<int> shopId = const Value.absent(),
                 Value<String> mediaUrl = const Value.absent(),
                 Value<String> mediaType = const Value.absent(),
+                Value<bool> isArrivage = const Value.absent(),
                 Value<DateTime> expiresAt = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => StoriesCompanion(
@@ -10334,6 +11354,7 @@ class $$StoriesTableTableManager
                 shopId: shopId,
                 mediaUrl: mediaUrl,
                 mediaType: mediaType,
+                isArrivage: isArrivage,
                 expiresAt: expiresAt,
                 createdAt: createdAt,
               ),
@@ -10344,6 +11365,7 @@ class $$StoriesTableTableManager
                 required int shopId,
                 required String mediaUrl,
                 required String mediaType,
+                Value<bool> isArrivage = const Value.absent(),
                 required DateTime expiresAt,
                 Value<DateTime> createdAt = const Value.absent(),
               }) => StoriesCompanion.insert(
@@ -10352,6 +11374,7 @@ class $$StoriesTableTableManager
                 shopId: shopId,
                 mediaUrl: mediaUrl,
                 mediaType: mediaType,
+                isArrivage: isArrivage,
                 expiresAt: expiresAt,
                 createdAt: createdAt,
               ),
@@ -10363,10 +11386,10 @@ class $$StoriesTableTableManager
                 ),
               )
               .toList(),
-          prefetchHooksCallback: ({shopId = false}) {
+          prefetchHooksCallback: ({shopId = false, storyMediaRefs = false}) {
             return PrefetchHooks(
               db: db,
-              explicitlyWatchedTables: [],
+              explicitlyWatchedTables: [if (storyMediaRefs) db.storyMedia],
               addJoins:
                   <
                     T extends TableManagerState<
@@ -10400,7 +11423,26 @@ class $$StoriesTableTableManager
                     return state;
                   },
               getPrefetchedDataCallback: (items) async {
-                return [];
+                return [
+                  if (storyMediaRefs)
+                    await $_getPrefetchedData<
+                      Story,
+                      $StoriesTable,
+                      StoryMediaData
+                    >(
+                      currentTable: table,
+                      referencedTable: $$StoriesTableReferences
+                          ._storyMediaRefsTable(db),
+                      managerFromTypedResult: (p0) => $$StoriesTableReferences(
+                        db,
+                        table,
+                        p0,
+                      ).storyMediaRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.storyId == item.id),
+                      typedResults: items,
+                    ),
+                ];
               },
             );
           },
@@ -10420,7 +11462,7 @@ typedef $$StoriesTableProcessedTableManager =
       $$StoriesTableUpdateCompanionBuilder,
       (Story, $$StoriesTableReferences),
       Story,
-      PrefetchHooks Function({bool shopId})
+      PrefetchHooks Function({bool shopId, bool storyMediaRefs})
     >;
 typedef $$SyncQueueTableCreateCompanionBuilder =
     SyncQueueCompanion Function({
@@ -13247,6 +14289,336 @@ typedef $$ProductReviewsTableProcessedTableManager =
       ProductReview,
       PrefetchHooks Function({bool productId})
     >;
+typedef $$StoryMediaTableCreateCompanionBuilder =
+    StoryMediaCompanion Function({
+      Value<int> id,
+      required int storyId,
+      required String mediaUrl,
+      Value<String> mediaType,
+      Value<int> sortOrder,
+      Value<DateTime> createdAt,
+    });
+typedef $$StoryMediaTableUpdateCompanionBuilder =
+    StoryMediaCompanion Function({
+      Value<int> id,
+      Value<int> storyId,
+      Value<String> mediaUrl,
+      Value<String> mediaType,
+      Value<int> sortOrder,
+      Value<DateTime> createdAt,
+    });
+
+final class $$StoryMediaTableReferences
+    extends BaseReferences<_$UzaDatabase, $StoryMediaTable, StoryMediaData> {
+  $$StoryMediaTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $StoriesTable _storyIdTable(_$UzaDatabase db) => db.stories
+      .createAlias($_aliasNameGenerator(db.storyMedia.storyId, db.stories.id));
+
+  $$StoriesTableProcessedTableManager get storyId {
+    final $_column = $_itemColumn<int>('story_id')!;
+
+    final manager = $$StoriesTableTableManager(
+      $_db,
+      $_db.stories,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_storyIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$StoryMediaTableFilterComposer
+    extends Composer<_$UzaDatabase, $StoryMediaTable> {
+  $$StoryMediaTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get mediaUrl => $composableBuilder(
+    column: $table.mediaUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get mediaType => $composableBuilder(
+    column: $table.mediaType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$StoriesTableFilterComposer get storyId {
+    final $$StoriesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.storyId,
+      referencedTable: $db.stories,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StoriesTableFilterComposer(
+            $db: $db,
+            $table: $db.stories,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$StoryMediaTableOrderingComposer
+    extends Composer<_$UzaDatabase, $StoryMediaTable> {
+  $$StoryMediaTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get mediaUrl => $composableBuilder(
+    column: $table.mediaUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get mediaType => $composableBuilder(
+    column: $table.mediaType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$StoriesTableOrderingComposer get storyId {
+    final $$StoriesTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.storyId,
+      referencedTable: $db.stories,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StoriesTableOrderingComposer(
+            $db: $db,
+            $table: $db.stories,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$StoryMediaTableAnnotationComposer
+    extends Composer<_$UzaDatabase, $StoryMediaTable> {
+  $$StoryMediaTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get mediaUrl =>
+      $composableBuilder(column: $table.mediaUrl, builder: (column) => column);
+
+  GeneratedColumn<String> get mediaType =>
+      $composableBuilder(column: $table.mediaType, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$StoriesTableAnnotationComposer get storyId {
+    final $$StoriesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.storyId,
+      referencedTable: $db.stories,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StoriesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.stories,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$StoryMediaTableTableManager
+    extends
+        RootTableManager<
+          _$UzaDatabase,
+          $StoryMediaTable,
+          StoryMediaData,
+          $$StoryMediaTableFilterComposer,
+          $$StoryMediaTableOrderingComposer,
+          $$StoryMediaTableAnnotationComposer,
+          $$StoryMediaTableCreateCompanionBuilder,
+          $$StoryMediaTableUpdateCompanionBuilder,
+          (StoryMediaData, $$StoryMediaTableReferences),
+          StoryMediaData,
+          PrefetchHooks Function({bool storyId})
+        > {
+  $$StoryMediaTableTableManager(_$UzaDatabase db, $StoryMediaTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$StoryMediaTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$StoryMediaTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$StoryMediaTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> storyId = const Value.absent(),
+                Value<String> mediaUrl = const Value.absent(),
+                Value<String> mediaType = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => StoryMediaCompanion(
+                id: id,
+                storyId: storyId,
+                mediaUrl: mediaUrl,
+                mediaType: mediaType,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int storyId,
+                required String mediaUrl,
+                Value<String> mediaType = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => StoryMediaCompanion.insert(
+                id: id,
+                storyId: storyId,
+                mediaUrl: mediaUrl,
+                mediaType: mediaType,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$StoryMediaTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({storyId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (storyId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.storyId,
+                                referencedTable: $$StoryMediaTableReferences
+                                    ._storyIdTable(db),
+                                referencedColumn: $$StoryMediaTableReferences
+                                    ._storyIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$StoryMediaTableProcessedTableManager =
+    ProcessedTableManager<
+      _$UzaDatabase,
+      $StoryMediaTable,
+      StoryMediaData,
+      $$StoryMediaTableFilterComposer,
+      $$StoryMediaTableOrderingComposer,
+      $$StoryMediaTableAnnotationComposer,
+      $$StoryMediaTableCreateCompanionBuilder,
+      $$StoryMediaTableUpdateCompanionBuilder,
+      (StoryMediaData, $$StoryMediaTableReferences),
+      StoryMediaData,
+      PrefetchHooks Function({bool storyId})
+    >;
 
 class $UzaDatabaseManager {
   final _$UzaDatabase _db;
@@ -13279,4 +14651,6 @@ class $UzaDatabaseManager {
       $$FollowedShopsTableTableManager(_db, _db.followedShops);
   $$ProductReviewsTableTableManager get productReviews =>
       $$ProductReviewsTableTableManager(_db, _db.productReviews);
+  $$StoryMediaTableTableManager get storyMedia =>
+      $$StoryMediaTableTableManager(_db, _db.storyMedia);
 }

@@ -12,7 +12,11 @@ CREATE TABLE IF NOT EXISTS `categories` (
   `remote_id` VARCHAR(255) NULL,
   `name` VARCHAR(100) NOT NULL,
   `icon` TEXT NULL,
-  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `parent_id` INT NULL DEFAULT NULL,
+  `level` TINYINT NOT NULL DEFAULT 0 COMMENT '0=root category, 1=subcategory, 2=sub-subcategory',
+  `sort_order` INT NOT NULL DEFAULT 0,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (`parent_id`) REFERENCES `categories`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
@@ -41,10 +45,13 @@ CREATE TABLE IF NOT EXISTS `shops` (
   `boost_status` INT DEFAULT 0 COMMENT '0: None, 1: Pending, 2: Active, 3: Rejected',
   `banner_status` INT DEFAULT 0,
   `banner_text` TEXT NULL,
-  `is_verified` TINYINT(1) DEFAULT 0,
+  `is_verified` TINYINT(1) NOT NULL DEFAULT 0,
+  `verified_at` DATETIME NULL DEFAULT NULL,
   `response_time_minutes` INT NULL,
   `commune` VARCHAR(100) NULL,
-  `city` VARCHAR(100) NULL
+  `city` VARCHAR(100) NULL,
+  `latitude` DECIMAL(10,8) NULL DEFAULT NULL,
+  `longitude` DECIMAL(11,8) NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
@@ -74,6 +81,7 @@ CREATE TABLE IF NOT EXISTS `products` (
   `rating_avg` DECIMAL(3, 2) DEFAULT 0.00,
   `boost_status` INT DEFAULT 0 COMMENT '0: None, 1: Pending, 2: Active, 3: Rejected',
   `condition` VARCHAR(50) DEFAULT 'new',
+  `metadata` JSON NULL DEFAULT NULL COMMENT 'Category-specific fields stored as JSON',
   `report_count` INT DEFAULT 0,
   `is_sold` TINYINT(1) DEFAULT 0,
   FOREIGN KEY (`shop_id`) REFERENCES `shops`(`id`) ON DELETE CASCADE,
@@ -89,13 +97,27 @@ CREATE TABLE IF NOT EXISTS `stories` (
   `shop_id` INT NOT NULL,
   `media_url` TEXT NOT NULL,
   `media_type` VARCHAR(50) NOT NULL COMMENT 'image or video',
-  `expires_at` DATETIME NOT NULL,
+  `is_arrivage` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '0=story (24h), 1=arrivage (4 days)',
+  `expires_at` DATETIME NOT NULL COMMENT '24h for stories, 4 days for arrivages',
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (`shop_id`) REFERENCES `shops`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
--- 5. USERS TABLE
+-- 5. STORY_MEDIA TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS `story_media` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `story_id` INT NOT NULL,
+  `media_url` TEXT NOT NULL,
+  `media_type` VARCHAR(10) NOT NULL DEFAULT 'image',
+  `sort_order` INT NOT NULL DEFAULT 0,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`story_id`) REFERENCES `stories`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- 6. USERS TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS `users` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -111,6 +133,19 @@ CREATE TABLE IF NOT EXISTS `users` (
   INDEX `idx_phone` (`phone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ============================================
+-- 7. FCM_TOKENS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS `fcm_tokens` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT NULL,
+  `shop_id` INT NULL,
+  `token` TEXT NOT NULL,
+  `platform` VARCHAR(20) NOT NULL DEFAULT 'android',
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================
@@ -123,3 +158,7 @@ CREATE INDEX `idx_stories_shop_id` ON `stories`(`shop_id`);
 CREATE INDEX `idx_stories_expires_at` ON `stories`(`expires_at`);
 CREATE INDEX `idx_shops_owner_id` ON `shops`(`owner_id`);
 CREATE INDEX `idx_shops_updated_at` ON `shops`(`updated_at`);
+CREATE INDEX `idx_categories_parent_id` ON `categories`(`parent_id`);
+CREATE INDEX `idx_shops_latitude_longitude` ON `shops`(`latitude`, `longitude`);
+CREATE INDEX `idx_story_media_story_id` ON `story_media`(`story_id`);
+CREATE INDEX `idx_fcm_tokens_user_id` ON `fcm_tokens`(`user_id`);
