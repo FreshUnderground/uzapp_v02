@@ -22,7 +22,7 @@ class ShopDashboardScreen extends StatefulWidget {
 class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
   @override
   Widget build(BuildContext context) {
-    final userId = context.read<AuthService>().firebaseUser?.uid;
+    final userId = context.read<AuthService>().user?.uid;
     final shopRepo = context.read<ShopRepository>();
 
     return StreamBuilder<Shop?>(

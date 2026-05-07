@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'api_service.dart';
 
 /// Service pour l'envoi de SMS via Africa's Talking
 class SmsService {
@@ -14,10 +15,16 @@ class SmsService {
   // Remplacer par votre nom d'utilisateur Africa's Talking
   static const String username = 'UzaApp';
 
+  // API key for the uzaapp server proxy (used on web to avoid CORS)
+  static String get _serverApiKey => ApiService.apiKey;
+
   // Endpoint de l'API (live/sandbox)
   static String get _apiUrl => username == 'sandbox'
       ? 'https://api.sandbox.africastalking.com/version1/messaging'
       : 'https://api.africastalking.com/version1/messaging';
+
+  // Proxy URL for web platform (avoids CORS by routing through our server)
+  static const String _proxyUrl = 'https://uzaapp.com/api/send_sms.php';
 
   /// Envoie un SMS en masse ou à un seul numéro
   /// [destinataires] list of phone numbers (ex: +243...)
@@ -49,6 +56,11 @@ class SmsService {
     String messageSecurise = _normalizeText(message);
     if (messageSecurise.length > 160) {
       messageSecurise = messageSecurise.substring(0, 157) + '...';
+    }
+
+    // On web, route through server-side proxy to avoid CORS
+    if (kIsWeb) {
+      return _sendViaProxy(validPhones, messageSecurise);
     }
 
     try {
@@ -108,6 +120,37 @@ class SmsService {
       }
     } catch (e) {
       debugPrint('❌ Erreur HTTP lors de l\'envoi du SMS: $e');
+      return false;
+    }
+  }
+
+  /// Send SMS via the server-side proxy (used on web to avoid CORS)
+  static Future<bool> _sendViaProxy(List<String> phones, String message) async {
+    try {
+      final response = await http.post(
+        Uri.parse(_proxyUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': _serverApiKey,
+        },
+        body: jsonEncode({'to': phones.join(','), 'message': message}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          debugPrint('✅ SMS envoyé via proxy pour ${phones.join(',')}');
+          return true;
+        } else {
+          debugPrint('❌ Proxy a signalé un échec: ${response.body}');
+          return false;
+        }
+      } else {
+        debugPrint('❌ Proxy HTTP ${response.statusCode}: ${response.body}');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('❌ Erreur proxy SMS: $e');
       return false;
     }
   }

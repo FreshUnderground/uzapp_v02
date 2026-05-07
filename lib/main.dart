@@ -1,4 +1,4 @@
-import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:local_auth/local_auth.dart';
@@ -21,7 +21,6 @@ import 'data/repositories/shop_repository.dart';
 import 'data/repositories/story_repository.dart';
 import 'data/services/sync_service.dart';
 import 'ui/screens/home_screen.dart';
-import 'ui/screens/loading_screen.dart';
 import 'ui/screens/product_detail_screen.dart';
 import 'ui/screens/shop_profile_screen.dart';
 
@@ -30,13 +29,6 @@ void main() async {
 
   // Allow fetching fonts from the internet if AssetManifest.json is missing on web
   GoogleFonts.config.allowRuntimeFetching = true;
-
-  // Initialize Firebase (required for FCM)
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('Firebase initialization error: $e');
-  }
 
   // Track last app open time for inactivity reminders
   try {
@@ -47,10 +39,12 @@ void main() async {
   }
 
   // Initialize background tasks (Workmanager)
-  try {
-    BackgroundService.initialize();
-  } catch (e) {
-    debugPrint('BackgroundService initialization error: $e');
+  if (!kIsWeb) {
+    try {
+      BackgroundService.initialize();
+    } catch (e) {
+      debugPrint('BackgroundService initialization error: $e');
+    }
   }
 
   try {
@@ -266,8 +260,47 @@ class _BiometricGuardState extends State<BiometricGuard> {
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
-class UzaApp extends StatelessWidget {
+class UzaApp extends StatefulWidget {
   const UzaApp({super.key});
+
+  @override
+  State<UzaApp> createState() => _UzaAppState();
+}
+
+class _UzaAppState extends State<UzaApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Start background sync
+    final syncService = context.read<SyncService>();
+    context.read<AuthService>().syncService = syncService;
+    context.read<AuthService>().shopRepository = context.read<ShopRepository>();
+    syncService.startAutoSync(
+      interval: const Duration(minutes: 1),
+    ); // Faster for demo
+
+    // Eager initial sync — defer to after build completes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      syncService.checkFirstSync(); // Initialise isFirstSync flag from local DB
+      syncService.syncNow();
+    });
+
+    // Initialize local notifications after providers are ready
+    if (!kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final notifService = context.read<NotificationService>();
+        final pushService = PushNotificationService(
+          notificationService: notifService,
+        );
+        final shopRepo = context.read<ShopRepository>();
+        final productRepo = context.read<ProductRepository>();
+        pushService.initialize().then((_) {
+          // Listen for notification deep links
+          _listenForNotificationDeepLinks(notifService, shopRepo, productRepo);
+        });
+      });
+    }
+  }
 
   void _listenForNotificationDeepLinks(
     NotificationService notifService,
@@ -352,48 +385,8 @@ class UzaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Start background sync
-    final syncService = context.read<SyncService>();
-    context.read<AuthService>().syncService = syncService;
-    context.read<AuthService>().shopRepository = context.read<ShopRepository>();
-    syncService.startAutoSync(
-      interval: const Duration(minutes: 1),
-    ); // Faster for demo
-
-    // Eager initial sync — defer to after build completes
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      syncService.checkFirstSync(); // Initialise isFirstSync flag from local DB
-      syncService.syncNow();
-    });
-
-    // Initialize push notifications after providers are ready
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final api = context.read<ApiService>();
-      final notifService = context.read<NotificationService>();
-      final pushService = PushNotificationService(
-        api: api,
-        notificationService: notifService,
-      );
-      final shopRepo = context.read<ShopRepository>();
-      final productRepo = context.read<ProductRepository>();
-      pushService.initialize().then((_) {
-        // Listen for notification deep links
-        _listenForNotificationDeepLinks(notifService, shopRepo, productRepo);
-      });
-    });
-
-    return Consumer2<SettingsService, SyncService>(
-      builder: (context, settings, sync, child) {
-        // Show loading screen during first sync, then transition to app
-        if (sync.isFirstSync && sync.isSyncing) {
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            title: 'Uzaapp',
-            theme: UzaTheme.lightTheme,
-            home: const LoadingScreen(),
-          );
-        }
-
+    return Consumer<SettingsService>(
+      builder: (context, settings, child) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'Uzaapp',

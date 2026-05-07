@@ -18,9 +18,11 @@ import 'discover_feed_screen.dart';
 import 'arrivages_screen.dart';
 import 'category_products_screen.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/utils/crypto_utils.dart';
 import 'create_shop_screen.dart';
 import '../components/responsive_layout.dart';
 import 'create_story_screen.dart';
+import 'edit_product_screen.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/story_repository.dart';
 import '../components/animated_bottom_nav.dart';
@@ -309,7 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final authService = context.watch<AuthService>();
     final shopRepo = context.read<ShopRepository>();
-    final user = authService.firebaseUser;
+    final user = authService.user;
     final userId = user?.uid;
 
     return StreamBuilder<Shop?>(
@@ -332,14 +334,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
           return FloatingActionButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                SlideUpRoute(
-                  page: CreateStoryScreen(shopId: snapshot.data!.id),
-                ),
-              );
-            },
+            onPressed: () => _showCreateBottomSheet(context, snapshot.data!),
             backgroundColor: UzaColors.primary,
             child: const Icon(Icons.add),
           );
@@ -363,16 +358,198 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         return FloatingActionButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              SlideUpRoute(page: CreateStoryScreen(shopId: snapshot.data!.id)),
-            );
-          },
+          onPressed: () => _showCreateBottomSheet(context, snapshot.data!),
           backgroundColor: UzaColors.primary,
           child: const Icon(Icons.add),
         );
       },
+    );
+  }
+
+  void _showCreateBottomSheet(BuildContext context, Shop shop) {
+    final theme = Theme.of(context);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag handle
+              Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 4),
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+                child: Row(
+                  children: [
+                    Text(
+                      'Créer',
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: UzaColors.textPrimary,
+                      ),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.close,
+                          size: 20,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'Que souhaitez-vous publier ?',
+                  style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Options
+              _CreateOptionTile(
+                icon: Icons.shopping_bag_outlined,
+                iconColor: UzaColors.primary,
+                iconBgColor: UzaColors.primary.withValues(alpha: 0.1),
+                title: 'Créer un produit',
+                subtitle: 'Ajoutez un nouveau produit à votre boutique',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    this.context,
+                    SlideUpRoute(page: EditProductScreen(shopId: shop.id)),
+                  );
+                },
+              ),
+              _CreateOptionTile(
+                icon: Icons.camera_alt_outlined,
+                iconColor: UzaColors.secondary,
+                iconBgColor: UzaColors.secondary.withValues(alpha: 0.1),
+                title: 'Créer une story',
+                subtitle: 'Partagez un moment avec votre communauté',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    this.context,
+                    SlideUpRoute(page: CreateStoryScreen(shopId: shop.id)),
+                  );
+                },
+              ),
+              _CreateOptionTile(
+                icon: Icons.local_shipping_outlined,
+                iconColor: const Color(0xFF6C63FF),
+                iconBgColor: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+                title: 'Créer un arrivage',
+                subtitle: 'Annoncez les nouvelles arrivées dans votre boutique',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    this.context,
+                    SlideUpRoute(page: CreateStoryScreen(shopId: shop.id)),
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateOptionTile extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBgColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _CreateOptionTile({
+    required this.icon,
+    required this.iconColor,
+    required this.iconBgColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: iconBgColor,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: iconColor, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: UzaColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey[400]),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -503,7 +680,7 @@ class _HomeContentState extends State<_HomeContent> {
                       onCreateStory: () async {
                         final authService = context.read<AuthService>();
                         final shopRepo = context.read<ShopRepository>();
-                        final user = authService.firebaseUser;
+                        final user = authService.user;
                         final userId = user?.uid;
                         final shop = userId != null
                             ? await shopRepo.watchUserShop(userId).first
@@ -586,7 +763,11 @@ class _HomeContentState extends State<_HomeContent> {
                                         fit: StackFit.expand,
                                         children: [
                                           Image.network(
-                                            firstStory.mediaUrl,
+                                            firstStory.mediaUrl.isNotEmpty
+                                                ? CryptoUtils.decrypt(
+                                                    firstStory.mediaUrl,
+                                                  )
+                                                : '',
                                             fit: BoxFit.cover,
                                             errorBuilder:
                                                 (context, error, stackTrace) {

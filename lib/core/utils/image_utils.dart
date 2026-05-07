@@ -5,10 +5,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'crypto_utils.dart';
 
 class ImageUtils {
-  // Proxy URL for Firebase images (to avoid CORS on web)
+  // Proxy URL for external images (to avoid CORS on web)
   static const String _proxyBaseUrl = 'https://uzaapp.com/api/proxy.php?url=';
 
-  /// Convert Firebase URLs to proxy URLs (only on web platform)
+  /// Convert external URLs to proxy URLs (only on web platform)
   static String _getProxiedUrl(String url) {
     if (!kIsWeb) return url; // No proxy needed for mobile
     if (url.isEmpty) return url;
@@ -19,9 +19,10 @@ class ImageUtils {
     // Don't proxy if it's already our server URL
     if (url.contains('uzaapp.com')) return url;
 
-    // Only proxy Firebase Storage URLs
+    // Only proxy external storage URLs
     if (url.contains('firebasestorage.googleapis.com') ||
         url.contains('storage.googleapis.com')) {
+      // Legacy: some image data still contains Firebase Storage URLs
       return '$_proxyBaseUrl${Uri.encodeComponent(url)}';
     }
     return url;
@@ -33,7 +34,7 @@ class ImageUtils {
     var source = CryptoUtils.decrypt(encryptedSource);
     if (source.isEmpty) return null;
 
-    // Unescape slashes for legacy Firebase URLs
+    // Unescape slashes for legacy URLs
     if (source.contains(r'\/')) {
       source = source.replaceAll(r'\/', '/');
     }
@@ -98,7 +99,7 @@ class ImageUtils {
       );
     }
 
-    // Unescape slashes for legacy Firebase URLs (e.g. from older data)
+    // Unescape slashes for legacy URLs (e.g. from older data)
     if (source.contains(r'\/')) {
       source = source.replaceAll(r'\/', '/');
       debugPrint('Legacy URL detected and fixed: $source');
@@ -133,7 +134,7 @@ class ImageUtils {
       }
     }
 
-    // Apply proxy for Firebase URLs on web
+    // Apply proxy for external URLs on web
     final String imageUrl = _getProxiedUrl(source);
 
     return CachedNetworkImage(
@@ -176,9 +177,9 @@ class ImageUtils {
             );
       },
       errorWidget: (context, url, error) {
-        // Log specifically for Cloud Storage quota
+        // Log specifically for storage quota errors
         if (error.toString().contains('402')) {
-          debugPrint('FIREBASE QUOTA EXCEEDED for $url');
+          debugPrint('STORAGE QUOTA EXCEEDED for $url');
         }
         return buildErrorWidget(
           height: height,

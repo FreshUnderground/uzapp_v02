@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
@@ -17,6 +18,8 @@ class BackgroundService {
   static void initialize() {
     if (_isInitialized) return;
     _isInitialized = true;
+
+    if (kIsWeb) return; // Workmanager is not supported on web
 
     Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
 
@@ -41,7 +44,9 @@ class BackgroundService {
 
   /// Cancel all background tasks.
   static void cancelAll() {
-    Workmanager().cancelAll();
+    if (!kIsWeb) {
+      Workmanager().cancelAll();
+    }
     _isInitialized = false;
   }
 }

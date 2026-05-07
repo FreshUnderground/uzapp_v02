@@ -5,6 +5,7 @@ import '../../data/repositories/shop_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../screens/story_view_screen.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/utils/crypto_utils.dart';
 
 class StoryFeedScreen extends StatelessWidget {
   final Function(List<Story>, int)? onOpenStory;
@@ -135,7 +136,11 @@ class _CompactStoryFeed extends StatelessWidget {
                     child: CircleAvatar(
                       radius: 30,
                       backgroundColor: Colors.grey[200],
-                      backgroundImage: NetworkImage(firstStory.mediaUrl),
+                      backgroundImage: NetworkImage(
+                        firstStory.mediaUrl.isNotEmpty
+                            ? CryptoUtils.decrypt(firstStory.mediaUrl)
+                            : '',
+                      ),
                       child: firstStory.mediaType == 'video'
                           ? const Positioned(
                               right: 0,
@@ -373,7 +378,11 @@ class _FullStoryFeed extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
                   image: DecorationImage(
-                    image: NetworkImage(firstStory.mediaUrl),
+                    image: NetworkImage(
+                      firstStory.mediaUrl.isNotEmpty
+                          ? CryptoUtils.decrypt(firstStory.mediaUrl)
+                          : '',
+                    ),
                     fit: BoxFit.cover,
                   ),
                   boxShadow: [

@@ -395,7 +395,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ─── Content Sections ────────────────────────────────────────────
 
   Widget _buildContentForUser(AuthService authService) {
-    final user = authService.firebaseUser;
+    final user = authService.user;
     if (user == null) return _buildLoggedOutContent();
 
     if (!_hasReconnectedShops) {
@@ -1299,7 +1299,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           // Admin section (conditional)
-          if (authService.firebaseUser != null) ...[
+          if (authService.user != null) ...[
             const Divider(height: 1, indent: 12, endIndent: 12),
             TapAnimator(
               onTap: () => Navigator.push(

@@ -172,7 +172,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       final url = _currentMediaItems[_mediaIndex].mediaUrl;
       return CryptoUtils.decrypt(url);
     }
-    return story.mediaUrl;
+    return story.mediaUrl.isNotEmpty ? CryptoUtils.decrypt(story.mediaUrl) : '';
   }
 
   /// Get the current media type

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/local/uza_database.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/utils/crypto_utils.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 class StoryCircle extends StatelessWidget {
@@ -57,7 +58,11 @@ class StoryCircle extends StatelessWidget {
                 ),
                 child: CircleAvatar(
                   radius: 30,
-                  backgroundImage: CachedNetworkImageProvider(story.mediaUrl),
+                  backgroundImage: CachedNetworkImageProvider(
+                    story.mediaUrl.isNotEmpty
+                        ? CryptoUtils.decrypt(story.mediaUrl)
+                        : '',
+                  ),
                 ),
               ),
             ),

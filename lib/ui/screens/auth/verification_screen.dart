@@ -58,6 +58,10 @@ class _VerificationScreenState extends State<VerificationScreen>
     (_) => TextEditingController(),
   );
   final List<FocusNode> _otpFocusNodes = List.generate(6, (_) => FocusNode());
+  final List<FocusNode> _keyboardFocusNodes = List.generate(
+    6,
+    (_) => FocusNode(),
+  );
   final _formKey = GlobalKey<FormState>();
 
   late AnimationController _shakeController;
@@ -90,6 +94,9 @@ class _VerificationScreenState extends State<VerificationScreen>
       c.dispose();
     }
     for (final f in _otpFocusNodes) {
+      f.dispose();
+    }
+    for (final f in _keyboardFocusNodes) {
       f.dispose();
     }
     super.dispose();
@@ -266,8 +273,6 @@ class _VerificationScreenState extends State<VerificationScreen>
 
   @override
   Widget build(BuildContext context) {
-    final authService = context.watch<AuthService>();
-
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -336,7 +341,7 @@ class _VerificationScreenState extends State<VerificationScreen>
                           width: 48,
                           height: 56,
                           child: KeyboardListener(
-                            focusNode: FocusNode(),
+                            focusNode: _keyboardFocusNodes[index],
                             onKeyEvent: (event) => _onOtpKeyEvent(index, event),
                             child: TextFormField(
                               controller: _otpControllers[index],
@@ -415,7 +420,7 @@ class _VerificationScreenState extends State<VerificationScreen>
                           : Colors.grey[300],
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: _isVerifying || authService.isLoading
+                    child: _isVerifying
                         ? const SizedBox(
                             height: 24,
                             child: Center(
@@ -463,9 +468,7 @@ class _VerificationScreenState extends State<VerificationScreen>
                 // Skip OTP
                 Center(
                   child: TextButton(
-                    onPressed: _isVerifying || authService.isLoading
-                        ? null
-                        : _onSkipOTP,
+                    onPressed: _isVerifying ? null : _onSkipOTP,
                     child: const Text(
                       "Passer (non vérifié)",
                       style: TextStyle(

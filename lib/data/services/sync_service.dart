@@ -231,18 +231,35 @@ class SyncService extends ChangeNotifier {
         }
       }
 
+      // Build a map of remoteId -> localId for existing categories
+      final allCategories = await db.select(db.categories).get();
+      final Map<String, int> categoryIdMap = {};
+      for (final c in allCategories) {
+        final rId = c.remoteId;
+        if (rId != null && rId.isNotEmpty) {
+          categoryIdMap[rId] = c.id;
+        }
+      }
+
       // Batch-insert categories & products immediately so the UI can render
       if (remoteCategories.isNotEmpty || remoteProducts.isNotEmpty) {
         await db.batch((batch) {
           for (var cat in remoteCategories) {
             final String rId =
                 (cat['id'] ?? cat['remote_id'])?.toString() ?? '';
+            final int? existingLocalId = categoryIdMap[rId];
             batch.insert(
               db.categories,
-              CategoriesCompanion.insert(
+              CategoriesCompanion(
+                id: existingLocalId != null
+                    ? Value(existingLocalId)
+                    : const Value.absent(),
                 remoteId: Value(rId),
-                name: cat['name'] as String? ?? 'Sans nom',
+                name: Value(cat['name'] as String? ?? 'Sans nom'),
                 icon: Value(cat['icon'] as String?),
+                level: Value(_toInt(cat['level']) ?? 0),
+                parentId: Value(_toInt(cat['parent_id'])),
+                sortOrder: Value(_toInt(cat['sort_order']) ?? 0),
                 updatedAt: Value(
                   DateTime.tryParse(cat['updated_at'] as String? ?? '') ??
                       DateTime.now(),
@@ -504,6 +521,14 @@ class SyncService extends ChangeNotifier {
     // NOTE: _isSyncing is managed by syncNow()'s finally block.
   }
 
+  static int? _toInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    if (value is double) return value.toInt();
+    return null;
+  }
+
   void _prefetchBoostedImages(List<Map<String, dynamic>> products) {
     // Basic pre-fetching logic (will trigger CachedNetworkImage pre-caching)
     final boosted = products.where((p) => p['boostStatus'] == 2);
@@ -568,16 +593,13 @@ class SyncService extends ChangeNotifier {
     }
   }
 
-  /// Ensures that categories are synced from the server at least once.
-  /// Call this before showing the product creation form so that the
-  /// category dropdown is populated with server-side categories.
+  /// Ensures that categories are synced from the server with correct data.
+  /// Forces a full refresh so existing categories with wrong level values
+  /// are repaired. Call this before showing the product creation form.
   Future<void> ensureCategoriesSynced() async {
     try {
-      final existing = await (db.select(db.categories)..limit(1)).get();
-      if (existing.isNotEmpty) return; // categories already present
-
-      // Force a pull of categories from server
-      debugPrint('Categories table empty — forcing category sync…');
+      // Force a full pull of categories from server (no updated_since)
+      debugPrint('Forcing full category sync…');
       List<Map<String, dynamic>> remoteCategories = [];
       try {
         remoteCategories = await api.fetchCategories().timeout(_requestTimeout);
@@ -587,28 +609,45 @@ class SyncService extends ChangeNotifier {
         debugPrint('PULL ERROR (ensureCategoriesSynced): $e');
       }
 
-      if (remoteCategories.isNotEmpty) {
-        await db.batch((batch) {
-          for (var cat in remoteCategories) {
-            final String rId =
-                (cat['id'] ?? cat['remote_id'])?.toString() ?? '';
-            batch.insert(
-              db.categories,
-              CategoriesCompanion.insert(
-                remoteId: Value(rId),
-                name: cat['name'] as String? ?? 'Sans nom',
-                icon: Value(cat['icon'] as String?),
-                updatedAt: Value(
-                  DateTime.tryParse(cat['updated_at'] as String? ?? '') ??
-                      DateTime.now(),
-                ),
-              ),
-              mode: InsertMode.insertOrReplace,
-            );
-          }
-        });
-        debugPrint('Synced ${remoteCategories.length} categories.');
+      if (remoteCategories.isEmpty) return;
+
+      // Build map of existing categories by remoteId for proper upsert
+      final existingCats = await db.select(db.categories).get();
+      final Map<String, int> categoryIdMap = {};
+      for (final c in existingCats) {
+        final rId = c.remoteId;
+        if (rId != null && rId.isNotEmpty) {
+          categoryIdMap[rId] = c.id;
+        }
       }
+
+      await db.batch((batch) {
+        for (var cat in remoteCategories) {
+          final String rId = (cat['id'] ?? cat['remote_id'])?.toString() ?? '';
+          final int? existingLocalId = categoryIdMap[rId];
+
+          batch.insert(
+            db.categories,
+            CategoriesCompanion(
+              id: existingLocalId != null
+                  ? Value(existingLocalId)
+                  : const Value.absent(),
+              remoteId: Value(rId),
+              name: Value(cat['name'] as String? ?? 'Sans nom'),
+              icon: Value(cat['icon'] as String?),
+              level: Value(_toInt(cat['level']) ?? 0),
+              parentId: Value(_toInt(cat['parent_id'])),
+              sortOrder: Value(_toInt(cat['sort_order']) ?? 0),
+              updatedAt: Value(
+                DateTime.tryParse(cat['updated_at'] as String? ?? '') ??
+                    DateTime.now(),
+              ),
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+        }
+      });
+      debugPrint('Synced ${remoteCategories.length} categories.');
     } catch (e) {
       debugPrint('ensureCategoriesSynced error: $e');
     }

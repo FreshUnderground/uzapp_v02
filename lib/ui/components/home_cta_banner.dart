@@ -15,7 +15,7 @@ class HomeCTABanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final authService = context.watch<AuthService>();
     final shopRepo = context.read<ShopRepository>();
-    final user = authService.firebaseUser;
+    final user = authService.user;
     final userId = user?.uid;
 
     return StreamBuilder<Shop?>(

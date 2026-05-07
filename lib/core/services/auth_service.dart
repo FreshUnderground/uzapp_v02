@@ -58,8 +58,6 @@ class AuthService extends ChangeNotifier {
 
   bool get isLoading => _isLoading;
   bool get isPhoneVerified => _isPhoneVerified;
-  MockUser? get firebaseUser =>
-      _currentUser; // Keep getter name for compatibility
   MockUser? get user => _currentUser;
 
   /// Restores the user session from the local database.

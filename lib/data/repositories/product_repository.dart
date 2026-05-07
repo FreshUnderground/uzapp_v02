@@ -1,4 +1,5 @@
 import 'dart:math' show cos, sqrt, sin, atan2, pi;
+import 'package:flutter/foundation.dart' hide Category;
 import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
 import '../services/sync_service.dart';
@@ -50,7 +51,13 @@ class ProductRepository {
             (t) => OrderingTerm.asc(t.sortOrder),
             (t) => OrderingTerm.asc(t.name),
           ]))
-        .watch();
+        .watch()
+        .map((categories) {
+          debugPrint(
+            'Categories stream emitted: ${categories.length} root categories',
+          );
+          return categories;
+        });
   }
 
   Future<List<Category>> getCategoryChildren(int categoryId) {

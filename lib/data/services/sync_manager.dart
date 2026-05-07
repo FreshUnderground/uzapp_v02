@@ -312,17 +312,34 @@ class SyncManager extends ChangeNotifier {
         if (s.remoteId != null) s.remoteId!: s.id,
     };
 
+    // Build map of existing categories by remoteId
+    final allCategories = await db.select(db.categories).get();
+    final Map<String, int> categoryIdMap = {};
+    for (final c in allCategories) {
+      final rId = c.remoteId;
+      if (rId != null && rId.isNotEmpty) {
+        categoryIdMap[rId] = c.id;
+      }
+    }
+
     // Batch upsert
     await db.batch((batch) {
       // Sync Categories
       for (var cat in remoteCategories) {
         final String rId = (cat['id'] ?? cat['remote_id'])?.toString() ?? '';
+        final int? existingLocalId = categoryIdMap[rId];
         batch.insert(
           db.categories,
-          CategoriesCompanion.insert(
+          CategoriesCompanion(
+            id: existingLocalId != null
+                ? Value(existingLocalId)
+                : const Value.absent(),
             remoteId: Value(rId),
-            name: cat['name'] as String? ?? 'Sans nom',
+            name: Value(cat['name'] as String? ?? 'Sans nom'),
             icon: Value(cat['icon'] as String?),
+            level: Value(_toInt(cat['level']) ?? 0),
+            parentId: Value(_toInt(cat['parent_id'])),
+            sortOrder: Value(_toInt(cat['sort_order']) ?? 0),
             updatedAt: Value(
               DateTime.tryParse(cat['updated_at'] as String? ?? '') ??
                   DateTime.now(),
@@ -535,6 +552,14 @@ class SyncManager extends ChangeNotifier {
     await db.delete(db.offlineQueue).go();
     _pendingCount = 0;
     notifyListeners();
+  }
+
+  static int? _toInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    if (value is double) return value.toInt();
+    return null;
   }
 
   @override
