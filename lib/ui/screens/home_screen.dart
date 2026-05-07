@@ -52,6 +52,17 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     // Clamp to valid range for 4-tab layout
     _selectedIndex = widget.initialIndex.clamp(0, 3);
+
+    // Ensure categories are synced from server on first load
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        final syncService = context.read<SyncService>();
+        syncService.ensureCategoriesSynced();
+        debugPrint('HomeScreen: triggered ensureCategoriesSynced');
+      } catch (e) {
+        debugPrint('HomeScreen: failed to trigger ensureCategoriesSynced: $e');
+      }
+    });
   }
 
   void _openOverlayStory(List<Story> stories, int index) {
@@ -726,6 +737,9 @@ class _HomeContentState extends State<_HomeContent> {
                     stream: storyRepo.watchArrivagesGroupedByShop(),
                     builder: (context, snapshot) {
                       final grouped = snapshot.data ?? {};
+                      debugPrint(
+                        'Arrivages grouped: ${grouped.length} shops, connectionState=${snapshot.connectionState}',
+                      );
                       if (grouped.isEmpty) {
                         return const SizedBox.shrink();
                       }
@@ -1117,6 +1131,9 @@ class _HomeContentState extends State<_HomeContent> {
       stream: productRepo.watchRootCategories(),
       builder: (context, snapshot) {
         final categories = snapshot.data ?? [];
+        debugPrint(
+          'Root categories: ${categories.length}, connectionState=${snapshot.connectionState}',
+        );
         // Show up to 5 root categories
         final displayCategories = categories.take(5).toList();
 

@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../data/local/uza_database.dart';
-import '../../data/repositories/product_repository.dart';
+import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/services/sync_service.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
 import '../components/custom_refresh_indicator.dart';
 import '../utils/page_transitions.dart';
-import 'product_detail_screen.dart';
+import 'story_view_screen.dart';
 import 'create_story_screen.dart';
 
 class ArrivagesScreen extends StatelessWidget {
@@ -16,7 +17,7 @@ class ArrivagesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final productRepo = context.watch<ProductRepository>();
+    final storyRepo = context.watch<StoryRepository>();
     final syncService = context.read<SyncService>();
     final authService = context.read<AuthService>();
     final shopRepo = context.read<ShopRepository>();
@@ -33,41 +34,50 @@ class ArrivagesScreen extends StatelessWidget {
         scrolledUnderElevation: 0.5,
         surfaceTintColor: Colors.transparent,
       ),
-      body: StreamBuilder<List<Product>>(
-        stream: productRepo.watchArrivals(),
+      body: StreamBuilder<List<Story>>(
+        stream: storyRepo.watchActiveArrivages(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return _buildGridShimmer();
           }
 
-          final products = snapshot.data ?? [];
+          final stories = snapshot.data ?? [];
 
-          if (products.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.inventory_2_outlined,
-                    size: 56,
-                    color: Colors.grey[300],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Aucun arrivage pour le moment',
-                    style: TextStyle(
-                      color: Colors.grey[500],
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
+          if (stories.isEmpty) {
+            return UzaRefreshIndicator(
+              onRefresh: () => syncService.syncNow(),
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.6,
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.inventory_2_outlined,
+                          size: 56,
+                          color: Colors.grey[300],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Aucun arrivage pour le moment',
+                          style: TextStyle(
+                            color: Colors.grey[500],
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextButton.icon(
+                          onPressed: () => syncService.syncNow(),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Réessayer'),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  TextButton.icon(
-                    onPressed: () => syncService.syncNow(),
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Réessayer'),
-                  ),
-                ],
+                ),
               ),
             );
           }
@@ -90,16 +100,12 @@ class ArrivagesScreen extends StatelessWidget {
                     crossAxisSpacing: 8,
                     childAspectRatio: 0.72,
                   ),
-                  itemCount: products.length,
+                  itemCount: stories.length,
                   itemBuilder: (context, index) {
-                    return _ArrivalGalleryCard(
-                      product: products[index],
-                      onTap: () => Navigator.push(
-                        context,
-                        SlideUpRoute(
-                          page: ProductDetailScreen(product: products[index]),
-                        ),
-                      ),
+                    return _ArrivageStoryCard(
+                      story: stories[index],
+                      shopRepo: shopRepo,
+                      allStories: stories,
                     );
                   },
                 );
@@ -185,19 +191,26 @@ class _CreateArrivageFab extends StatelessWidget {
   }
 }
 
-class _ArrivalGalleryCard extends StatelessWidget {
-  final Product product;
-  final VoidCallback onTap;
+/// Card that displays an arrivage story with its media thumbnail and shop name.
+class _ArrivageStoryCard extends StatelessWidget {
+  final Story story;
+  final ShopRepository shopRepo;
+  final List<Story> allStories;
 
-  const _ArrivalGalleryCard({required this.product, required this.onTap});
+  const _ArrivageStoryCard({
+    required this.story,
+    required this.shopRepo,
+    required this.allStories,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final images = ImageUtils.getDecryptedList(product.imageUrls);
-    final imageUrl = images.isNotEmpty ? images.first : '';
+    final decryptedUrl = story.mediaUrl.isNotEmpty
+        ? CryptoUtils.decrypt(story.mediaUrl)
+        : '';
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: () => _openStory(context),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.grey[50],
@@ -208,11 +221,11 @@ class _ArrivalGalleryCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             // Full-bleed image
-            if (imageUrl.isNotEmpty)
+            if (decryptedUrl.isNotEmpty)
               Hero(
-                tag: 'product_image_${product.id}',
+                tag: 'arrivage_image_${story.id}',
                 child: ImageUtils.buildCachedImage(
-                  imageUrl,
+                  decryptedUrl,
                   fit: BoxFit.cover,
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -226,7 +239,7 @@ class _ArrivalGalleryCard extends StatelessWidget {
                 ),
               ),
 
-            // Gradient overlay at bottom for name
+            // Gradient overlay at bottom for shop name
             Positioned(
               left: 0,
               right: 0,
@@ -249,16 +262,47 @@ class _ArrivalGalleryCard extends StatelessWidget {
                     bottom: Radius.circular(12),
                   ),
                 ),
-                child: Text(
-                  product.name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    height: 1.2,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                child: FutureBuilder<Shop?>(
+                  future: shopRepo.getShopById(story.shopId),
+                  builder: (context, snapshot) {
+                    return Row(
+                      children: [
+                        Container(
+                          width: 20,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.2),
+                                blurRadius: 4,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.store,
+                            size: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            snapshot.data?.name ?? 'Arrivage',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              height: 1.2,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -266,5 +310,34 @@ class _ArrivalGalleryCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Opens StoryViewScreen with stories from the same shop.
+  Future<void> _openStory(BuildContext context) async {
+    final storyRepo = context.read<StoryRepository>();
+    storyRepo.logStoryView(story.id);
+
+    // Get all stories for this shop to enable swiping
+    final shopStories = await storyRepo.getStoriesForShop(story.shopId);
+    final shop = await shopRepo.getShopById(story.shopId);
+    final shopLookup = <int, Shop>{};
+    if (shop != null) {
+      shopLookup[story.shopId] = shop;
+    }
+
+    final initialIndex = shopStories.indexWhere((s) => s.id == story.id);
+
+    if (context.mounted) {
+      Navigator.push(
+        context,
+        SlideUpRoute(
+          page: StoryViewScreen(
+            stories: shopStories,
+            initialIndex: initialIndex >= 0 ? initialIndex : 0,
+            shopLookup: shopLookup,
+          ),
+        ),
+      );
+    }
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
 
@@ -228,6 +229,7 @@ class StoryRepository {
   /// Returns a Map of `shopId` to `List of Story`.
   Stream<Map<int, List<Story>>> watchArrivagesGroupedByShop() {
     final now = DateTime.now();
+    developer.log('watchArrivagesGroupedByShop: now=$now', name: 'StoryRepo');
     return (db.select(db.stories)
           ..where(
             (t) =>
@@ -239,6 +241,10 @@ class StoryRepository {
           ]))
         .watch()
         .map((stories) {
+          developer.log(
+            'watchArrivagesGroupedByShop: raw stories count=${stories.length}',
+            name: 'StoryRepo',
+          );
           final grouped = <int, List<Story>>{};
           for (final story in stories) {
             grouped.putIfAbsent(story.shopId, () => []).add(story);

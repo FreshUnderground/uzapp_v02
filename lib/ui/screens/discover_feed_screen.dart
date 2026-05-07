@@ -111,12 +111,17 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
     );
   }
 
-  /// Builds the Arrivages horizontal scroll section with header.
+  /// Builds the Arrivages vertical scroll section with header.
   Widget _buildArrivagesSection(Map<int, List<Story>> grouped) {
-    final shopIds = grouped.keys.toList();
+    // Flatten all arrivage stories into a single list for vertical grid
+    final allArrivageStories = <Story>[];
+    for (final stories in grouped.values) {
+      allArrivageStories.addAll(stories);
+    }
 
     return Container(
       color: Colors.black,
+      constraints: const BoxConstraints(maxHeight: 420),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -160,21 +165,23 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
               ],
             ),
           ),
-          // Horizontal scroll of arrivage cards
-          SizedBox(
-            height: 160,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: shopIds.length,
+          // Vertical scrollable grid of arrivage cards
+          Expanded(
+            child: GridView.builder(
+              scrollDirection: Axis.vertical,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 0.75,
+              ),
+              itemCount: allArrivageStories.length.clamp(0, 6),
               itemBuilder: (context, index) {
-                final shopId = shopIds[index];
-                final stories = grouped[shopId]!;
-                final firstStory = stories.first;
-                return _ArrivageCard(
-                  shopId: shopId,
-                  stories: stories,
-                  firstStory: firstStory,
+                final story = allArrivageStories[index];
+                return _ArrivageFeedCard(
+                  story: story,
+                  shopStories: grouped[story.shopId] ?? [story],
                 );
               },
             ),
@@ -255,34 +262,26 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
 }
 
 /// A single arrivage card in the horizontal list.
-class _ArrivageCard extends StatelessWidget {
-  final int shopId;
-  final List<Story> stories;
-  final Story firstStory;
+class _ArrivageFeedCard extends StatelessWidget {
+  final Story story;
+  final List<Story> shopStories;
 
-  const _ArrivageCard({
-    required this.shopId,
-    required this.stories,
-    required this.firstStory,
-  });
+  const _ArrivageFeedCard({required this.story, required this.shopStories});
 
   @override
   Widget build(BuildContext context) {
-    final decryptedUrl = firstStory.mediaUrl.isNotEmpty
-        ? CryptoUtils.decrypt(firstStory.mediaUrl)
+    final decryptedUrl = story.mediaUrl.isNotEmpty
+        ? CryptoUtils.decrypt(story.mediaUrl)
         : '';
 
     return GestureDetector(
       onTap: () {
         final storyRepo = context.read<StoryRepository>();
-        storyRepo.logStoryView(stories.first.id);
-        // Build shop lookup for StoryViewScreen
+        storyRepo.logStoryView(story.id);
         final shopRepo = context.read<ShopRepository>();
         _openStoryWithShopLookup(context, shopRepo);
       },
       child: Container(
-        width: 120,
-        margin: const EdgeInsets.only(right: 10),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
@@ -299,19 +298,16 @@ class _ArrivageCard extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               // Background image
-              Image.network(
-                decryptedUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Colors.grey[800],
-                    child: Icon(
-                      Icons.image_not_supported,
-                      color: Colors.grey[600],
-                    ),
-                  );
-                },
-              ),
+              if (decryptedUrl.isNotEmpty)
+                ImageUtils.buildCachedImage(decryptedUrl, fit: BoxFit.cover)
+              else
+                Container(
+                  color: Colors.grey[800],
+                  child: Icon(
+                    Icons.image_not_supported,
+                    color: Colors.grey[600],
+                  ),
+                ),
               // Gradient overlay
               Container(
                 decoration: BoxDecoration(
@@ -355,7 +351,7 @@ class _ArrivageCard extends StatelessWidget {
                     Expanded(
                       child: FutureBuilder<Shop?>(
                         future: context.read<ShopRepository>().getShopById(
-                          shopId,
+                          story.shopId,
                         ),
                         builder: (context, snapshot) {
                           return Text(
@@ -371,7 +367,7 @@ class _ArrivageCard extends StatelessWidget {
                         },
                       ),
                     ),
-                    if (stories.length > 1)
+                    if (shopStories.length > 1)
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 4,
@@ -382,7 +378,7 @@ class _ArrivageCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          '${stories.length}',
+                          '${shopStories.length}',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 8,
@@ -405,18 +401,19 @@ class _ArrivageCard extends StatelessWidget {
     BuildContext context,
     ShopRepository shopRepo,
   ) async {
-    final shop = await shopRepo.getShopById(shopId);
+    final shop = await shopRepo.getShopById(story.shopId);
     final shopLookup = <int, Shop>{};
     if (shop != null) {
-      shopLookup[shopId] = shop;
+      shopLookup[story.shopId] = shop;
     }
+    final initialIndex = shopStories.indexWhere((s) => s.id == story.id);
     if (context.mounted) {
       Navigator.push(
         context,
         SlideUpRoute(
           page: StoryViewScreen(
-            stories: stories,
-            initialIndex: 0,
+            stories: shopStories,
+            initialIndex: initialIndex >= 0 ? initialIndex : 0,
             shopLookup: shopLookup,
           ),
         ),

@@ -478,6 +478,7 @@ class SyncService extends ChangeNotifier {
                 shopId: localShopId,
                 mediaUrl: st['media_url'] as String? ?? '',
                 mediaType: st['media_type'] as String? ?? 'image',
+                isArrivage: Value((_toInt(st['is_arrivage']) ?? 0) == 1),
                 expiresAt:
                     DateTime.tryParse(st['expires_at'] as String? ?? '') ??
                     DateTime.now().add(const Duration(days: 7)),
@@ -642,20 +643,34 @@ class SyncService extends ChangeNotifier {
   Future<void> ensureCategoriesSynced() async {
     try {
       // Force a full pull of categories from server (no updated_since)
-      debugPrint('Forcing full category sync…');
+      debugPrint('ensureCategoriesSynced: starting...');
       List<Map<String, dynamic>> remoteCategories = [];
       try {
         remoteCategories = await api.fetchCategories().timeout(_requestTimeout);
+        debugPrint(
+          'ensureCategoriesSynced: fetched ${remoteCategories.length} from server',
+        );
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: categories (ensureCategoriesSynced)');
       } catch (e) {
         debugPrint('PULL ERROR (ensureCategoriesSynced): $e');
       }
 
-      if (remoteCategories.isEmpty) return;
+      if (remoteCategories.isEmpty) {
+        debugPrint('ensureCategoriesSynced: no categories fetched, aborting');
+        return;
+      }
+
+      // Log first few categories for debugging
+      for (var i = 0; i < remoteCategories.length && i < 3; i++) {
+        debugPrint('ensureCategoriesSynced: cat[$i] = ${remoteCategories[i]}');
+      }
 
       // Build map of existing categories by remoteId for proper upsert
       final existingCats = await db.select(db.categories).get();
+      debugPrint(
+        'ensureCategoriesSynced: ${existingCats.length} existing local categories',
+      );
       final Map<String, int> categoryIdMap = {};
       for (final c in existingCats) {
         final rId = c.remoteId;
@@ -690,7 +705,14 @@ class SyncService extends ChangeNotifier {
           );
         }
       });
-      debugPrint('Synced ${remoteCategories.length} categories.');
+      debugPrint('ensureCategoriesSynced: inserted to local DB');
+
+      // Verify the insert worked
+      final afterInsert = await db.select(db.categories).get();
+      final rootCats = afterInsert.where((c) => c.level == 0).toList();
+      debugPrint(
+        'ensureCategoriesSynced: now ${afterInsert.length} total categories, ${rootCats.length} root (level=0)',
+      );
     } catch (e) {
       debugPrint('ensureCategoriesSynced error: $e');
     }

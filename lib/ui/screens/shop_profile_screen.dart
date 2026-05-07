@@ -195,9 +195,15 @@ class ShopProfileScreen extends StatelessWidget {
                                     const SizedBox(height: 24),
                                     Row(
                                       children: [
-                                        _buildFollowButton(context),
+                                        Flexible(
+                                          child: _buildFollowButton(context),
+                                        ),
                                         const SizedBox(width: 16),
-                                        _buildSocialActions(contactService),
+                                        Flexible(
+                                          child: _buildSocialActions(
+                                            contactService,
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ],
