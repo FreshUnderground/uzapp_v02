@@ -257,28 +257,40 @@ class ApiService {
     Map<String, dynamic> data,
   ) async {
     try {
+      debugPrint('PUSH → $entityType/$action (keys: ${data.keys.toList()})');
+
       late http.Response response;
 
       // Route shops and products through sync.php for better server-side
       // validation and upsert logic.
       if (entityType == 'shops' || entityType == 'products') {
+        final uri = Uri.parse('$baseUrl/sync.php?api_key=$_apiKey');
+        final payload = jsonEncode({
+          'entityType': entityType,
+          'action': action,
+          'data': data,
+        });
+        debugPrint('PUSH → sync.php  uri=$uri  body_length=${payload.length}');
         response = await http.post(
-          Uri.parse('$baseUrl/sync.php'),
+          uri,
           headers: {..._commonHeaders, 'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'entityType': entityType,
-            'action': action,
-            'data': data,
-          }),
+          body: payload,
         );
       } else {
         final String endpoint = '$entityType.php';
+        final uri = Uri.parse('$baseUrl/$endpoint?api_key=$_apiKey');
+        final payload = jsonEncode(data);
+        debugPrint('PUSH → $endpoint  uri=$uri  body_length=${payload.length}');
         response = await http.post(
-          Uri.parse('$baseUrl/$endpoint'),
+          uri,
           headers: {..._commonHeaders, 'Content-Type': 'application/json'},
-          body: jsonEncode(data),
+          body: payload,
         );
       }
+
+      debugPrint(
+        'PUSH ← $entityType/$action  status=${response.statusCode}  body=${response.body.length > 500 ? response.body.substring(0, 500) + '…' : response.body}',
+      );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         // Parse response body to detect logical failures
@@ -290,23 +302,27 @@ class ApiService {
               final errorMsg =
                   body['error'] ?? body['message'] ?? 'Unknown server error';
               debugPrint(
-                'API LOGICAL ERROR (pushChange $entityType): $errorMsg',
+                'PUSH ✗ $entityType/$action logical failure: $errorMsg',
               );
               return false;
             }
+            debugPrint(
+              'PUSH ✓ $entityType/$action server confirmed (id=${body['id']}, action=${body['action']})',
+            );
           }
         } catch (_) {
           // Response body is not JSON; treat as success since HTTP status was OK
+          debugPrint('PUSH ✓ $entityType/$action (non-JSON 2xx response)');
         }
         return true;
       } else {
         debugPrint(
-          'API ERROR (pushChange $entityType): ${response.statusCode} - ${response.body}',
+          'PUSH ✗ $entityType/$action HTTP ${response.statusCode}: ${response.body}',
         );
         return false;
       }
     } catch (e) {
-      debugPrint('API ERROR (pushChange $entityType): $e');
+      debugPrint('PUSH ✗ $entityType/$action exception: $e');
       return false;
     }
   }

@@ -22,7 +22,10 @@ import '../../data/repositories/recently_viewed_repository.dart';
 import 'edit_product_screen.dart';
 import 'product_detail_screen.dart';
 import 'create_story_screen.dart';
+import 'story_view_screen.dart';
 import 'shop_profile_screen.dart';
+import '../../data/repositories/story_repository.dart';
+import '../../core/utils/crypto_utils.dart';
 import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
@@ -426,6 +429,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 12),
               _buildSectionTitle(tr(context, 'my_products')),
               _buildMyProducts(shop),
+              const SizedBox(height: 16),
+              _buildSectionTitle(tr(context, 'my_stories')),
+              _buildMyStories(shop),
+              const SizedBox(height: 16),
+              _buildSectionTitle(tr(context, 'my_arrivages')),
+              _buildMyArrivages(shop),
               const SizedBox(height: 16),
             ] else ...[
               _buildCreateShopCTA(),
@@ -836,6 +845,224 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ],
                     ),
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ─── My Stories (Seller) ──────────────────────────────────────────
+
+  Widget _buildMyStories(Shop shop) {
+    return ModernCard(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      child: StreamBuilder<List<Story>>(
+        stream: context.read<StoryRepository>().watchStoriesByShop(shop.id),
+        builder: (context, snapshot) {
+          final stories = snapshot.data ?? [];
+          if (stories.isEmpty) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Center(
+                child: Text(
+                  tr(context, 'no_stories_yet'),
+                  style: TextStyle(color: Colors.grey[500]),
+                ),
+              ),
+            );
+          }
+          return SizedBox(
+            height: 100,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: stories.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final story = stories[index];
+                final decryptedUrl = CryptoUtils.decrypt(story.mediaUrl);
+                return TapAnimator(
+                  onTap: () {
+                    final storyRepo = context.read<StoryRepository>();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => StoryViewScreen(
+                          stories: stories,
+                          initialIndex: index,
+                          shopLookup: {shop.id: shop},
+                          getViewCount: storyRepo.getStoryViewCount,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 70,
+                        height: 70,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.purple.withValues(alpha: 0.4),
+                            width: 2,
+                          ),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: decryptedUrl.isNotEmpty
+                              ? CachedNetworkImage(
+                                  imageUrl: decryptedUrl,
+                                  fit: BoxFit.cover,
+                                  placeholder: (_, __) => Container(
+                                    color: Colors.grey[200],
+                                    child: Icon(
+                                      Icons.auto_awesome,
+                                      color: Colors.purple[300],
+                                      size: 24,
+                                    ),
+                                  ),
+                                  errorWidget: (_, __, ___) => Container(
+                                    color: Colors.grey[200],
+                                    child: Icon(
+                                      Icons.auto_awesome,
+                                      color: Colors.purple[300],
+                                      size: 24,
+                                    ),
+                                  ),
+                                )
+                              : Container(
+                                  color: Colors.grey[200],
+                                  child: Icon(
+                                    Icons.auto_awesome,
+                                    color: Colors.purple[300],
+                                    size: 24,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        story.mediaType == 'video' ? 'Vidéo' : 'Photo',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ─── My Arrivages (Seller) ──────────────────────────────────────────
+
+  Widget _buildMyArrivages(Shop shop) {
+    return ModernCard(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      child: StreamBuilder<List<Story>>(
+        stream: context.read<StoryRepository>().watchArrivagesByShop(shop.id),
+        builder: (context, snapshot) {
+          final arrivages = snapshot.data ?? [];
+          if (arrivages.isEmpty) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Center(
+                child: Text(
+                  tr(context, 'no_arrivages_yet'),
+                  style: TextStyle(color: Colors.grey[500]),
+                ),
+              ),
+            );
+          }
+          return SizedBox(
+            height: 100,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: arrivages.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final arrivage = arrivages[index];
+                final decryptedUrl = CryptoUtils.decrypt(arrivage.mediaUrl);
+                return TapAnimator(
+                  onTap: () {
+                    final storyRepo = context.read<StoryRepository>();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => StoryViewScreen(
+                          stories: arrivages,
+                          initialIndex: index,
+                          shopLookup: {shop.id: shop},
+                          getViewCount: storyRepo.getStoryViewCount,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 70,
+                        height: 70,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: UzaColors.secondary.withValues(alpha: 0.4),
+                            width: 2,
+                          ),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: decryptedUrl.isNotEmpty
+                              ? CachedNetworkImage(
+                                  imageUrl: decryptedUrl,
+                                  fit: BoxFit.cover,
+                                  placeholder: (_, __) => Container(
+                                    color: Colors.grey[200],
+                                    child: Icon(
+                                      Icons.local_shipping,
+                                      color: UzaColors.secondary.withValues(
+                                        alpha: 0.6,
+                                      ),
+                                      size: 24,
+                                    ),
+                                  ),
+                                  errorWidget: (_, __, ___) => Container(
+                                    color: Colors.grey[200],
+                                    child: Icon(
+                                      Icons.local_shipping,
+                                      color: UzaColors.secondary.withValues(
+                                        alpha: 0.6,
+                                      ),
+                                      size: 24,
+                                    ),
+                                  ),
+                                )
+                              : Container(
+                                  color: Colors.grey[200],
+                                  child: Icon(
+                                    Icons.local_shipping,
+                                    color: UzaColors.secondary.withValues(
+                                      alpha: 0.6,
+                                    ),
+                                    size: 24,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        arrivage.mediaType == 'video' ? 'Vidéo' : 'Photo',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      ),
+                    ],
                   ),
                 );
               },

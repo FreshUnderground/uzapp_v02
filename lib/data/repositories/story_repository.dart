@@ -192,6 +192,38 @@ class StoryRepository {
         });
   }
 
+  /// Watch active regular stories (isArrivage=false) for a specific shop.
+  Stream<List<Story>> watchStoriesByShop(int shopId) {
+    final now = DateTime.now();
+    final cutoff = now.subtract(storyExpiry);
+    return (db.select(db.stories)
+          ..where(
+            (t) =>
+                t.shopId.equals(shopId) &
+                t.isArrivage.equals(false) &
+                t.expiresAt.isBiggerThanValue(now) &
+                t.createdAt.isBiggerThanValue(cutoff),
+          )
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .watch();
+  }
+
+  /// Watch active arrivages (isArrivage=true) for a specific shop.
+  Stream<List<Story>> watchArrivagesByShop(int shopId) {
+    final now = DateTime.now();
+    final cutoff = now.subtract(arrivageExpiry);
+    return (db.select(db.stories)
+          ..where(
+            (t) =>
+                t.shopId.equals(shopId) &
+                t.isArrivage.equals(true) &
+                t.expiresAt.isBiggerThanValue(now) &
+                t.createdAt.isBiggerThanValue(cutoff),
+          )
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .watch();
+  }
+
   /// Watch active arrivages grouped by shopId.
   /// Returns a Map of `shopId` to `List of Story`.
   Stream<Map<int, List<Story>>> watchArrivagesGroupedByShop() {

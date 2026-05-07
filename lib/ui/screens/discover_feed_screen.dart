@@ -2,14 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../data/repositories/product_repository.dart';
-import '../../data/local/uza_database.dart';
+import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
+import '../../data/local/uza_database.dart';
 import '../../core/services/contact_service.dart';
-import 'product_detail_screen.dart';
-import 'dart:ui';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
+import '../../core/res/uza_colors.dart';
+import '../utils/page_transitions.dart';
 import '../components/shop_video_player.dart';
+import 'product_detail_screen.dart';
+import 'story_view_screen.dart';
+import 'arrivages_screen.dart';
+import 'shops_directory_screen.dart';
+import 'shop_profile_screen.dart';
+import 'dart:ui';
 
 class DiscoverFeedScreen extends StatefulWidget {
   const DiscoverFeedScreen({super.key});
@@ -30,40 +37,447 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
   @override
   Widget build(BuildContext context) {
     final productRepo = context.watch<ProductRepository>();
+    final storyRepo = context.watch<StoryRepository>();
+    final shopRepo = context.watch<ShopRepository>();
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: StreamBuilder<List<Product>>(
         stream: productRepo.watchTrendingProducts(limit: 20),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            );
-          }
-          final products = snapshot.data ?? [];
-          if (products.isEmpty) {
-            return const Center(
-              child: Text(
-                'Aucune découverte pour le moment',
-                style: TextStyle(color: Colors.white),
-              ),
-            );
-          }
+        builder: (context, productSnapshot) {
+          return StreamBuilder<Map<int, List<Story>>>(
+            stream: storyRepo.watchArrivagesGroupedByShop(),
+            builder: (context, arrivageSnapshot) {
+              return StreamBuilder<List<Shop>>(
+                stream: shopRepo.watchFeaturedShops(),
+                builder: (context, shopSnapshot) {
+                  final products = productSnapshot.data ?? [];
+                  final arrivageGroups = arrivageSnapshot.data ?? {};
+                  final shops = shopSnapshot.data ?? [];
+                  final showArrivages = arrivageGroups.isNotEmpty;
+                  final showShops = shops.isNotEmpty;
 
-          return Stack(
-            children: [
-              PageView.builder(
-                scrollDirection: Axis.vertical,
-                controller: _pageController,
-                itemCount: products.length,
-                itemBuilder: (context, index) {
-                  return _DiscoverItem(product: products[index]);
+                  if (productSnapshot.connectionState ==
+                          ConnectionState.waiting &&
+                      products.isEmpty) {
+                    return const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    );
+                  }
+
+                  if (products.isEmpty && !showArrivages && !showShops) {
+                    return const Center(
+                      child: Text(
+                        'Aucune découverte pour le moment',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    );
+                  }
+
+                  return Column(
+                    children: [
+                      // Arrivages section at the top
+                      if (showArrivages) _buildArrivagesSection(arrivageGroups),
+                      // Boutiques section
+                      if (showShops) _buildBoutiquesSection(shops),
+                      // Product feed fills remaining space
+                      Expanded(
+                        child: products.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  'Aucune découverte pour le moment',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              )
+                            : PageView.builder(
+                                scrollDirection: Axis.vertical,
+                                controller: _pageController,
+                                itemCount: products.length,
+                                itemBuilder: (context, index) {
+                                  return _DiscoverItem(
+                                    product: products[index],
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  );
                 },
-              ),
-            ],
+              );
+            },
           );
         },
+      ),
+    );
+  }
+
+  /// Builds the Arrivages horizontal scroll section with header.
+  Widget _buildArrivagesSection(Map<int, List<Story>> grouped) {
+    final shopIds = grouped.keys.toList();
+
+    return Container(
+      color: Colors.black,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Section header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: UzaColors.primary,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Arrivages',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    SlideUpRoute(page: const ArrivagesScreen()),
+                  ),
+                  child: Text(
+                    'Voir tout',
+                    style: TextStyle(
+                      color: UzaColors.primary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Horizontal scroll of arrivage cards
+          SizedBox(
+            height: 160,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: shopIds.length,
+              itemBuilder: (context, index) {
+                final shopId = shopIds[index];
+                final stories = grouped[shopId]!;
+                final firstStory = stories.first;
+                return _ArrivageCard(
+                  shopId: shopId,
+                  stories: stories,
+                  firstStory: firstStory,
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the Boutiques horizontal scroll section with header.
+  Widget _buildBoutiquesSection(List<Shop> shops) {
+    final featured = shops.take(8).toList();
+
+    return Container(
+      color: Colors.black,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Section header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: UzaColors.secondary,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Boutiques',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    SlideUpRoute(page: const ShopsDirectoryScreen()),
+                  ),
+                  child: Text(
+                    'Voir tout',
+                    style: TextStyle(
+                      color: UzaColors.secondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Horizontal scroll of shop avatars
+          SizedBox(
+            height: 100,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: featured.length,
+              itemBuilder: (context, index) {
+                final shop = featured[index];
+                return _FeaturedShopAvatar(shop: shop);
+              },
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+}
+
+/// A single arrivage card in the horizontal list.
+class _ArrivageCard extends StatelessWidget {
+  final int shopId;
+  final List<Story> stories;
+  final Story firstStory;
+
+  const _ArrivageCard({
+    required this.shopId,
+    required this.stories,
+    required this.firstStory,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final decryptedUrl = firstStory.mediaUrl.isNotEmpty
+        ? CryptoUtils.decrypt(firstStory.mediaUrl)
+        : '';
+
+    return GestureDetector(
+      onTap: () {
+        final storyRepo = context.read<StoryRepository>();
+        storyRepo.logStoryView(stories.first.id);
+        // Build shop lookup for StoryViewScreen
+        final shopRepo = context.read<ShopRepository>();
+        _openStoryWithShopLookup(context, shopRepo);
+      },
+      child: Container(
+        width: 120,
+        margin: const EdgeInsets.only(right: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Background image
+              Image.network(
+                decryptedUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: Colors.grey[800],
+                    child: Icon(
+                      Icons.image_not_supported,
+                      color: Colors.grey[600],
+                    ),
+                  );
+                },
+              ),
+              // Gradient overlay
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.6),
+                    ],
+                  ),
+                ),
+              ),
+              // Shop info at bottom
+              Positioned(
+                left: 6,
+                right: 6,
+                bottom: 6,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.store,
+                        size: 12,
+                        color: UzaColors.secondary,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: FutureBuilder<Shop?>(
+                        future: context.read<ShopRepository>().getShopById(
+                          shopId,
+                        ),
+                        builder: (context, snapshot) {
+                          return Text(
+                            snapshot.data?.name ?? '...',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          );
+                        },
+                      ),
+                    ),
+                    if (stories.length > 1)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: UzaColors.primary,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '${stories.length}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Open StoryViewScreen after fetching shop data for the lookup map.
+  Future<void> _openStoryWithShopLookup(
+    BuildContext context,
+    ShopRepository shopRepo,
+  ) async {
+    final shop = await shopRepo.getShopById(shopId);
+    final shopLookup = <int, Shop>{};
+    if (shop != null) {
+      shopLookup[shopId] = shop;
+    }
+    if (context.mounted) {
+      Navigator.push(
+        context,
+        SlideUpRoute(
+          page: StoryViewScreen(
+            stories: stories,
+            initialIndex: 0,
+            shopLookup: shopLookup,
+          ),
+        ),
+      );
+    }
+  }
+}
+
+/// A small circular shop avatar for the Boutiques horizontal list.
+class _FeaturedShopAvatar extends StatelessWidget {
+  final Shop shop;
+
+  const _FeaturedShopAvatar({required this.shop});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          SlideUpRoute(page: ShopProfileScreen(shop: shop)),
+        );
+      },
+      child: Container(
+        width: 72,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: UzaColors.secondary.withValues(alpha: 0.5),
+                  width: 2,
+                ),
+              ),
+              child: ClipOval(
+                child: ImageUtils.getLogoWidget(
+                  shop.logoUrl,
+                  size: 64,
+                  fallbackIcon: Icons.store,
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              shop.name,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }

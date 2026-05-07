@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
+import 'package:drift/drift.dart' hide Column;
 import '../../data/local/uza_database.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/services/api_service.dart';
@@ -27,7 +27,12 @@ class _PendingMedia {
 
 class CreateStoryScreen extends StatefulWidget {
   final int shopId;
-  const CreateStoryScreen({super.key, required this.shopId});
+  final bool isArrivage;
+  const CreateStoryScreen({
+    super.key,
+    required this.shopId,
+    this.isArrivage = false,
+  });
 
   @override
   State<CreateStoryScreen> createState() => _CreateStoryScreenState();
@@ -41,16 +46,34 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
   String? _uploadMessage;
 
   Future<void> _pickImage() async {
-    final XFile? file = await _picker.pickImage(source: ImageSource.gallery);
-    if (file == null) return;
+    if (widget.isArrivage) {
+      // Multi-image selection for arrivages
+      final List<XFile> files = await _picker.pickMultiImage();
+      if (files.isEmpty) return;
 
-    final bytes = await file.readAsBytes();
-    setState(() {
-      _selectedMedia.clear();
-      _selectedMedia.add(
-        _PendingMedia(file: file, bytes: bytes, mediaType: 'image'),
-      );
-    });
+      final List<_PendingMedia> newItems = [];
+      for (final file in files) {
+        final bytes = await file.readAsBytes();
+        newItems.add(
+          _PendingMedia(file: file, bytes: bytes, mediaType: 'image'),
+        );
+      }
+      setState(() {
+        _selectedMedia.addAll(newItems);
+      });
+    } else {
+      // Single selection for regular stories
+      final XFile? file = await _picker.pickImage(source: ImageSource.gallery);
+      if (file == null) return;
+
+      final bytes = await file.readAsBytes();
+      setState(() {
+        _selectedMedia.clear();
+        _selectedMedia.add(
+          _PendingMedia(file: file, bytes: bytes, mediaType: 'image'),
+        );
+      });
+    }
   }
 
   Future<void> _pickVideo() async {
@@ -73,16 +96,30 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
     }
 
     setState(() {
-      _selectedMedia.clear();
-      _selectedMedia.add(
-        _PendingMedia(file: file, bytes: bytes, mediaType: 'video'),
-      );
+      if (widget.isArrivage) {
+        // Append for arrivages
+        _selectedMedia.add(
+          _PendingMedia(file: file, bytes: bytes, mediaType: 'video'),
+        );
+      } else {
+        // Replace for regular stories
+        _selectedMedia.clear();
+        _selectedMedia.add(
+          _PendingMedia(file: file, bytes: bytes, mediaType: 'video'),
+        );
+      }
     });
   }
 
   void _removeMedia() {
     setState(() {
       _selectedMedia.clear();
+    });
+  }
+
+  void _removeMediaAt(int index) {
+    setState(() {
+      _selectedMedia.removeAt(index);
     });
   }
 
@@ -107,70 +144,126 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
       final syncService = context.read<SyncService>();
       final shopRepo = context.read<ShopRepository>();
 
-      // 1. Upload the single media file
-      final media = _selectedMedia.first;
-      setState(() {
-        _uploadMessage =
-            'Envoi (${ImageCompressUtils.getFileSizeString(media.bytes.length)})...';
-      });
+      // 1. Upload all media files
+      final List<String> remoteUrls = [];
+      final List<String> mediaTypes = [];
 
-      Uint8List bytesToUpload = media.bytes;
+      for (var i = 0; i < _selectedMedia.length; i++) {
+        final media = _selectedMedia[i];
+        setState(() {
+          _uploadMessage =
+              'Envoi ${i + 1}/${_selectedMedia.length} (${ImageCompressUtils.getFileSizeString(media.bytes.length)})...';
+        });
 
-      // Compress images (skip for videos)
-      if (media.mediaType == 'image') {
-        final compressed = await ImageCompressUtils.compressImage(
-          media.bytes,
-          maxWidth: 1080,
-          quality: 70,
-        );
-        if (compressed != null) {
-          bytesToUpload = compressed;
+        Uint8List bytesToUpload = media.bytes;
+
+        // Compress images (skip for videos)
+        if (media.mediaType == 'image') {
+          final compressed = await ImageCompressUtils.compressImage(
+            media.bytes,
+            maxWidth: 1080,
+            quality: 70,
+          );
+          if (compressed != null) {
+            bytesToUpload = compressed;
+          }
         }
+
+        final fileName =
+            'story_${DateTime.now().millisecondsSinceEpoch}_$i.${media.file.name.split('.').last}';
+
+        final remoteUrl = await apiService.uploadFile(
+          bytesToUpload,
+          fileName,
+          folder: 'stories',
+          timeout: const Duration(seconds: 30),
+        );
+
+        if (remoteUrl == null) {
+          throw Exception('Échec de l\'upload du média ${i + 1}');
+        }
+
+        remoteUrls.add(remoteUrl);
+        mediaTypes.add(media.mediaType);
       }
 
-      final fileName =
-          'story_${DateTime.now().millisecondsSinceEpoch}.${media.file.name.split('.').last}';
-
-      final remoteUrl = await apiService.uploadFile(
-        bytesToUpload,
-        fileName,
-        folder: 'stories',
-        timeout: const Duration(seconds: 30),
-      );
-
-      if (remoteUrl == null) {
-        throw Exception('Échec de l\'upload du média');
-      }
-
-      // 2. Create story (single media, no story_media children)
+      // 2. Create story (with optional multi-media for arrivages)
       final nowUtc = DateTime.now().toUtc();
-      final expiresAt = nowUtc.add(StoryRepository.storyExpiry);
+      final expiresAt = widget.isArrivage
+          ? nowUtc.add(StoryRepository.arrivageExpiry)
+          : nowUtc.add(StoryRepository.storyExpiry);
 
-      final storyId = await storyRepo.addStory(
-        StoriesCompanion.insert(
-          shopId: widget.shopId,
-          mediaUrl: CryptoUtils.encrypt(remoteUrl),
-          mediaType: media.mediaType,
-          expiresAt: expiresAt,
-        ),
-      );
+      if (widget.isArrivage && remoteUrls.length > 1) {
+        // Arrivage with multiple media → use addStoryWithMedia
+        final mediaItems = <StoryMediaCompanion>[];
+        for (var i = 1; i < remoteUrls.length; i++) {
+          mediaItems.add(
+            StoryMediaCompanion.insert(
+              storyId: 0, // placeholder, will be set by addStoryWithMedia
+              mediaUrl: CryptoUtils.encrypt(remoteUrls[i]),
+              mediaType: Value(mediaTypes[i]),
+              sortOrder: Value(i),
+            ),
+          );
+        }
+        await storyRepo.addStoryWithMedia(
+          StoriesCompanion.insert(
+            shopId: widget.shopId,
+            mediaUrl: CryptoUtils.encrypt(remoteUrls.first),
+            mediaType: mediaTypes.first,
+            isArrivage: Value(widget.isArrivage),
+            expiresAt: expiresAt,
+          ),
+          mediaItems,
+        );
+      } else {
+        // Single media story (or regular story)
+        await storyRepo.addStory(
+          StoriesCompanion.insert(
+            shopId: widget.shopId,
+            mediaUrl: CryptoUtils.encrypt(remoteUrls.first),
+            mediaType: mediaTypes.first,
+            isArrivage: Value(widget.isArrivage),
+            expiresAt: expiresAt,
+          ),
+        );
+      }
 
       // 3. Queue for remote sync
       if (!mounted) return;
       final shop = await shopRepo.getShopById(widget.shopId);
-      await syncService.addToQueue('CREATE', 'stories', {
-        'id': storyId,
-        'shop_id': widget.shopId,
-        'shop_name': shop?.name ?? 'Boutique',
-        'media_url': remoteUrl,
-        'media_type': media.mediaType,
-        'created_at': nowUtc.toIso8601String(),
+      final remoteShopId = int.tryParse(shop?.remoteId ?? '') ?? widget.shopId;
+      final syncPayload = <String, dynamic>{
+        'shop_id': remoteShopId,
+        'media_url': remoteUrls.first,
+        'media_type': mediaTypes.first,
+        'is_arrivage': widget.isArrivage ? 1 : 0,
         'expires_at': expiresAt.toIso8601String(),
-      });
+      };
+      if (remoteUrls.length > 1) {
+        syncPayload['media'] = List.generate(
+          remoteUrls.length - 1,
+          (i) => {
+            'media_url': remoteUrls[i + 1],
+            'media_type': mediaTypes[i + 1],
+            'sort_order': i + 1,
+          },
+        );
+      }
+      await syncService.addToQueue('CREATE', 'stories', syncPayload);
+
+      // Trigger immediate push so the story appears on the server
+      syncService.forcePush();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Story publiée avec succès !')),
+          SnackBar(
+            content: Text(
+              widget.isArrivage
+                  ? 'Arrivage publié avec succès !'
+                  : 'Story publiée avec succès !',
+            ),
+          ),
         );
         Navigator.pop(context);
       }
@@ -212,20 +305,28 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Publier une Story')),
+      appBar: AppBar(
+        title: Text(
+          widget.isArrivage ? 'Nouvel Arrivage' : 'Publier une Story',
+        ),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Partagez une nouveauté de votre boutique',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              widget.isArrivage
+                  ? 'Annoncez les nouvelles arrivées de votre boutique'
+                  : 'Partagez une nouveauté de votre boutique',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Les stories sont visibles pendant 24 heures par tous les utilisateurs.',
-              style: TextStyle(color: Colors.grey),
+            Text(
+              widget.isArrivage
+                  ? 'Les arrivages sont visibles pendant 4 jours par tous les utilisateurs.'
+                  : 'Les stories sont visibles pendant 24 heures par tous les utilisateurs.',
+              style: const TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 24),
 
@@ -263,7 +364,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  '1 média sélectionné',
+                  '${_selectedMedia.length} média(s) sélectionné(s)',
                   style: TextStyle(color: Colors.grey[600], fontSize: 13),
                 ),
               ),
@@ -315,9 +416,11 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
                           ],
                         ],
                       )
-                    : const Text(
-                        'PUBLIER LA STORY',
-                        style: TextStyle(
+                    : Text(
+                        widget.isArrivage
+                            ? 'PUBLIER L\'ARRIVAGE'
+                            : 'PUBLIER LA STORY',
+                        style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                         ),
@@ -361,7 +464,6 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
   }
 
   Widget _buildMediaPreviewGrid() {
-    final media = _selectedMedia.first;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -378,90 +480,104 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
             TextButton.icon(
               onPressed: _removeMedia,
               icon: const Icon(Icons.clear, size: 18),
-              label: const Text('Effacer'),
+              label: const Text('Effacer tout'),
               style: TextButton.styleFrom(foregroundColor: Colors.red[400]),
             ),
           ],
         ),
         const SizedBox(height: 8),
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
-              width: double.infinity,
-              height: 240,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                color: Colors.grey[200],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: media.mediaType == 'image'
-                  ? Image.memory(media.bytes, fit: BoxFit.cover)
-                  : Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Container(
-                          color: Colors.grey[800],
-                          child: Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.videocam,
-                                  color: UzaColors.primary,
-                                  size: 48,
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: List.generate(_selectedMedia.length, (index) {
+            final media = _selectedMedia[index];
+            final isSingle = _selectedMedia.length == 1;
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: isSingle
+                      ? double.infinity
+                      : (MediaQuery.of(context).size.width - 72) / 2,
+                  height: isSingle ? 240 : 180,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    color: Colors.grey[200],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: media.mediaType == 'image'
+                      ? Image.memory(media.bytes, fit: BoxFit.cover)
+                      : Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              color: Colors.grey[800],
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.videocam,
+                                      color: UzaColors.primary,
+                                      size: 48,
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'Vidéo',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                SizedBox(height: 8),
-                                Text(
-                                  'Vidéo',
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
-                          ),
+                          ],
                         ),
-                      ],
+                ),
+                // Remove button for individual item
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: GestureDetector(
+                    onTap: () => _removeMediaAt(index),
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
-            ),
-            // Remove button
-            Positioned(
-              top: 8,
-              right: 8,
-              child: GestureDetector(
-                onTap: _removeMedia,
-                child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.close, color: Colors.white, size: 20),
-                ),
-              ),
-            ),
-            // Video play icon indicator
-            if (media.mediaType == 'video')
-              Positioned(
-                bottom: 12,
-                right: 12,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: UzaColors.primary.withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.play_arrow,
-                    color: Colors.white,
-                    size: 20,
                   ),
                 ),
-              ),
-          ],
+                // Video play icon indicator
+                if (media.mediaType == 'video')
+                  Positioned(
+                    bottom: 12,
+                    right: 12,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: UzaColors.primary.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          }),
         ),
       ],
     );

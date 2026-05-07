@@ -4,6 +4,14 @@ authenticate();
 
 header('Content-Type: application/json');
 
+// Allowed columns for shops to prevent SQL errors from unknown fields
+$ALLOWED_SHOP_COLUMNS = [
+    'id', 'name', 'description', 'logo_url', 'type', 'owner_id', 'address', 'whatsapp',
+    'phone', 'email', 'instagram_url', 'tiktok_url', 'facebook_url', 'youtube_url',
+    'banner_url', 'boost_status', 'banner_status', 'banner_text', 'video_url',
+    'is_boosted', 'is_verified', 'verified_at', 'created_at', 'updated_at'
+];
+
 try {
     $db = DB::getInstance();
 
@@ -15,15 +23,15 @@ try {
             exit;
         }
 
-        $id = isset($input['id']) ? $input['id'] : null;
-        $ownerId = isset($input['owner_id']) ? $input['owner_id'] : null;
-
         // --- Validation ---
         if (empty($input['name'])) {
             http_response_code(400);
             echo json_encode(['success' => false, 'error' => 'Shop name is required']);
             exit;
         }
+
+        $id = isset($input['id']) ? $input['id'] : null;
+        $ownerId = isset($input['owner_id']) ? $input['owner_id'] : null;
 
         // --- Determine upsert target ---
         $exists = false;
@@ -50,14 +58,17 @@ try {
             }
         }
 
+        // Filter to only allowed columns BEFORE building SQL
+        $filteredInput = array_intersect_key($input, array_flip($ALLOWED_SHOP_COLUMNS));
+
         // Add updated_at timestamp
-        $input['updated_at'] = date('Y-m-d H:i:s');
+        $filteredInput['updated_at'] = date('Y-m-d H:i:s');
 
         if ($exists) {
             // UPDATE
             $fields = [];
             $params = [];
-            foreach ($input as $key => $value) {
+            foreach ($filteredInput as $key => $value) {
                 if ($key !== 'id') {
                     $fields[] = "`$key` = ?";
                     $params[] = $value;
@@ -66,19 +77,19 @@ try {
             $params[] = $id;
             $stmt = $db->prepare("UPDATE shops SET " . implode(', ', $fields) . " WHERE id = ?");
             $stmt->execute($params);
-            echo json_encode(['success' => true, 'id' => $id, 'action' => 'UPDATE']);
+            echo json_encode(['success' => true, 'id' => (int)$id, 'action' => 'UPDATE']);
         } else {
             // INSERT — ensure created_at is set
-            if (!isset($input['created_at'])) {
-                $input['created_at'] = date('Y-m-d H:i:s');
+            if (!isset($filteredInput['created_at'])) {
+                $filteredInput['created_at'] = date('Y-m-d H:i:s');
             }
-            $keys = array_keys($input);
-            $values = array_values($input);
+            $keys = array_keys($filteredInput);
+            $values = array_values($filteredInput);
             $placeholders = array_fill(0, count($keys), '?');
             $stmt = $db->prepare("INSERT INTO shops (" . implode(', ', $keys) . ") VALUES (" . implode(', ', $placeholders) . ")");
             $stmt->execute($values);
             $newId = $db->lastInsertId();
-            echo json_encode(['success' => true, 'id' => $id ? $id : $newId, 'action' => 'CREATE']);
+            echo json_encode(['success' => true, 'id' => (int)$newId, 'action' => 'CREATE']);
         }
         exit;
     }
@@ -130,6 +141,9 @@ try {
             ]
         ]);
     }
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);

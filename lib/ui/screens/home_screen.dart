@@ -471,7 +471,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.pop(context);
                   Navigator.push(
                     this.context,
-                    SlideUpRoute(page: CreateStoryScreen(shopId: shop.id)),
+                    SlideUpRoute(
+                      page: CreateStoryScreen(
+                        shopId: shop.id,
+                        isArrivage: true,
+                      ),
+                    ),
                   );
                 },
               ),
@@ -665,12 +670,10 @@ class _HomeContentState extends State<_HomeContent> {
                   ),
                 ),
 
-                // 2. Stories Header
+                // 2. Stories
                 SliverToBoxAdapter(
                   child: _buildSectionHeader('Stories', topPadding: 12),
                 ),
-
-                // 3. Compact Stories
                 SliverToBoxAdapter(
                   child: SizedBox(
                     height: responsiveStoryHeight,
@@ -704,7 +707,20 @@ class _HomeContentState extends State<_HomeContent> {
                   ),
                 ),
 
-                // 3. Arrivages (Story-based)
+                // 3. Category Shortcuts
+                SliverToBoxAdapter(child: _buildCategoryShortcuts()),
+
+                // 4. Nouveaux Arrivages
+                SliverToBoxAdapter(
+                  child: _buildSectionHeader(
+                    'Nouveaux Arrivages',
+                    onAction: () => Navigator.push(
+                      context,
+                      SlideUpRoute(page: const ArrivagesScreen()),
+                    ),
+                  ),
+                ),
+                // Arrivage stories sub-section
                 SliverToBoxAdapter(
                   child: StreamBuilder<Map<int, List<Story>>>(
                     stream: storyRepo.watchArrivagesGroupedByShop(),
@@ -714,198 +730,159 @@ class _HomeContentState extends State<_HomeContent> {
                         return const SizedBox.shrink();
                       }
                       final shopIds = grouped.keys.toList();
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildSectionHeader(
-                            'Arrivages',
-                            onAction: () => Navigator.push(
-                              context,
-                              SlideUpRoute(page: const ArrivagesScreen()),
-                            ),
-                          ),
-                          SizedBox(
-                            height: 190,
-                            child: ListView.builder(
-                              scrollDirection: Axis.horizontal,
-                              padding: EdgeInsets.symmetric(horizontal: hPad),
-                              itemCount: shopIds.length,
-                              itemBuilder: (context, index) {
-                                final shopId = shopIds[index];
-                                final stories = grouped[shopId]!;
-                                final firstStory = stories.first;
-                                return GestureDetector(
-                                  onTap: () {
-                                    final storyRepo = context
-                                        .read<StoryRepository>();
-                                    storyRepo.logStoryView(stories.first.id);
-                                    widget.onOpenStory(stories, 0);
-                                  },
-                                  child: Container(
-                                    width: 140,
-                                    margin: const EdgeInsets.only(right: 12),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(12),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.08,
-                                          ),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 3),
-                                        ),
-                                      ],
+                      return SizedBox(
+                        height: 160,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: EdgeInsets.symmetric(horizontal: hPad),
+                          itemCount: shopIds.length,
+                          itemBuilder: (context, index) {
+                            final shopId = shopIds[index];
+                            final stories = grouped[shopId]!;
+                            final firstStory = stories.first;
+                            return GestureDetector(
+                              onTap: () {
+                                final sRepo = context.read<StoryRepository>();
+                                sRepo.logStoryView(stories.first.id);
+                                widget.onOpenStory(stories, 0);
+                              },
+                              child: Container(
+                                width: 120,
+                                margin: const EdgeInsets.only(right: 10),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.08,
+                                      ),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 3),
                                     ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: Stack(
-                                        fit: StackFit.expand,
-                                        children: [
-                                          Image.network(
-                                            firstStory.mediaUrl.isNotEmpty
-                                                ? CryptoUtils.decrypt(
-                                                    firstStory.mediaUrl,
-                                                  )
-                                                : '',
-                                            fit: BoxFit.cover,
-                                            errorBuilder:
-                                                (context, error, stackTrace) {
-                                                  return Container(
-                                                    color: Colors.grey[200],
-                                                    child: Icon(
-                                                      Icons.image_not_supported,
-                                                      color: Colors.grey[400],
-                                                    ),
-                                                  );
-                                                },
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      Image.network(
+                                        firstStory.mediaUrl.isNotEmpty
+                                            ? CryptoUtils.decrypt(
+                                                firstStory.mediaUrl,
+                                              )
+                                            : '',
+                                        fit: BoxFit.cover,
+                                        errorBuilder:
+                                            (context, error, stackTrace) {
+                                              return Container(
+                                                color: Colors.grey[200],
+                                                child: Icon(
+                                                  Icons.image_not_supported,
+                                                  color: Colors.grey[400],
+                                                ),
+                                              );
+                                            },
+                                      ),
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [
+                                              Colors.transparent,
+                                              Colors.black.withValues(
+                                                alpha: 0.6,
+                                              ),
+                                            ],
                                           ),
-                                          Container(
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                begin: Alignment.topCenter,
-                                                end: Alignment.bottomCenter,
-                                                colors: [
-                                                  Colors.transparent,
-                                                  Colors.black.withValues(
-                                                    alpha: 0.6,
+                                        ),
+                                      ),
+                                      Positioned(
+                                        left: 6,
+                                        right: 6,
+                                        bottom: 6,
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              width: 20,
+                                              height: 20,
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                shape: BoxShape.circle,
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black
+                                                        .withValues(alpha: 0.2),
+                                                    blurRadius: 4,
                                                   ),
                                                 ],
                                               ),
+                                              child: const Icon(
+                                                Icons.store,
+                                                size: 12,
+                                                color: UzaColors.secondary,
+                                              ),
                                             ),
-                                          ),
-                                          Positioned(
-                                            left: 8,
-                                            right: 8,
-                                            bottom: 8,
-                                            child: Row(
-                                              children: [
-                                                Container(
-                                                  width: 24,
-                                                  height: 24,
-                                                  decoration: BoxDecoration(
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: FutureBuilder<Shop?>(
+                                                future: context
+                                                    .read<ShopRepository>()
+                                                    .getShopById(shopId),
+                                                builder: (context, snapshot) {
+                                                  return Text(
+                                                    snapshot.data?.name ??
+                                                        '...',
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                            if (stories.length > 1)
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 4,
+                                                      vertical: 1,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: UzaColors.primary,
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                ),
+                                                child: Text(
+                                                  '${stories.length}',
+                                                  style: const TextStyle(
                                                     color: Colors.white,
-                                                    shape: BoxShape.circle,
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color: Colors.black
-                                                            .withValues(
-                                                              alpha: 0.2,
-                                                            ),
-                                                        blurRadius: 4,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  child: const Icon(
-                                                    Icons.store,
-                                                    size: 14,
-                                                    color: UzaColors.secondary,
+                                                    fontSize: 8,
+                                                    fontWeight: FontWeight.bold,
                                                   ),
                                                 ),
-                                                const SizedBox(width: 6),
-                                                Expanded(
-                                                  child: FutureBuilder<Shop?>(
-                                                    future: context
-                                                        .read<ShopRepository>()
-                                                        .getShopById(shopId),
-                                                    builder:
-                                                        (context, snapshot) {
-                                                          return Text(
-                                                            snapshot
-                                                                    .data
-                                                                    ?.name ??
-                                                                '...',
-                                                            style:
-                                                                const TextStyle(
-                                                                  color: Colors
-                                                                      .white,
-                                                                  fontSize: 11,
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .w600,
-                                                                ),
-                                                            maxLines: 1,
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .ellipsis,
-                                                          );
-                                                        },
-                                                  ),
-                                                ),
-                                                if (stories.length > 1)
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 5,
-                                                          vertical: 2,
-                                                        ),
-                                                    decoration: BoxDecoration(
-                                                      color: UzaColors.primary,
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            8,
-                                                          ),
-                                                    ),
-                                                    child: Text(
-                                                      '${stories.length}',
-                                                      style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontSize: 9,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                      ),
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
+                                              ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
+                                    ],
                                   ),
-                                );
-                              },
-                            ),
-                          ),
-                        ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       );
                     },
                   ),
                 ),
-
-                // 4. Category Shortcuts
-                SliverToBoxAdapter(child: _buildCategoryShortcuts()),
-
-                // 5. Nouveautés (Horizontal Scroll)
-                SliverToBoxAdapter(
-                  child: _buildSectionHeader(
-                    'Nouveautés',
-                    onAction: () => Navigator.push(
-                      context,
-                      SlideUpRoute(page: const ArrivagesScreen()),
-                    ),
-                  ),
-                ),
+                // Arrival products sub-section
                 SliverToBoxAdapter(
                   child: SizedBox(
                     height: 280,
@@ -1003,7 +980,7 @@ class _HomeContentState extends State<_HomeContent> {
                   ),
                 ),
 
-                // 6. Populaires (Grid)
+                // 5. Populaires (Grid)
                 SliverToBoxAdapter(
                   child: _buildSectionHeader(tr(context, 'popular')),
                 ),

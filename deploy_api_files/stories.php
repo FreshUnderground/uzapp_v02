@@ -4,29 +4,81 @@ authenticate();
 
 header('Content-Type: application/json');
 
+// Allowed columns for stories to prevent SQL errors from unknown fields
+$ALLOWED_STORY_COLUMNS = ['id', 'shop_id', 'media_url', 'media_type', 'is_arrivage', 'expires_at', 'created_at'];
+
 try {
     $db = DB::getInstance();
 
+    // Log incoming POST for debugging
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $input = json_decode(file_get_contents('php://input'), true);
+        $rawInput = file_get_contents('php://input');
+        error_log("Stories POST raw: " . $rawInput);
+        $input = json_decode($rawInput, true);
         if (!$input) {
-            throw new Exception('Invalid JSON input');
+            error_log("Stories POST: Invalid JSON input");
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid JSON input']);
+            exit;
         }
 
-        // Extract media items if provided
+        // Extract media items if provided (not a column in stories table)
         $mediaItems = [];
         if (isset($input['media']) && is_array($input['media'])) {
             $mediaItems = $input['media'];
             unset($input['media']);
         }
 
-        // Insert the story
-        $keys = array_keys($input);
-        $values = array_values($input);
+        // Filter to only allowed columns
+        $filteredInput = array_intersect_key($input, array_flip($ALLOWED_STORY_COLUMNS));
+
+        if (empty($filteredInput)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'No valid story data provided']);
+            exit;
+        }
+
+        $id = isset($filteredInput['id']) ? $filteredInput['id'] : null;
+
+        // Check if story exists (for UPDATE)
+        $exists = false;
+        if ($id) {
+            $stmt = $db->prepare("SELECT id FROM stories WHERE id = ?");
+            $stmt->execute([$id]);
+            $exists = (bool)$stmt->fetch();
+        }
+
+        if ($exists) {
+            // UPDATE existing story
+            $fields = []; $params = [];
+            foreach ($filteredInput as $key => $value) {
+                if ($key !== 'id') {
+                    $fields[] = "`$key` = ?";
+                    $params[] = $value;
+                }
+            }
+            if (!empty($fields)) {
+                $params[] = $id;
+                $stmt = $db->prepare("UPDATE stories SET " . implode(', ', $fields) . " WHERE id = ?");
+                $stmt->execute($params);
+            }
+            echo json_encode(['success' => true, 'id' => (int)$id, 'action' => 'UPDATE']);
+            exit;
+        }
+
+        // INSERT new story — remove client-provided id so server auto-assigns
+        unset($filteredInput['id']);
+        if (!isset($filteredInput['created_at'])) {
+            $filteredInput['created_at'] = date('Y-m-d H:i:s');
+        }
+        $keys = array_keys($filteredInput);
+        $values = array_values($filteredInput);
         $placeholders = array_fill(0, count($keys), '?');
+        error_log("Stories INSERT: keys=" . implode(',', $keys) . " values=" . json_encode($values));
         $stmt = $db->prepare("INSERT INTO stories (" . implode(', ', $keys) . ") VALUES (" . implode(', ', $placeholders) . ")");
         $stmt->execute($values);
         $newId = $db->lastInsertId();
+        error_log("Stories INSERT success: newId=$newId");
 
         // Insert story_media items if provided
         $insertedMediaCount = 0;
@@ -44,7 +96,7 @@ try {
         // ── Send push notifications to followers of this shop ──
         $pushResults = [];
         try {
-            $shopId = isset($input['shop_id']) ? (int)$input['shop_id'] : null;
+            $shopId = isset($filteredInput['shop_id']) ? (int)$filteredInput['shop_id'] : null;
             if ($shopId) {
                 // Get shop name
                 $shopStmt = $db->prepare("SELECT name FROM shops WHERE id = ?");
@@ -95,13 +147,13 @@ try {
         $query = "SELECT s.*, sh.name AS shop_name FROM stories s LEFT JOIN shops sh ON s.shop_id = sh.id";
         $params = [];
         if ($updatedSince) {
-            $query .= " WHERE s.id > ?";
+            $query .= " WHERE s.created_at > ?";
             $params[] = $updatedSince;
         } elseif ($createdAfter) {
-            $query .= " WHERE s.id > ?";
+            $query .= " WHERE s.created_at > ?";
             $params[] = $createdAfter;
         }
-        $query .= " ORDER BY s.id DESC";
+        $query .= " ORDER BY s.created_at DESC";
         $stmt = $db->prepare($query);
         $stmt->execute($params);
         $stories = $stmt->fetchAll();
@@ -153,9 +205,14 @@ try {
             ]
         ]);
     }
-} catch (Exception $e) {
+} catch (PDOException $e) {
+    error_log("Stories DB error: " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
+} catch (Exception $e) {
+    error_log("Stories error: " . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }
 
 /**

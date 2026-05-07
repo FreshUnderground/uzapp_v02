@@ -167,7 +167,8 @@ class _CreateArrivageFab extends StatelessWidget {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => CreateStoryScreen(shopId: shop.id),
+                builder: (_) =>
+                    CreateStoryScreen(shopId: shop.id, isArrivage: true),
               ),
             );
           },

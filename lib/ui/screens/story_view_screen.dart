@@ -5,6 +5,9 @@ import 'package:video_player/video_player.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../core/utils/crypto_utils.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class StoryViewScreen extends StatefulWidget {
   final List<Story> stories;
@@ -41,6 +44,9 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   // Video player for video media
   VideoPlayerController? _videoController;
   bool _isVideoInitialized = false;
+
+  // Liked stories (local state only)
+  final Set<int> _likedStoryIds = {};
 
   @override
   void initState() {
@@ -391,9 +397,17 @@ class _StoryViewScreenState extends State<StoryViewScreen>
                             ),
                           ),
 
+                          // Action bar with interaction buttons
+                          Positioned(
+                            bottom: 90.0,
+                            left: 0,
+                            right: 0,
+                            child: _buildActionBar(story),
+                          ),
+
                           // View count at bottom
                           Positioned(
-                            bottom: 40.0,
+                            bottom: 36.0,
                             left: 0,
                             right: 0,
                             child: Center(
@@ -548,6 +562,175 @@ class _StoryViewScreenState extends State<StoryViewScreen>
         ),
       ],
     );
+  }
+
+  // ─── Action Bar ────────────────────────────────────────────────────────
+  Widget _buildActionBar(Story story) {
+    final isLiked = _likedStoryIds.contains(story.id);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.45)),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          // WhatsApp
+          IconButton(
+            icon: FaIcon(
+              FontAwesomeIcons.whatsapp,
+              color: const Color(0xFF25D366),
+              size: 22,
+            ),
+            onPressed: () => _openWhatsApp(story),
+            tooltip: 'WhatsApp',
+            padding: const EdgeInsets.all(12),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          ),
+          // Share
+          IconButton(
+            icon: const Icon(Icons.share, size: 24),
+            color: Colors.white,
+            onPressed: () => _shareStory(story),
+            tooltip: 'Partager',
+            padding: const EdgeInsets.all(12),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          ),
+          // Like
+          IconButton(
+            icon: AnimatedScale(
+              scale: isLiked ? 1.2 : 1.0,
+              duration: const Duration(milliseconds: 150),
+              child: Icon(
+                isLiked ? Icons.favorite : Icons.favorite_border,
+                key: ValueKey(isLiked),
+                size: 24,
+              ),
+            ),
+            color: isLiked ? Colors.red : Colors.white,
+            onPressed: _toggleLike,
+            tooltip: "J'aime",
+            padding: const EdgeInsets.all(12),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          ),
+          // Comment
+          IconButton(
+            icon: const Icon(Icons.comment_outlined, size: 24),
+            color: Colors.white,
+            onPressed: _showCommentSheet,
+            tooltip: 'Commentaire',
+            padding: const EdgeInsets.all(12),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openWhatsApp(Story story) async {
+    final shop = widget.shopLookup[story.shopId];
+    final number = shop?.whatsapp ?? shop?.phone;
+
+    if (number == null || number.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Numéro WhatsApp non disponible'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    final cleanNumber = number.replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    final uri = Uri.parse('https://wa.me/$cleanNumber');
+
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Impossible d'ouvrir WhatsApp"),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  void _shareStory(Story story) {
+    final mediaUrl = _getCurrentMediaUrl();
+    Share.share('Découvrez cette offre sur UzaApp: $mediaUrl');
+  }
+
+  void _toggleLike() {
+    final story = widget.stories[_currentIndex];
+    setState(() {
+      if (_likedStoryIds.contains(story.id)) {
+        _likedStoryIds.remove(story.id);
+      } else {
+        _likedStoryIds.add(story.id);
+      }
+    });
+  }
+
+  void _showCommentSheet() {
+    final controller = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+          left: 16,
+          right: 8,
+          top: 16,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Ajouter un commentaire...',
+                  hintStyle: const TextStyle(color: Colors.white54),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: const BorderSide(color: Colors.white24),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: const BorderSide(color: Colors.white24),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: const BorderSide(color: Colors.white54),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                ),
+                autofocus: true,
+                textInputAction: TextInputAction.send,
+              ),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.send, color: Colors.white),
+              onPressed: () => Navigator.of(sheetContext).pop(),
+              padding: const EdgeInsets.all(12),
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            ),
+          ],
+        ),
+      ),
+    ).whenComplete(() => controller.dispose());
   }
 }
 

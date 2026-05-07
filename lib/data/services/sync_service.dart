@@ -114,8 +114,38 @@ class SyncService extends ChangeNotifier {
   Future<void> pushLocalChanges() async {
     try {
       final queue = await db.select(db.syncQueue).get();
+      if (queue.isEmpty) {
+        debugPrint('PUSH: queue is empty — nothing to push');
+        return;
+      }
+
+      debugPrint('PUSH: ${queue.length} items in sync queue');
+
+      int pushed = 0;
+      int failed = 0;
+      int skipped = 0;
 
       for (var item in queue) {
+        // Skip items that already exceeded max retries — they'll stay in
+        // queue but won't be attempted until a forcePush resets counters.
+        final currentRetries = _retryCounts[item.id] ?? 0;
+        if (currentRetries >= _maxRetries) {
+          skipped++;
+          if (skipped == 1) {
+            // Log only once for the first skipped item to avoid spam
+            debugPrint(
+              'PUSH: skipping items that exceeded $_maxRetries retries '
+              '(first skipped: ${item.entityType}/${item.action} id=${item.id})',
+            );
+          }
+          continue;
+        }
+
+        debugPrint(
+          'PUSH [${pushed + failed + skipped + 1}/${queue.length}] '
+          '${item.entityType}/${item.action} id=${item.id}',
+        );
+
         try {
           final success = await api
               .pushChange(
@@ -130,40 +160,53 @@ class SyncService extends ChangeNotifier {
               db.syncQueue,
             )..where((t) => t.id.equals(item.id))).go();
             _retryCounts.remove(item.id); // clear on success
+            pushed++;
+            debugPrint(
+              'PUSH ✓ ${item.entityType}/${item.action} id=${item.id} removed from queue',
+            );
           } else {
             // Failed push – increment retry counter
+            failed++;
             final retries = (_retryCounts[item.id] ?? 0) + 1;
             _retryCounts[item.id] = retries;
 
             if (retries >= _maxRetries) {
               debugPrint(
-                'PUSH WARNING: ${item.entityType}/${item.action} '
-                'failed $retries times — keeping in queue for next session',
+                'PUSH ✗ ${item.entityType}/${item.action} id=${item.id} '
+                'failed $retries times — keeping in queue, will skip until forcePush',
               );
             } else {
               debugPrint(
-                'PUSH FAILED: ${item.entityType}/${item.action} '
+                'PUSH ✗ ${item.entityType}/${item.action} id=${item.id} '
                 '(attempt $retries/$_maxRetries) — will retry next sync',
               );
             }
           }
         } on TimeoutException {
+          failed++;
           final retries = (_retryCounts[item.id] ?? 0) + 1;
           _retryCounts[item.id] = retries;
           debugPrint(
-            'PUSH TIMEOUT: ${item.entityType}/${item.action} '
-            '(attempt $retries/$_maxRetries) — will retry next sync',
+            'PUSH ⏱ ${item.entityType}/${item.action} id=${item.id} '
+            'TIMEOUT (attempt $retries/$_maxRetries)',
           );
         } catch (e) {
+          failed++;
           final retries = (_retryCounts[item.id] ?? 0) + 1;
           _retryCounts[item.id] = retries;
           debugPrint(
-            'PUSH ERROR for item ${item.id}: $e — will retry next sync',
+            'PUSH ✗ ${item.entityType}/${item.action} id=${item.id} '
+            'ERROR: $e (attempt $retries/$_maxRetries)',
           );
         }
       }
+
+      debugPrint(
+        'PUSH summary: $pushed pushed, $failed failed, $skipped skipped '
+        'out of ${queue.length} queued items',
+      );
     } catch (e) {
-      debugPrint('PUSH ERROR: $e');
+      debugPrint('PUSH FATAL ERROR: $e');
     }
   }
 
