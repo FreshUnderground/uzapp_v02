@@ -43,6 +43,9 @@ class _EditProductScreenState extends State<EditProductScreen> {
   late TextEditingController _priceController;
   int? _selectedCategoryId;
   List<Category> _categories = [];
+  List<Category> _rootCategories = [];
+  List<Category> _subCategories = [];
+  int? _selectedRootCategoryId;
   bool _isLoadingCategories = true;
   late TextEditingController _stockController;
   late TextEditingController _promoMsgController;
@@ -131,17 +134,88 @@ class _EditProductScreenState extends State<EditProductScreen> {
 
       final repo = context.read<ProductRepository>();
       final cats = await repo.getCategories();
+      debugPrint('Loaded ${cats.length} total categories from local DB');
+
       if (mounted) {
         setState(() {
           _categories = cats;
+          // Filter only root categories (level=0)
+          _rootCategories = cats.where((c) => c.level == 0).toList();
+          debugPrint('Found ${_rootCategories.length} root categories');
+          for (var root in _rootCategories) {
+            debugPrint('  - Root: ${root.name} (id=${root.id})');
+          }
+
+          // If editing existing product, initialize root category and subcategories
+          if (widget.product?.categoryId != null) {
+            final existingCategory = cats
+                .where((c) => c.id == widget.product!.categoryId)
+                .firstOrNull;
+            if (existingCategory != null) {
+              if (existingCategory.level == 0) {
+                // Selected category is a root category
+                _selectedRootCategoryId = existingCategory.id;
+                _selectedCategoryId = existingCategory.id;
+                // Load its children
+                _subCategories = cats
+                    .where((c) => c.parentId == existingCategory.id)
+                    .toList();
+                debugPrint(
+                  'Loaded ${_subCategories.length} subcategories for existing root category',
+                );
+              } else if (existingCategory.parentId != null) {
+                // Selected category is a subcategory
+                _selectedRootCategoryId = existingCategory.parentId;
+                _selectedCategoryId = existingCategory.id;
+                // Load siblings
+                _subCategories = cats
+                    .where((c) => c.parentId == existingCategory.parentId)
+                    .toList();
+                debugPrint(
+                  'Loaded ${_subCategories.length} sibling subcategories',
+                );
+              }
+            }
+          }
+
           _isLoadingCategories = false;
         });
       }
     } catch (e) {
+      debugPrint('Error loading categories: $e');
       if (mounted) {
         setState(() => _isLoadingCategories = false);
       }
     }
+  }
+
+  void _onRootCategoryChanged(int? rootCategoryId) {
+    debugPrint('Root category changed to: $rootCategoryId');
+    setState(() {
+      _selectedRootCategoryId = rootCategoryId;
+      // Load subcategories for selected root category
+      if (rootCategoryId != null) {
+        _subCategories = _categories
+            .where((c) => c.parentId == rootCategoryId)
+            .toList();
+        debugPrint(
+          'Found ${_subCategories.length} subcategories for root category $rootCategoryId',
+        );
+        for (var sub in _subCategories) {
+          debugPrint('  - Subcategory: ${sub.name} (id=${sub.id})');
+        }
+        // Reset subcategory selection
+        _selectedCategoryId = null;
+      } else {
+        _subCategories = [];
+      }
+    });
+  }
+
+  void _onSubCategoryChanged(int? subCategoryId) {
+    setState(() {
+      _selectedCategoryId = subCategoryId;
+    });
   }
 
   Category? get _selectedCategory {
@@ -511,24 +585,78 @@ class _EditProductScreenState extends State<EditProductScreen> {
         const SizedBox(height: 16),
         _isLoadingCategories
             ? const Center(child: CircularProgressIndicator())
-            : DropdownButtonFormField<int>(
-                value: _selectedCategoryId,
-                decoration: const InputDecoration(
-                  labelText: 'Catégorie',
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Root category dropdown
+                  DropdownButtonFormField<int>(
+                    value: _selectedRootCategoryId,
+                    decoration: const InputDecoration(
+                      labelText: 'Catégorie principale',
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                    hint: const Text('Sélectionnez une catégorie'),
+                    items: _rootCategories
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: c.id,
+                            child: Text(c.name),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: _onRootCategoryChanged,
+                    validator: (v) =>
+                        v == null ? 'Veuillez choisir une catégorie' : null,
                   ),
-                ),
-                items: _categories
-                    .map(
-                      (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
-                    )
-                    .toList(),
-                onChanged: (val) => setState(() => _selectedCategoryId = val),
-                validator: (v) =>
-                    v == null ? 'Veuillez choisir une catégorie' : null,
+                  const SizedBox(height: 16),
+                  // Subcategory dropdown (only show if root has children)
+                  if (_subCategories.isNotEmpty)
+                    DropdownButtonFormField<int>(
+                      value: _selectedCategoryId,
+                      decoration: const InputDecoration(
+                        labelText: 'Sous-catégorie',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                      hint: const Text('Sélectionnez une sous-catégorie'),
+                      items: [
+                        // Option to select the root category itself
+                        DropdownMenuItem<int>(
+                          value: _selectedRootCategoryId,
+                          child: Text(
+                            _rootCategories
+                                    .firstWhere(
+                                      (c) => c.id == _selectedRootCategoryId,
+                                      orElse: () => Category(
+                                        id: 0,
+                                        name: 'Catégorie principale',
+                                        updatedAt: DateTime.now(),
+                                        level: 0,
+                                        sortOrder: 0,
+                                      ),
+                                    )
+                                    .name +
+                                ' (racine)',
+                          ),
+                        ),
+                        // All subcategories
+                        ..._subCategories.map(
+                          (c) => DropdownMenuItem(
+                            value: c.id,
+                            child: Text(c.name),
+                          ),
+                        ),
+                      ],
+                      onChanged: _onSubCategoryChanged,
+                    ),
+                ],
               ),
         const SizedBox(height: 16),
         _buildCategoryForm(),

@@ -256,7 +256,9 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
       syncService.forcePush();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        final scaffoldMessenger = ScaffoldMessenger.of(context);
+        final navigator = Navigator.of(context);
+        scaffoldMessenger.showSnackBar(
           SnackBar(
             content: Text(
               widget.isArrivage
@@ -265,7 +267,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
             ),
           ),
         );
-        Navigator.pop(context);
+        navigator.pop(context);
       }
     } on TimeoutException catch (_) {
       if (mounted) {
@@ -273,7 +275,8 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
           _isLoading = false;
           _isUploading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
+        final scaffoldMessenger = ScaffoldMessenger.of(context);
+        scaffoldMessenger.showSnackBar(
           SnackBar(
             content: const Text('La connexion est lente. Réessayer?'),
             action: SnackBarAction(label: 'RÉESSAYER', onPressed: _submit),
@@ -287,9 +290,8 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
           _isLoading = false;
           _isUploading = false;
         });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        final scaffoldMessenger = ScaffoldMessenger.of(context);
+        scaffoldMessenger.showSnackBar(SnackBar(content: Text('Erreur: $e')));
       }
     } finally {
       if (mounted) {

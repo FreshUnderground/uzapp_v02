@@ -13,6 +13,7 @@ import '../../core/utils/picker_utils.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../data/repositories/location_data.dart';
 import '../../data/services/sync_service.dart';
+import '../../core/services/location_service.dart';
 
 class EditShopScreen extends StatefulWidget {
   final Shop shop;
@@ -40,6 +41,8 @@ class _EditShopScreenState extends State<EditShopScreen> {
   Uint8List? _videoBytes;
   String? _selectedCity;
   String? _selectedCommune;
+  double? _latitude;
+  double? _longitude;
 
   @override
   void initState() {
@@ -63,6 +66,8 @@ class _EditShopScreenState extends State<EditShopScreen> {
     // Pre-populate city and commune from existing shop data
     _selectedCity = widget.shop.city;
     _selectedCommune = widget.shop.commune;
+    _latitude = widget.shop.latitude;
+    _longitude = widget.shop.longitude;
   }
 
   @override
@@ -99,6 +104,41 @@ class _EditShopScreenState extends State<EditShopScreen> {
         _videoController.text =
             "Vidéo sélectionnée (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)";
       });
+    }
+  }
+
+  Future<void> _captureLocation() async {
+    LocationService.showSecurityNotice(context);
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    if (!mounted) return;
+    LocationService.showLocationLoading(context);
+
+    final location = await LocationService.getCurrentLocation();
+    if (!mounted) return;
+    Navigator.of(context).pop(); // Close loading dialog
+
+    if (location != null) {
+      setState(() {
+        _latitude = location['latitude']!;
+        _longitude = location['longitude']!;
+      });
+
+      if (!mounted) return;
+      LocationService.showLocationSuccess(
+        context,
+        latitude: _latitude!,
+        longitude: _longitude!,
+      );
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossible de capturer la localisation. Verifiez les permissions.',
+          ),
+        ),
+      );
     }
   }
 
@@ -160,6 +200,12 @@ class _EditShopScreenState extends State<EditShopScreen> {
         bannerText: drift.Value(_bannerTextController.text),
         city: drift.Value(_selectedCity),
         commune: drift.Value(_selectedCommune),
+        latitude: _latitude != null
+            ? drift.Value(_latitude!)
+            : const drift.Value.absent(),
+        longitude: _longitude != null
+            ? drift.Value(_longitude!)
+            : const drift.Value.absent(),
         updatedAt: drift.Value(DateTime.now()),
       );
 
@@ -184,6 +230,8 @@ class _EditShopScreenState extends State<EditShopScreen> {
             'banner_text': _bannerTextController.text,
             'city': _selectedCity,
             'commune': _selectedCommune,
+            if (_latitude != null) 'latitude': _latitude,
+            if (_longitude != null) 'longitude': _longitude,
           });
           syncService.forcePush();
         } catch (_) {
@@ -327,6 +375,87 @@ class _EditShopScreenState extends State<EditShopScreen> {
         TextFormField(
           controller: _addressController,
           decoration: const InputDecoration(labelText: 'Adresse'),
+        ),
+        const SizedBox(height: 16),
+        // Location capture section
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.teal.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.teal.withValues(alpha: 0.2)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.location_on, color: Colors.teal),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Localisation GPS',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.teal,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_latitude != null && _longitude != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.check_circle,
+                        color: Colors.green,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Lat: ${_latitude!.toStringAsFixed(6)}\nLng: ${_longitude!.toStringAsFixed(6)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              ElevatedButton.icon(
+                onPressed: _captureLocation,
+                icon: const Icon(Icons.my_location, size: 18),
+                label: Text(
+                  _latitude != null
+                      ? 'Mettre a jour la position'
+                      : 'Capturer ma position',
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Pour votre securite, utilisez la localisation de votre entreprise, pas votre domicile.',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(

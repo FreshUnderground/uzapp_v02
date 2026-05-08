@@ -17,6 +17,7 @@ import 'arrivages_screen.dart';
 import 'shops_directory_screen.dart';
 import 'shop_profile_screen.dart';
 import 'dart:ui';
+import 'dart:math';
 
 class DiscoverFeedScreen extends StatefulWidget {
   const DiscoverFeedScreen({super.key});
@@ -27,6 +28,9 @@ class DiscoverFeedScreen extends StatefulWidget {
 
 class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
   final PageController _pageController = PageController();
+  List<dynamic> _mixedFeed = [];
+  final Random _random = Random();
+  bool _hasInitializedFeed = false;
 
   @override
   void dispose() {
@@ -34,74 +38,114 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
     super.dispose();
   }
 
+  /// Shuffle and mix products and arrivages randomly
+  void _updateMixedFeed(
+    List<Product> products,
+    Map<int, List<Story>> arrivageGroups,
+  ) {
+    // Check if we actually need to update
+    final totalItems =
+        products.length +
+        arrivageGroups.values.fold<int>(0, (sum, list) => sum + list.length);
+
+    if (_hasInitializedFeed && _mixedFeed.length == totalItems) {
+      return; // No change, skip update
+    }
+
+    final mixed = <dynamic>[];
+
+    // Flatten arrivages
+    final allArrivages = <Story>[];
+    for (final stories in arrivageGroups.values) {
+      allArrivages.addAll(stories);
+    }
+
+    // Add all products and arrivages to mixed list
+    mixed.addAll(products);
+    mixed.addAll(allArrivages);
+
+    // Shuffle randomly (TikTok style)
+    for (var i = mixed.length - 1; i > 0; i--) {
+      final j = _random.nextInt(i + 1);
+      final temp = mixed[i];
+      mixed[i] = mixed[j];
+      mixed[j] = temp;
+    }
+
+    debugPrint(
+      'DiscoverFeed: Updating feed with ${mixed.length} items (${products.length} products, ${allArrivages.length} arrivages)',
+    );
+
+    setState(() {
+      _mixedFeed = mixed;
+      _hasInitializedFeed = true;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final productRepo = context.watch<ProductRepository>();
     final storyRepo = context.watch<StoryRepository>();
-    final shopRepo = context.watch<ShopRepository>();
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: StreamBuilder<List<Product>>(
-        stream: productRepo.watchTrendingProducts(limit: 20),
+        stream: productRepo.watchTrendingProducts(limit: 50),
         builder: (context, productSnapshot) {
           return StreamBuilder<Map<int, List<Story>>>(
             stream: storyRepo.watchArrivagesGroupedByShop(),
             builder: (context, arrivageSnapshot) {
-              return StreamBuilder<List<Shop>>(
-                stream: shopRepo.watchFeaturedShops(),
-                builder: (context, shopSnapshot) {
-                  final products = productSnapshot.data ?? [];
-                  final arrivageGroups = arrivageSnapshot.data ?? {};
-                  final shops = shopSnapshot.data ?? [];
-                  final showArrivages = arrivageGroups.isNotEmpty;
-                  final showShops = shops.isNotEmpty;
+              final products = productSnapshot.data ?? [];
+              final arrivageGroups = arrivageSnapshot.data ?? {};
 
-                  if (productSnapshot.connectionState ==
-                          ConnectionState.waiting &&
-                      products.isEmpty) {
-                    return const Center(
-                      child: CircularProgressIndicator(color: Colors.white),
+              if (productSnapshot.connectionState == ConnectionState.waiting &&
+                  arrivageSnapshot.connectionState == ConnectionState.waiting &&
+                  !_hasInitializedFeed) {
+                return const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                );
+              }
+
+              // Update feed when data changes or on first load
+              // Must be deferred to avoid setState during build
+              if (!_hasInitializedFeed || _mixedFeed.isEmpty) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) {
+                    _updateMixedFeed(products, arrivageGroups);
+                  }
+                });
+              }
+
+              if (_mixedFeed.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'Aucune d\u00e9couverte pour le moment',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                );
+              }
+
+              // TikTok-style full-screen vertical scroll
+              return PageView.builder(
+                scrollDirection: Axis.vertical,
+                controller: _pageController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                pageSnapping: true,
+                itemCount: _mixedFeed.length,
+                itemBuilder: (context, index) {
+                  final item = _mixedFeed[index];
+
+                  if (item is Product) {
+                    return _DiscoverItem(product: item);
+                  } else if (item is Story) {
+                    // Full-screen TikTok-style arrivage display
+                    return _FullArrivageStoryItem(
+                      story: item,
+                      allShopStories: arrivageGroups[item.shopId] ?? [item],
                     );
                   }
 
-                  if (products.isEmpty && !showArrivages && !showShops) {
-                    return const Center(
-                      child: Text(
-                        'Aucune découverte pour le moment',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    );
-                  }
-
-                  return Column(
-                    children: [
-                      // Arrivages section at the top
-                      if (showArrivages) _buildArrivagesSection(arrivageGroups),
-                      // Boutiques section
-                      if (showShops) _buildBoutiquesSection(shops),
-                      // Product feed fills remaining space
-                      Expanded(
-                        child: products.isEmpty
-                            ? const Center(
-                                child: Text(
-                                  'Aucune découverte pour le moment',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                              )
-                            : PageView.builder(
-                                scrollDirection: Axis.vertical,
-                                controller: _pageController,
-                                itemCount: products.length,
-                                itemBuilder: (context, index) {
-                                  return _DiscoverItem(
-                                    product: products[index],
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
-                  );
+                  return const SizedBox.shrink();
                 },
               );
             },
@@ -753,6 +797,319 @@ class _DiscoverItemState extends State<_DiscoverItem> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Full-screen TikTok-style arrivage story display
+class _FullArrivageStoryItem extends StatefulWidget {
+  final Story story;
+  final List<Story> allShopStories;
+
+  const _FullArrivageStoryItem({
+    required this.story,
+    required this.allShopStories,
+  });
+
+  @override
+  State<_FullArrivageStoryItem> createState() => _FullArrivageStoryItemState();
+}
+
+class _FullArrivageStoryItemState extends State<_FullArrivageStoryItem> {
+  int _currentImageIndex = 0;
+  late List<Story> _stories;
+
+  @override
+  void initState() {
+    super.initState();
+    _stories = widget.allShopStories;
+    _currentImageIndex = _stories.indexWhere((s) => s.id == widget.story.id);
+    if (_currentImageIndex < 0) _currentImageIndex = 0;
+  }
+
+  void _goToNextImage() {
+    if (_currentImageIndex < _stories.length - 1) {
+      setState(() {
+        _currentImageIndex++;
+      });
+    }
+  }
+
+  void _goToPreviousImage() {
+    if (_currentImageIndex > 0) {
+      setState(() {
+        _currentImageIndex--;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentStory = _stories[_currentImageIndex];
+    final decryptedUrl = currentStory.mediaUrl.isNotEmpty
+        ? CryptoUtils.decrypt(currentStory.mediaUrl)
+        : '';
+
+    return Container(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Full-screen image
+          if (decryptedUrl.isNotEmpty)
+            GestureDetector(
+              onTap: _goToNextImage,
+              child: ImageUtils.buildCachedImage(
+                decryptedUrl,
+                fit: BoxFit.cover,
+              ),
+            )
+          else
+            Container(
+              color: Colors.grey[900],
+              child: const Center(
+                child: Icon(
+                  Icons.image_not_supported,
+                  size: 80,
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+
+          // Tap zones for navigation
+          Positioned.fill(
+            child: Row(
+              children: [
+                // Left side - previous
+                Expanded(
+                  flex: 1,
+                  child: GestureDetector(
+                    onTap: _goToPreviousImage,
+                    child: Container(),
+                  ),
+                ),
+                // Right side - next
+                Expanded(
+                  flex: 1,
+                  child: GestureDetector(
+                    onTap: _goToNextImage,
+                    child: Container(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Top gradient overlay
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.7),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+
+          // Bottom gradient overlay
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.8),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+
+          // Image counter (if multiple images)
+          if (_stories.length > 1)
+            Positioned(
+              top: 60,
+              right: 20,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${_currentImageIndex + 1}/${_stories.length}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+
+          // Image navigation dots
+          if (_stories.length > 1)
+            Positioned(
+              top: 60,
+              left: 20,
+              right: 80,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(_stories.length, (index) {
+                  return Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    width: _currentImageIndex == index ? 20 : 8,
+                    height: 3,
+                    decoration: BoxDecoration(
+                      color: _currentImageIndex == index
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  );
+                }),
+              ),
+            ),
+
+          // Shop info at bottom
+          Positioned(
+            left: 20,
+            right: 80,
+            bottom: 40,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Shop name
+                FutureBuilder<Shop?>(
+                  future: context.read<ShopRepository>().getShopById(
+                    currentStory.shopId,
+                  ),
+                  builder: (context, snapshot) {
+                    final shop = snapshot.data;
+                    return Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: UzaColors.primary,
+                              width: 2,
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.store,
+                            size: 20,
+                            color: UzaColors.secondary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                shop?.name ?? 'Boutique',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const Text(
+                                'Arrivage',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          // Action buttons on right side
+          Positioned(
+            right: 20,
+            bottom: 40,
+            child: Column(
+              children: [
+                _ActionIcon(
+                  icon: Icons.storefront,
+                  label: 'Boutique',
+                  onTap: () {
+                    context
+                        .read<ShopRepository>()
+                        .getShopById(currentStory.shopId)
+                        .then((shop) {
+                          if (context.mounted && shop != null) {
+                            Navigator.push(
+                              context,
+                              SlideUpRoute(page: ShopProfileScreen(shop: shop)),
+                            );
+                          }
+                        });
+                  },
+                ),
+                const SizedBox(height: 20),
+                _ActionIcon(
+                  icon: Icons.arrow_upward,
+                  label: 'Suivant',
+                  onTap: _goToNextImage,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Action icon button for arrivage overlay
+class _ActionIcon extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _ActionIcon({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Icon(icon, color: Colors.white, size: 32),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

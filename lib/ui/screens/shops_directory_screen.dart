@@ -6,6 +6,7 @@ import '../../data/services/sync_service.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/utils/image_utils.dart';
 import '../../core/utils/crypto_utils.dart';
+import '../../core/services/location_service.dart';
 import '../components/verification_badge.dart';
 import '../utils/page_transitions.dart';
 import 'shop_profile_screen.dart';

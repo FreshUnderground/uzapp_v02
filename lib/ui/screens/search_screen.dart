@@ -29,6 +29,8 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   late int? _selectedCategoryId;
   late String? _selectedCategoryName;
+  late int? _selectedSubcategoryId;
+  late String? _selectedSubcategoryName;
   int _refreshKey = 0;
   bool _nearbyEnabled = false;
   Position? _userPosition;
@@ -39,6 +41,8 @@ class _SearchScreenState extends State<SearchScreen> {
     super.initState();
     _selectedCategoryId = widget.initialCategoryId;
     _selectedCategoryName = widget.initialCategoryName;
+    _selectedSubcategoryId = null;
+    _selectedSubcategoryName = null;
     if (_selectedCategoryId != null) {
       _refreshKey++;
     }
@@ -51,9 +55,20 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _filterState = state;
       // Sync category from filter if set
-      if (state.category != null && _selectedCategoryName != state.category) {
+      if (state.categoryId != null && state.categoryId! > 0) {
+        _selectedCategoryId = state.categoryId;
         _selectedCategoryName = state.category;
-        _selectedCategoryId = null; // filter uses category name
+        _selectedSubcategoryId = state.subcategoryId;
+        _selectedSubcategoryName = state.subcategory;
+      } else if (state.category != null) {
+        _selectedCategoryName = state.category;
+        _selectedCategoryId = null;
+        _selectedSubcategoryId = state.subcategoryId;
+        _selectedSubcategoryName = state.subcategory;
+      }
+      // Check if nearest sort is selected
+      if (state.sortBy == SortBy.nearest && _userPosition == null) {
+        _requestLocation();
       }
       _refreshKey++;
     });
@@ -139,6 +154,8 @@ class _SearchScreenState extends State<SearchScreen> {
         return 'priceDesc';
       case SortBy.newest:
         return 'newest';
+      case SortBy.nearest:
+        return 'nearest';
       case SortBy.relevance:
         return 'relevance';
     }
@@ -323,15 +340,15 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
 
             // ─── Results ─────────────────────────────────────────
-            if (_nearbyEnabled)
+            if (_nearbyEnabled || _filterState.sortBy == SortBy.nearest)
               _buildNearbyResultsSliver(productRepo)
             else
               StreamBuilder<List<Product>>(
                 key: ValueKey(
-                  'search_grid_${_selectedCategoryId}_${_filterState.hashCode}_$_refreshKey',
+                  'search_grid_${_selectedCategoryId}_${_selectedSubcategoryId}_${_filterState.hashCode}_$_refreshKey',
                 ),
                 stream: productRepo.watchProductsFiltered(
-                  categoryId: _selectedCategoryId,
+                  categoryId: _selectedSubcategoryId ?? _selectedCategoryId,
                   category: _filterState.category,
                   minPrice: _filterState.minPrice,
                   maxPrice: _filterState.maxPrice,

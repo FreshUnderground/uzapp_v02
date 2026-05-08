@@ -5,6 +5,10 @@ import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/res/uza_colors.dart';
 import '../../components/tap_animator.dart';
+import '../../../data/repositories/shop_repository.dart';
+import '../shop_dashboard_screen.dart';
+import '../home_screen.dart';
+import 'package:flutter/foundation.dart';
 
 class StepIndicator extends StatelessWidget {
   final int currentStep;
@@ -195,8 +199,44 @@ class _VerificationScreenState extends State<VerificationScreen>
     final authService = context.read<AuthService>();
     try {
       await authService.signInWithOTP(widget.verificationId, _otpCode);
-      if (mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
+      if (!mounted) return;
+
+      // Wait for shop reconnection
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (!mounted) return;
+
+      try {
+        // Check if user has a shop
+        final shopRepo = context.read<ShopRepository>();
+        final userId = authService.user?.uid ?? widget.phoneNumber;
+        final userShop = await shopRepo.watchUserShop(userId).first;
+
+        if (!mounted) return;
+
+        if (userShop != null) {
+          // User has a shop, navigate to shop dashboard
+          debugPrint('OTP Login: User has shop, navigating to dashboard');
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const ShopDashboardScreen()),
+            (route) => false,
+          );
+        } else {
+          // No shop, navigate to home
+          debugPrint('OTP Login: User has no shop, navigating to home');
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+            (route) => false,
+          );
+        }
+      } catch (e) {
+        debugPrint('Error checking for shop after OTP: $e');
+        // Fallback to home
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          (route) => false,
+        );
       }
     } catch (e) {
       if (mounted) {

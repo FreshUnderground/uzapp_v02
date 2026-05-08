@@ -25,7 +25,7 @@ class StoryCircle extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 8),
         child: Stack(
-          clipBehavior: Clip.none,
+          clipBehavior: Clip.hardEdge,
           children: [
             // Gradient ring for unviewed stories, plain ring for viewed
             Container(
@@ -58,22 +58,30 @@ class StoryCircle extends StatelessWidget {
                 ),
                 child: CircleAvatar(
                   radius: 30,
-                  backgroundImage: CachedNetworkImageProvider(
-                    story.mediaUrl.isNotEmpty
-                        ? CryptoUtils.decrypt(story.mediaUrl)
-                        : '',
-                  ),
+                  backgroundColor: Colors.grey[200],
+                  backgroundImage: story.mediaUrl.isNotEmpty
+                      ? CachedNetworkImageProvider(
+                          CryptoUtils.decrypt(story.mediaUrl),
+                        )
+                      : null,
+                  child: story.mediaUrl.isEmpty
+                      ? Icon(
+                          isVideo ? Icons.play_circle_outline : Icons.image,
+                          color: Colors.grey[400],
+                          size: 30,
+                        )
+                      : null,
                 ),
               ),
             ),
 
-            // Video indicator overlay at bottom-right
+            // Video indicator overlay at bottom-right - constrained within circle
             if (isVideo)
               Positioned(
-                right: -2,
-                bottom: -2,
+                right: 2,
+                bottom: 2,
                 child: Container(
-                  padding: const EdgeInsets.all(4),
+                  padding: const EdgeInsets.all(3),
                   decoration: BoxDecoration(
                     color: UzaColors.primary,
                     shape: BoxShape.circle,
@@ -82,7 +90,7 @@ class StoryCircle extends StatelessWidget {
                   child: const Icon(
                     Icons.play_arrow,
                     color: Colors.white,
-                    size: 12,
+                    size: 10,
                   ),
                 ),
               ),

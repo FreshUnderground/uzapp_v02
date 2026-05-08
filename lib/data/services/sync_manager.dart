@@ -155,11 +155,11 @@ class SyncManager extends ChangeNotifier {
     try {
       final payload = jsonDecode(item.payload) as Map<String, dynamic>;
 
-      final success = await apiService
+      final responseData = await apiService
           .pushChange(item.entityType, item.action, payload)
           .timeout(_requestTimeout);
 
-      if (success) {
+      if (responseData != null) {
         // Mark as synced
         await (db.update(db.offlineQueue)..where((t) => t.id.equals(item.id)))
             .write(const OfflineQueueCompanion(status: Value('synced')));
@@ -326,7 +326,12 @@ class SyncManager extends ChangeNotifier {
     await db.batch((batch) {
       // Sync Categories
       for (var cat in remoteCategories) {
-        final String rId = (cat['id'] ?? cat['remote_id'])?.toString() ?? '';
+        // Use remote_id if available, otherwise use id as fallback
+        final dynamic rawRemoteId = cat['remote_id'];
+        final String rId =
+            rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+            ? rawRemoteId.toString()
+            : (cat['id']?.toString() ?? '');
         final int? existingLocalId = categoryIdMap[rId];
         batch.insert(
           db.categories,
@@ -351,7 +356,12 @@ class SyncManager extends ChangeNotifier {
 
       // Sync Shops
       for (var s in remoteShops) {
-        final String rId = (s['id'] ?? s['remote_id'])?.toString() ?? '';
+        // Use remote_id if available, otherwise use id as fallback
+        final dynamic rawRemoteId = s['remote_id'];
+        final String rId =
+            rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+            ? rawRemoteId.toString()
+            : (s['id']?.toString() ?? '');
         final String rawName = s['name'] as String? ?? '';
         final String sanitizedName = rawName.trim().isEmpty
             ? 'Boutique'
@@ -389,7 +399,12 @@ class SyncManager extends ChangeNotifier {
 
       // Sync Products
       for (var p in remoteProducts) {
-        final String rId = (p['id'] ?? p['remote_id'])?.toString() ?? '';
+        // Use remote_id if available, otherwise use id as fallback
+        final dynamic rawRemoteId = p['remote_id'];
+        final String rId =
+            rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+            ? rawRemoteId.toString()
+            : (p['id']?.toString() ?? '');
         final String rawName = p['name'] as String? ?? '';
         final String sanitizedName = rawName.trim().isEmpty
             ? 'Produit'
@@ -430,7 +445,12 @@ class SyncManager extends ChangeNotifier {
 
       // Sync Stories
       for (var st in remoteStories) {
-        final String rId = (st['id'] ?? st['remote_id'])?.toString() ?? '';
+        // Use remote_id if available, otherwise use id as fallback
+        final dynamic rawRemoteId = st['remote_id'];
+        final String rId =
+            rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+            ? rawRemoteId.toString()
+            : (st['id']?.toString() ?? '');
         batch.insert(
           db.stories,
           StoriesCompanion.insert(

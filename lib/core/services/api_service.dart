@@ -132,10 +132,35 @@ class ApiService {
       debugPrint('API: Categories response status: ${response.statusCode}');
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
+        debugPrint('API: Categories decoded type: ${decoded.runtimeType}');
+
         // Handle both paginated {data: [...]} and direct array responses
-        final List<dynamic> data = decoded is Map
-            ? (decoded['data'] ?? [])
-            : decoded;
+        List<dynamic> data;
+        if (decoded is List) {
+          // Direct array (when updated_since is provided)
+          data = decoded;
+          debugPrint('API: Categories response is direct array');
+        } else if (decoded is Map) {
+          // Paginated format
+          data = decoded['data'] ?? [];
+          debugPrint(
+            'API: Categories response is map with data key, length: ${data.length}',
+          );
+          if (data.isEmpty) {
+            debugPrint(
+              'API: WARNING - decoded map keys: ${decoded.keys.toList()}',
+            );
+            debugPrint(
+              'API: WARNING - response body preview: ${response.body.substring(0, response.body.length > 200 ? 200 : response.body.length)}',
+            );
+          }
+        } else {
+          debugPrint(
+            'API: ERROR - Unexpected response type: ${decoded.runtimeType}',
+          );
+          data = [];
+        }
+
         final categories = data.cast<Map<String, dynamic>>();
         debugPrint('API: Fetched ${categories.length} categories');
         return categories;
@@ -243,6 +268,38 @@ class ApiService {
     return null;
   }
 
+  /// Login with phone number and password hash
+  Future<Map<String, dynamic>?> loginWithPassword({
+    required String phone,
+    required String passwordHash,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/login.php');
+      final response = await http.post(
+        uri,
+        headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+        body: jsonEncode({'phone': phone, 'password_hash': passwordHash}),
+      );
+
+      debugPrint('Login response status: ${response.statusCode}');
+      debugPrint('Login response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data != null && data['success'] == true) {
+          return data;
+        }
+      } else if (response.statusCode == 404 || response.statusCode == 401) {
+        // User not found or wrong password - return error details
+        final data = jsonDecode(response.body);
+        return data;
+      }
+    } catch (e) {
+      debugPrint("API ERROR (loginWithPassword): $e");
+    }
+    return null;
+  }
+
   // POST /sync or entity-specific endpoints
   /// Pushes a local change to the server.
   ///
@@ -251,7 +308,8 @@ class ApiService {
   /// entity types fall back to their specific endpoints.
   ///
   /// Returns `true` only when the server confirms success.
-  Future<bool> pushChange(
+  /// Push changes to server and return response data for ID mapping
+  Future<Map<String, dynamic>?> pushChange(
     String entityType,
     String action,
     Map<String, dynamic> data,
@@ -293,7 +351,7 @@ class ApiService {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // Parse response body to detect logical failures
+        // Parse response body to detect logical failures and extract server ID
         try {
           final body = jsonDecode(response.body);
           if (body is Map<String, dynamic>) {
@@ -304,27 +362,34 @@ class ApiService {
               debugPrint(
                 'PUSH ✗ $entityType/$action logical failure: $errorMsg',
               );
-              return false;
+              debugPrint('PUSH ✗ FULL RESPONSE: ${response.body}');
+              return null;
             }
             debugPrint(
               'PUSH ✓ $entityType/$action server confirmed (id=${body['id']}, action=${body['action']})',
             );
+            // Return full response data for ID mapping
+            return body;
           }
-        } catch (_) {
+        } catch (e) {
           // Response body is not JSON; treat as success since HTTP status was OK
           debugPrint('PUSH ✓ $entityType/$action (non-JSON 2xx response)');
+          debugPrint('PUSH WARNING: Could not parse JSON: $e');
+          debugPrint('PUSH RAW BODY: ${response.body}');
+          return {'success': true};
         }
-        return true;
       } else {
         debugPrint(
           'PUSH ✗ $entityType/$action HTTP ${response.statusCode}: ${response.body}',
         );
-        return false;
+        debugPrint(
+          'PUSH ✗ REQUEST DATA: entityType=$entityType action=$action data=${jsonEncode(data)}',
+        );
       }
     } catch (e) {
       debugPrint('PUSH ✗ $entityType/$action exception: $e');
-      return false;
     }
+    return null;
   }
 
   // File upload (Image or Video)

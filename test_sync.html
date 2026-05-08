@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sync Test</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        h1 { color: #333; }
+        .test-section { margin: 20px 0; padding: 15px; background: #f9f9f9; border-left: 4px solid #007bff; }
+        .success { border-left-color: #28a745; }
+        .error { border-left-color: #dc3545; }
+        pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Uzaapp Sync Test</h1>
+        <p>This test will check if the sync endpoint is working correctly.</p>
+
+        <div class="test-section">
+            <h3>Test 1: Server Connectivity</h3>
+            <button onclick="testPing()">Test Ping</button>
+            <div id="ping-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test 2: Shop Sync (CREATE)</h3>
+            <button onclick="testShopSync()">Test Shop CREATE</button>
+            <div id="shop-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test 3: Story Sync (CREATE)</h3>
+            <button onclick="testStorySync()">Test Story CREATE</button>
+            <div id="story-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test 4: Product Sync (CREATE)</h3>
+            <button onclick="testProductSync()">Test Product CREATE</button>
+            <div id="product-result" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = 'uza_sk_305f0f1ab9c86b0259c876595f74fdf4';
+        const BASE_URL = 'https://uzaapp.com/api';
+
+        async function testPing() {
+            const resultDiv = document.getElementById('ping-result');
+            resultDiv.innerHTML = '<p>Testing...</p>';
+
+            try {
+                const response = await fetch(`${BASE_URL}/ping.php`, {
+                    method: 'GET',
+                    headers: { 'X-API-Key': API_KEY }
+                });
+
+                const data = await response.text();
+                resultDiv.innerHTML = `
+                    <div class="test-section ${response.ok ? 'success' : 'error'}">
+                        <h4>Status: ${response.status} ${response.ok ? '✓' : '✗'}</h4>
+                        <pre>${data}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="test-section error">
+                        <h4>Error ✗</h4>
+                        <pre>${error.message}</pre>
+                    </div>
+                `;
+            }
+        }
+
+        async function testShopSync() {
+            const resultDiv = document.getElementById('shop-result');
+            resultDiv.innerHTML = '<p>Testing Shop CREATE...</p>';
+
+            const payload = {
+                entityType: 'shops',
+                action: 'CREATE',
+                data: {
+                    name: 'TEST SHOP ' + Date.now(),
+                    description: 'Test shop from sync test',
+                    address: 'Test Address',
+                    owner_id: '975955375',
+                    phone: '975955375',
+                    type: 'retail'
+                }
+            };
+
+            try {
+                const response = await fetch(`${BASE_URL}/sync.php?api_key=${API_KEY}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-API-Key': API_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+                resultDiv.innerHTML = `
+                    <div class="test-section ${response.ok && data.success ? 'success' : 'error'}">
+                        <h4>Status: ${response.status} ${response.ok && data.success ? '✓' : '✗'}</h4>
+                        <p>Response:</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="test-section error">
+                        <h4>Error ✗</h4>
+                        <pre>${error.message}</pre>
+                    </div>
+                `;
+            }
+        }
+
+        async function testStorySync() {
+            const resultDiv = document.getElementById('story-result');
+            resultDiv.innerHTML = '<p>Testing Story CREATE...</p>';
+
+            const payload = {
+                shop_id: 1, // Use actual shop ID from your DB
+                media_url: 'https://uzaapp.com/uploads/stories/test.jpg',
+                media_type: 'image',
+                is_arrivage: 0,
+                expires_at: new Date(Date.now() + 86400000).toISOString()
+            };
+
+            try {
+                const response = await fetch(`${BASE_URL}/stories.php?api_key=${API_KEY}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-API-Key': API_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+                resultDiv.innerHTML = `
+                    <div class="test-section ${response.ok && data.success ? 'success' : 'error'}">
+                        <h4>Status: ${response.status} ${response.ok && data.success ? '✓' : '✗'}</h4>
+                        <p>Response:</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="test-section error">
+                        <h4>Error ✗</h4>
+                        <pre>${error.message}</pre>
+                    </div>
+                `;
+            }
+        }
+
+        async function testProductSync() {
+            const resultDiv = document.getElementById('product-result');
+            resultDiv.innerHTML = '<p>Testing Product CREATE...</p>';
+
+            const payload = {
+                entityType: 'products',
+                action: 'CREATE',
+                data: {
+                    name: 'TEST PRODUCT ' + Date.now(),
+                    description: 'Test product',
+                    price: 100.0,
+                    shop_id: 1, // Use actual shop ID
+                    category_id: null,
+                    image_urls: ''
+                }
+            };
+
+            try {
+                const response = await fetch(`${BASE_URL}/sync.php?api_key=${API_KEY}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-API-Key': API_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+                resultDiv.innerHTML = `
+                    <div class="test-section ${response.ok && data.success ? 'success' : 'error'}">
+                        <h4>Status: ${response.status} ${response.ok && data.success ? '✓' : '✗'}</h4>
+                        <p>Response:</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="test-section error">
+                        <h4>Error ✗</h4>
+                        <pre>${error.message}</pre>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

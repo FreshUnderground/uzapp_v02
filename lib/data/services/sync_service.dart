@@ -6,6 +6,7 @@ import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/utils/crypto_utils.dart';
 import '../repositories/story_repository.dart';
 
 enum SyncStatus { idle, syncing, error, offline }
@@ -51,7 +52,9 @@ class SyncService extends ChangeNotifier {
   int _pendingChangesCount = 0;
   int get pendingChangesCount => _pendingChangesCount;
 
-  static const Duration _requestTimeout = Duration(seconds: 10);
+  static const Duration _requestTimeout = Duration(
+    seconds: 30,
+  ); // Increased from 10s to 30s
 
   SyncService(
     this.db,
@@ -119,7 +122,12 @@ class SyncService extends ChangeNotifier {
         return;
       }
 
-      debugPrint('PUSH: ${queue.length} items in sync queue');
+      debugPrint('=' * 60);
+      debugPrint('PUSH: Starting push of ${queue.length} items');
+      debugPrint(
+        'PUSH: Queue items: ${queue.map((item) => '${item.entityType}/${item.action}').join(', ')}',
+      );
+      debugPrint('=' * 60);
 
       int pushed = 0;
       int failed = 0;
@@ -145,9 +153,10 @@ class SyncService extends ChangeNotifier {
           'PUSH [${pushed + failed + skipped + 1}/${queue.length}] '
           '${item.entityType}/${item.action} id=${item.id}',
         );
+        debugPrint('PUSH DATA (full): ${item.entityData}');
 
         try {
-          final success = await api
+          final responseData = await api
               .pushChange(
                 item.entityType,
                 item.action,
@@ -155,7 +164,13 @@ class SyncService extends ChangeNotifier {
               )
               .timeout(_requestTimeout);
 
-          if (success) {
+          if (responseData != null) {
+            // Map server-returned ID back to local entity
+            final serverId = responseData['id'];
+            if (serverId != null && item.entityType == 'stories') {
+              await _mapServerIdToLocalStory(item, serverId.toString());
+            }
+
             await (db.delete(
               db.syncQueue,
             )..where((t) => t.id.equals(item.id))).go();
@@ -169,6 +184,11 @@ class SyncService extends ChangeNotifier {
             failed++;
             final retries = (_retryCounts[item.id] ?? 0) + 1;
             _retryCounts[item.id] = retries;
+
+            debugPrint(
+              'PUSH ✗ FAILED RESPONSE: ${item.entityType}/${item.action} '
+              'id=${item.id} data=${item.entityData}',
+            );
 
             if (retries >= _maxRetries) {
               debugPrint(
@@ -213,10 +233,75 @@ class SyncService extends ChangeNotifier {
   /// Immediately retries ALL queued items regardless of retry count.
   /// Useful when the user manually triggers a refresh.
   Future<void> forcePush() async {
+    debugPrint('FORCE PUSH: Resetting retry counters and pushing all items');
     // Reset retry counters so every item gets a fresh attempt
     _retryCounts.clear();
     await pushLocalChanges();
     await _updatePendingCount();
+  }
+
+  /// Clear all items from the sync queue (use with caution)
+  Future<void> clearQueue() async {
+    debugPrint('CLEAR QUEUE: Removing all items from sync queue');
+    await db.delete(db.syncQueue).go();
+    _retryCounts.clear();
+    await _updatePendingCount();
+    notifyListeners();
+  }
+
+  /// Get detailed queue status for debugging
+  Future<Map<String, dynamic>> getQueueStatus() async {
+    final queue = await db.select(db.syncQueue).get();
+    final Map<String, int> entityTypeCounts = {};
+    final Map<String, int> actionCounts = {};
+
+    for (var item in queue) {
+      entityTypeCounts[item.entityType] =
+          (entityTypeCounts[item.entityType] ?? 0) + 1;
+      actionCounts[item.action] = (actionCounts[item.action] ?? 0) + 1;
+    }
+
+    return {
+      'total': queue.length,
+      'byEntityType': entityTypeCounts,
+      'byAction': actionCounts,
+      'items': queue
+          .map(
+            (item) => {
+              'id': item.id,
+              'entityType': item.entityType,
+              'action': item.action,
+              'retries': _retryCounts[item.id] ?? 0,
+            },
+          )
+          .toList(),
+    };
+  }
+
+  /// Reset sync state and perform a full sync
+  Future<void> fullResetAndSync() async {
+    debugPrint('FULL RESET: Clearing retry counters and forcing sync');
+    _retryCounts.clear();
+    _lastSyncTime = null;
+
+    // Reset last sync time in database to force full pull
+    try {
+      final prefs = await db.select(db.appPreferences).getSingleOrNull();
+      if (prefs != null) {
+        await db
+            .into(db.appPreferences)
+            .insertOnConflictUpdate(
+              AppPreferencesCompanion(
+                id: const Value(1),
+                lastSync: const Value.absent(),
+              ),
+            );
+      }
+    } catch (e) {
+      debugPrint('FULL RESET: Error resetting preferences: $e');
+    }
+
+    await syncNow();
   }
 
   Future<void> pullRemoteUpdates() async {
@@ -288,8 +373,12 @@ class SyncService extends ChangeNotifier {
       if (remoteCategories.isNotEmpty || remoteProducts.isNotEmpty) {
         await db.batch((batch) {
           for (var cat in remoteCategories) {
+            // Use remote_id if available, otherwise use id as fallback
+            final dynamic rawRemoteId = cat['remote_id'];
             final String rId =
-                (cat['id'] ?? cat['remote_id'])?.toString() ?? '';
+                rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+                ? rawRemoteId.toString()
+                : (cat['id']?.toString() ?? '');
             final int? existingLocalId = categoryIdMap[rId];
             batch.insert(
               db.categories,
@@ -313,7 +402,12 @@ class SyncService extends ChangeNotifier {
           }
 
           for (var p in remoteProducts) {
-            final String rId = (p['id'] ?? p['remote_id'])?.toString() ?? '';
+            // Use remote_id if available, otherwise use id as fallback
+            final dynamic rawRemoteId = p['remote_id'];
+            final String rId =
+                rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+                ? rawRemoteId.toString()
+                : (p['id']?.toString() ?? '');
             final String rawName = p['name'] as String? ?? '';
             final String sanitizedName = rawName.trim().isEmpty
                 ? 'Produit'
@@ -401,27 +495,42 @@ class SyncService extends ChangeNotifier {
         debugPrint('PULL ERROR (stories): $e');
       }
 
-      // Pre-check story deduplication before batch insert
+      // Pre-check story deduplication and build conflict resolution map before batch insert
       final existingStoryRemoteIds = <String>{};
+      final Map<String, DateTime> storyTimestamps = {};
       if (remoteStories.isNotEmpty) {
         final remoteIds = remoteStories
-            .map((st) => (st['id'] ?? st['remote_id'])?.toString() ?? '')
+            .map((st) {
+              // Use remote_id if available, otherwise use id as fallback
+              final dynamic rawRemoteId = st['remote_id'];
+              return rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+                  ? rawRemoteId.toString()
+                  : (st['id']?.toString() ?? '');
+            })
             .where((id) => id.isNotEmpty)
             .toList();
         if (remoteIds.isNotEmpty) {
           final existingStories = await (db.select(
             db.stories,
           )..where((t) => t.remoteId.isIn(remoteIds))).get();
-          existingStoryRemoteIds.addAll(
-            existingStories.map((s) => s.remoteId).whereType<String>(),
-          );
+          for (final story in existingStories) {
+            if (story.remoteId != null && story.remoteId!.isNotEmpty) {
+              existingStoryRemoteIds.add(story.remoteId!);
+              storyTimestamps[story.remoteId!] = story.createdAt;
+            }
+          }
         }
       }
 
       if (remoteShops.isNotEmpty || remoteStories.isNotEmpty) {
         await db.batch((batch) {
           for (var s in remoteShops) {
-            final String rId = (s['id'] ?? s['remote_id'])?.toString() ?? '';
+            // Use remote_id if available, otherwise use id as fallback
+            final dynamic rawRemoteId = s['remote_id'];
+            final String rId =
+                rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+                ? rawRemoteId.toString()
+                : (s['id']?.toString() ?? '');
             final String rawName = s['name'] as String? ?? '';
             final String sanitizedName = rawName.trim().isEmpty
                 ? 'Boutique'
@@ -458,34 +567,71 @@ class SyncService extends ChangeNotifier {
           }
 
           for (var st in remoteStories) {
-            final String rId = (st['id'] ?? st['remote_id'])?.toString() ?? '';
+            // Use remote_id if available, otherwise use id as fallback
+            final dynamic rawRemoteId = st['remote_id'];
+            final String rId =
+                rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+                ? rawRemoteId.toString()
+                : (st['id']?.toString() ?? '');
 
             // Skip if story with this remoteId already exists (dedup)
             if (rId.isNotEmpty && existingStoryRemoteIds.contains(rId)) {
               continue;
             }
 
+            // Parse server timestamps for conflict resolution
+            final DateTime? serverCreatedAt = DateTime.tryParse(
+              st['created_at'] as String? ?? '',
+            );
+            final DateTime? serverUpdatedAt = DateTime.tryParse(
+              st['updated_at'] as String? ?? st['created_at'] as String? ?? '',
+            );
+
             // Map server shop_id to local shop id
-            final String sRemoteId = (st['shop_id'])?.toString() ?? '';
-            final int localShopId =
-                shopIdMap[sRemoteId] ??
-                (st['shop_id'] is int ? st['shop_id'] as int : 0);
+            // Server returns server-side shop ID, we need to find local shop by remoteId
+            final String serverShopId = (st['shop_id'])?.toString() ?? '';
+            final int localShopId = shopIdMap[serverShopId] ?? 0;
+
+            if (localShopId == 0) {
+              debugPrint(
+                'Story sync: WARNING - could not map shop ID for story $rId, server shop ID: $serverShopId',
+              );
+              continue; // Skip this story to avoid orphaned records
+            }
+
+            // Conflict resolution: last-write-wins based on timestamps
+            if (rId.isNotEmpty && storyTimestamps.containsKey(rId)) {
+              final localCreatedAt = storyTimestamps[rId]!;
+
+              // Skip if local version is newer
+              if (serverCreatedAt != null &&
+                  localCreatedAt.isAfter(serverCreatedAt)) {
+                debugPrint(
+                  'Story sync: skipping update for story $rId - local version is newer '
+                  '(local: $localCreatedAt, remote: $serverCreatedAt)',
+                );
+                continue;
+              }
+            }
+
+            // Encrypt media URL for consistent local storage
+            final String rawMediaUrl = st['media_url'] as String? ?? '';
+            final String encryptedMediaUrl = rawMediaUrl.isNotEmpty
+                ? CryptoUtils.encrypt(rawMediaUrl)
+                : '';
 
             batch.insert(
               db.stories,
               StoriesCompanion.insert(
                 remoteId: Value(rId),
                 shopId: localShopId,
-                mediaUrl: st['media_url'] as String? ?? '',
+                mediaUrl: encryptedMediaUrl,
                 mediaType: st['media_type'] as String? ?? 'image',
                 isArrivage: Value((_toInt(st['is_arrivage']) ?? 0) == 1),
                 expiresAt:
                     DateTime.tryParse(st['expires_at'] as String? ?? '') ??
                     DateTime.now().add(const Duration(days: 7)),
-                createdAt: Value(
-                  DateTime.tryParse(st['created_at'] as String? ?? '') ??
-                      DateTime.now(),
-                ),
+                createdAt: Value(serverCreatedAt ?? DateTime.now()),
               ),
               mode: InsertMode.insertOrReplace,
             );
@@ -499,7 +645,12 @@ class SyncService extends ChangeNotifier {
         try {
           for (var st in remoteStories) {
             if (st['media_items'] is! List) continue;
-            final String rId = (st['id'] ?? st['remote_id'])?.toString() ?? '';
+            // Use remote_id if available, otherwise use id as fallback
+            final dynamic rawRemoteId = st['remote_id'];
+            final String rId =
+                rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+                ? rawRemoteId.toString()
+                : (st['id']?.toString() ?? '');
             if (rId.isEmpty) continue;
 
             // Find the local story by remoteId
@@ -681,7 +832,12 @@ class SyncService extends ChangeNotifier {
 
       await db.batch((batch) {
         for (var cat in remoteCategories) {
-          final String rId = (cat['id'] ?? cat['remote_id'])?.toString() ?? '';
+          // Use remote_id if available, otherwise use id as fallback
+          final dynamic rawRemoteId = cat['remote_id'];
+          final String rId =
+              rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+              ? rawRemoteId.toString()
+              : (cat['id']?.toString() ?? '');
           final int? existingLocalId = categoryIdMap[rId];
 
           batch.insert(
@@ -731,6 +887,53 @@ class SyncService extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Error updating pending count: $e');
+    }
+  }
+
+  /// Map server-returned story ID back to local story record.
+  /// This prevents duplicate stories during pull sync.
+  Future<void> _mapServerIdToLocalStory(
+    SyncQueueData item,
+    String serverId,
+  ) async {
+    try {
+      final data = jsonDecode(item.entityData) as Map<String, dynamic>;
+      final mediaUrl = data['media_url'] as String?;
+      final shopId = data['shop_id'] as int?;
+
+      if (mediaUrl == null || shopId == null) {
+        debugPrint(
+          '_mapServerIdToLocalStory: missing mediaUrl or shopId in queue item',
+        );
+        return;
+      }
+
+      // Find the local story by matching shopId and recent creation time
+      final localStories =
+          await (db.select(db.stories)
+                ..where((t) => t.shopId.equals(shopId))
+                ..orderBy([(t) => OrderingTerm.desc(t.createdAt)])
+                ..limit(5))
+              .get();
+
+      // Find the most recent story without a remoteId
+      for (final localStory in localStories) {
+        if (localStory.remoteId == null || localStory.remoteId!.isEmpty) {
+          await (db.update(db.stories)
+                ..where((t) => t.id.equals(localStory.id)))
+              .write(StoriesCompanion(remoteId: Value(serverId)));
+          debugPrint(
+            '_mapServerIdToLocalStory: mapped local story ${localStory.id} to server ID $serverId',
+          );
+          return;
+        }
+      }
+
+      debugPrint(
+        '_mapServerIdToLocalStory: no local story without remoteId found for shopId=$shopId',
+      );
+    } catch (e) {
+      debugPrint('_mapServerIdToLocalStory error: $e');
     }
   }
 }

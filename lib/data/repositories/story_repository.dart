@@ -30,13 +30,30 @@ class StoryRepository {
   Stream<List<Story>> watchActiveArrivages() {
     final now = DateTime.now();
     final cutoff = now.subtract(arrivageExpiry);
+    developer.log(
+      'watchActiveArrivages: now=$now, cutoff=$cutoff, arrivageExpiry=$arrivageExpiry',
+      name: 'StoryRepo',
+    );
     return (db.select(db.stories)..where(
           (t) =>
               t.isArrivage.equals(true) &
               t.expiresAt.isBiggerThanValue(now) &
               t.createdAt.isBiggerThanValue(cutoff),
         ))
-        .watch();
+        .watch()
+        .map((stories) {
+          developer.log(
+            'watchActiveArrivages: found ${stories.length} active arrivages',
+            name: 'StoryRepo',
+          );
+          for (var story in stories) {
+            developer.log(
+              '  - Story ${story.id}: shopId=${story.shopId}, isArrivage=${story.isArrivage}, createdAt=${story.createdAt}, expiresAt=${story.expiresAt}',
+              name: 'StoryRepo',
+            );
+          }
+          return stories;
+        });
   }
 
   /// Add a regular story (24h expiry, single media, no story_media children).
@@ -245,10 +262,20 @@ class StoryRepository {
             'watchArrivagesGroupedByShop: raw stories count=${stories.length}',
             name: 'StoryRepo',
           );
+          for (var story in stories) {
+            developer.log(
+              '  - Story ${story.id}: shopId=${story.shopId}, createdAt=${story.createdAt}, expiresAt=${story.expiresAt}',
+              name: 'StoryRepo',
+            );
+          }
           final grouped = <int, List<Story>>{};
           for (final story in stories) {
             grouped.putIfAbsent(story.shopId, () => []).add(story);
           }
+          developer.log(
+            'watchArrivagesGroupedByShop: grouped into ${grouped.length} shops',
+            name: 'StoryRepo',
+          );
           return grouped;
         });
   }

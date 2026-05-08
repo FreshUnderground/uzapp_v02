@@ -12,6 +12,7 @@ import '../screens/notification_screen.dart';
 import '../../core/services/notification_service.dart';
 import 'search_screen.dart';
 import 'cart_screen.dart';
+import 'shops_directory_screen.dart';
 import 'profile_screen.dart';
 import 'story_feed_screen.dart';
 import 'discover_feed_screen.dart';
@@ -55,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Ensure categories are synced from server on first load
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       try {
         final syncService = context.read<SyncService>();
         syncService.ensureCategoriesSynced();
@@ -88,25 +90,37 @@ class _HomeScreenState extends State<HomeScreen> {
     List<Widget> actions = [];
 
     // Cart icon with Badge
-    actions.add(
-      StreamBuilder<int>(
-        stream: context.watch<CartRepository>().watchCartCount(),
-        builder: (context, snapshot) {
-          final count = snapshot.data ?? 0;
-          return Badge(
-            label: Text('$count'),
-            isLabelVisible: count > 0,
-            child: IconButton(
-              icon: const Icon(Icons.shopping_cart_outlined),
-              onPressed: () => Navigator.push(
-                context,
-                SlideUpRoute(page: const CartScreen()),
+    try {
+      actions.add(
+        StreamBuilder<int>(
+          stream: context.watch<CartRepository>().watchCartCount(),
+          builder: (context, snapshot) {
+            final count = snapshot.data ?? 0;
+            return Badge(
+              label: Text('$count'),
+              isLabelVisible: count > 0,
+              child: IconButton(
+                icon: const Icon(Icons.shopping_cart_outlined),
+                onPressed: () => Navigator.push(
+                  context,
+                  SlideUpRoute(page: const CartScreen()),
+                ),
               ),
-            ),
-          );
-        },
-      ),
-    );
+            );
+          },
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error building cart badge: $e');
+      // Fallback: show cart without badge
+      actions.add(
+        IconButton(
+          icon: const Icon(Icons.shopping_cart_outlined),
+          onPressed: () =>
+              Navigator.push(context, SlideUpRoute(page: const CartScreen())),
+        ),
+      );
+    }
 
     // Notification badge
     actions.add(
@@ -133,11 +147,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 4-tab layout: Accueil, Explorer, Panier, Profil
+    // 4-tab layout: Accueil, Explorer, Boutiques, Profil
     final List<Widget> pages = [
       _HomeContent(onOpenStory: _openOverlayStory),
       const DiscoverFeedScreen(),
-      const CartScreen(showAppBar: false),
+      const ShopsDirectoryScreen(),
       const ProfileScreen(showAppBar: false),
     ];
 
@@ -225,9 +239,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: Text(tr(context, 'discover')),
                 ),
                 NavigationRailDestination(
-                  icon: Icon(Icons.shopping_bag_outlined),
-                  selectedIcon: Icon(Icons.shopping_bag),
-                  label: Text(tr(context, 'cart')),
+                  icon: Icon(Icons.storefront_outlined),
+                  selectedIcon: Icon(Icons.storefront),
+                  label: const Text('Boutiques'),
                 ),
                 NavigationRailDestination(
                   icon: Icon(Icons.person_outline),
@@ -389,110 +403,113 @@ class _HomeScreenState extends State<HomeScreen> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
         child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Drag handle
-              Padding(
-                padding: const EdgeInsets.only(top: 12, bottom: 4),
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Drag handle
+                Padding(
+                  padding: const EdgeInsets.only(top: 12, bottom: 4),
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
-              // Header
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
-                child: Row(
-                  children: [
-                    Text(
-                      'Créer',
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: UzaColors.textPrimary,
-                      ),
-                    ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[100],
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.close,
-                          size: 20,
-                          color: Colors.grey[600],
+                // Header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Créer',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: UzaColors.textPrimary,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  'Que souhaitez-vous publier ?',
-                  style: TextStyle(color: Colors.grey[500], fontSize: 14),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Options
-              _CreateOptionTile(
-                icon: Icons.shopping_bag_outlined,
-                iconColor: UzaColors.primary,
-                iconBgColor: UzaColors.primary.withValues(alpha: 0.1),
-                title: 'Créer un produit',
-                subtitle: 'Ajoutez un nouveau produit à votre boutique',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    this.context,
-                    SlideUpRoute(page: EditProductScreen(shopId: shop.id)),
-                  );
-                },
-              ),
-              _CreateOptionTile(
-                icon: Icons.camera_alt_outlined,
-                iconColor: UzaColors.secondary,
-                iconBgColor: UzaColors.secondary.withValues(alpha: 0.1),
-                title: 'Créer une story',
-                subtitle: 'Partagez un moment avec votre communauté',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    this.context,
-                    SlideUpRoute(page: CreateStoryScreen(shopId: shop.id)),
-                  );
-                },
-              ),
-              _CreateOptionTile(
-                icon: Icons.local_shipping_outlined,
-                iconColor: const Color(0xFF6C63FF),
-                iconBgColor: const Color(0xFF6C63FF).withValues(alpha: 0.1),
-                title: 'Créer un arrivage',
-                subtitle: 'Annoncez les nouvelles arrivées dans votre boutique',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    this.context,
-                    SlideUpRoute(
-                      page: CreateStoryScreen(
-                        shopId: shop.id,
-                        isArrivage: true,
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.close,
+                            size: 20,
+                            color: Colors.grey[600],
+                          ),
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    'Que souhaitez-vous publier ?',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Options
+                _CreateOptionTile(
+                  icon: Icons.shopping_bag_outlined,
+                  iconColor: UzaColors.primary,
+                  iconBgColor: UzaColors.primary.withValues(alpha: 0.1),
+                  title: 'Créer un produit',
+                  subtitle: 'Ajoutez un nouveau produit à votre boutique',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      this.context,
+                      SlideUpRoute(page: EditProductScreen(shopId: shop.id)),
+                    );
+                  },
+                ),
+                _CreateOptionTile(
+                  icon: Icons.camera_alt_outlined,
+                  iconColor: UzaColors.secondary,
+                  iconBgColor: UzaColors.secondary.withValues(alpha: 0.1),
+                  title: 'Créer une story',
+                  subtitle: 'Partagez un moment avec votre communauté',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      this.context,
+                      SlideUpRoute(page: CreateStoryScreen(shopId: shop.id)),
+                    );
+                  },
+                ),
+                _CreateOptionTile(
+                  icon: Icons.local_shipping_outlined,
+                  iconColor: const Color(0xFF6C63FF),
+                  iconBgColor: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+                  title: 'Créer un arrivage',
+                  subtitle:
+                      'Annoncez les nouvelles arrivées dans votre boutique',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      this.context,
+                      SlideUpRoute(
+                        page: CreateStoryScreen(
+                          shopId: shop.id,
+                          isArrivage: true,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),
@@ -580,15 +597,45 @@ class _HomeContent extends StatefulWidget {
 
 class _HomeContentState extends State<_HomeContent> {
   Future<void> _handleRefresh() async {
-    final syncService = context.read<SyncService>();
-    await syncService.syncNow();
+    try {
+      final syncService = context.read<SyncService>();
+      await syncService.syncNow();
+    } catch (e) {
+      debugPrint('Error during refresh sync: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final productRepo = context.watch<ProductRepository>();
-    final storyRepo = context.watch<StoryRepository>();
-    final syncService = context.watch<SyncService>();
+    late final ProductRepository productRepo;
+    late final StoryRepository storyRepo;
+    late final SyncService syncService;
+
+    try {
+      productRepo = context.watch<ProductRepository>();
+      storyRepo = context.watch<StoryRepository>();
+      syncService = context.watch<SyncService>();
+    } catch (e) {
+      debugPrint('Error accessing repositories: $e');
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 64, color: Colors.red),
+              const SizedBox(height: 16),
+              const Text('Erreur de chargement'),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () => setState(() {}),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Réessayer'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth > 900;
     final cardWidth = screenWidth * 0.65;
@@ -681,7 +728,10 @@ class _HomeContentState extends State<_HomeContent> {
                   ),
                 ),
 
-                // 2. Stories
+                // 2. Category Shortcuts
+                SliverToBoxAdapter(child: _buildCategoryShortcuts()),
+
+                // 3. Stories
                 SliverToBoxAdapter(
                   child: _buildSectionHeader('Stories', topPadding: 12),
                 ),
@@ -717,9 +767,6 @@ class _HomeContentState extends State<_HomeContent> {
                     ),
                   ),
                 ),
-
-                // 3. Category Shortcuts
-                SliverToBoxAdapter(child: _buildCategoryShortcuts()),
 
                 // 4. Nouveaux Arrivages
                 SliverToBoxAdapter(
@@ -896,103 +943,6 @@ class _HomeContentState extends State<_HomeContent> {
                     },
                   ),
                 ),
-                // Arrival products sub-section
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 280,
-                    child: StreamBuilder<List<Product>>(
-                      stream: productRepo.watchArrivals(),
-                      builder: (context, snapshot) {
-                        final products = snapshot.data ?? [];
-                        if (products.isEmpty &&
-                            snapshot.connectionState ==
-                                ConnectionState.active) {
-                          if (syncService.isSyncing) {
-                            return Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const CircularProgressIndicator(
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      UzaColors.primary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    tr(context, 'loading'),
-                                    style: TextStyle(
-                                      color: Colors.grey[500],
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                FaIcon(
-                                  FontAwesomeIcons.boxOpen,
-                                  size: 40,
-                                  color: Colors.grey[300],
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  tr(context, 'no_arrivals'),
-                                  style: TextStyle(
-                                    color: Colors.grey[500],
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                TextButton.icon(
-                                  onPressed: () => syncService.syncNow(),
-                                  icon: const Icon(Icons.refresh),
-                                  label: Text(tr(context, 'retry')),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-                        if (snapshot.connectionState ==
-                            ConnectionState.waiting) {
-                          return ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            itemCount: 3,
-                            itemBuilder: (context, index) => Container(
-                              width: responsiveCardWidth,
-                              margin: const EdgeInsets.only(right: 12),
-                              child: Skeletons.productCard(context),
-                            ),
-                          );
-                        }
-                        return ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          itemCount: products.length,
-                          itemBuilder: (context, index) => Container(
-                            width: responsiveCardWidth,
-                            margin: const EdgeInsets.only(right: 12),
-                            child: ProductCard(
-                              product: products[index],
-                              onTap: () => Navigator.push(
-                                context,
-                                SlideUpRoute(
-                                  page: ProductDetailScreen(
-                                    product: products[index],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
 
                 // 5. Populaires (Grid)
                 SliverToBoxAdapter(
@@ -1124,107 +1074,120 @@ class _HomeContentState extends State<_HomeContent> {
   }
 
   Widget _buildCategoryShortcuts() {
-    final productRepo = context.watch<ProductRepository>();
     final hPad = MediaQuery.of(context).size.width < 360 ? 12.0 : 16.0;
 
-    return StreamBuilder<List<Category>>(
-      stream: productRepo.watchRootCategories(),
-      builder: (context, snapshot) {
-        final categories = snapshot.data ?? [];
-        debugPrint(
-          'Root categories: ${categories.length}, connectionState=${snapshot.connectionState}',
-        );
-        // Show up to 5 root categories
-        final displayCategories = categories.take(5).toList();
+    late final StreamBuilder<List<Category>> categoryStream;
+    try {
+      final productRepo = context.watch<ProductRepository>();
+      categoryStream = StreamBuilder<List<Category>>(
+        stream: productRepo.watchRootCategories(),
+        builder: (context, snapshot) {
+          final categories = snapshot.data ?? [];
+          debugPrint(
+            'Root categories: ${categories.length}, connectionState=${snapshot.connectionState}',
+          );
+          // Show up to 5 root categories
+          final displayCategories = categories.take(5).toList();
 
-        if (displayCategories.isEmpty) {
-          // Fallback: show skeleton placeholders while loading
+          if (displayCategories.isEmpty) {
+            // Fallback: show skeleton placeholders while loading
+            return Padding(
+              padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: List.generate(5, (_) {
+                  return Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[200],
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          width: 40,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[200],
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ),
+            );
+          }
+
           return Padding(
             padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: List.generate(5, (_) {
+              children: displayCategories.map((category) {
+                final icon = _getCategoryIcon(category.name);
                 return Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[200],
-                          shape: BoxShape.circle,
+                  child: TapAnimator(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        SlideUpRoute(
+                          page: CategoryProductsScreen(
+                            categoryId: category.id,
+                            categoryName: category.name,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        width: 40,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[200],
-                          borderRadius: BorderRadius.circular(4),
+                      );
+                    },
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: UzaColors.secondary.withValues(alpha: 0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            icon,
+                            color: UzaColors.secondary,
+                            size: 22,
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 6),
+                        Text(
+                          category.name,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF424242),
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
                   ),
                 );
-              }),
+              }).toList(),
             ),
           );
-        }
+        },
+      );
+    } catch (e) {
+      debugPrint('Error building category shortcuts: $e');
+      // Fallback: show empty space
+      return const SizedBox.shrink();
+    }
 
-        return Padding(
-          padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: displayCategories.map((category) {
-              final icon = _getCategoryIcon(category.name);
-              return Expanded(
-                child: TapAnimator(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      SlideUpRoute(
-                        page: CategoryProductsScreen(
-                          categoryId: category.id,
-                          categoryName: category.name,
-                        ),
-                      ),
-                    );
-                  },
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: UzaColors.secondary.withValues(alpha: 0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(icon, color: UzaColors.secondary, size: 22),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        category.name,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF424242),
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        );
-      },
-    );
+    return categoryStream;
   }
 
   /// Map category names to appropriate icons, matching the logic

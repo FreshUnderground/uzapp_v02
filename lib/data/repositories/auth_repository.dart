@@ -25,6 +25,7 @@ class AuthRepository {
             phone: profile.phone,
             name: Value(profile.name),
             avatarUrl: Value(profile.avatarUrl),
+            passwordHash: Value(profile.passwordHash),
           ),
         );
   }
@@ -33,6 +34,7 @@ class AuthRepository {
     String? name,
     String? avatarUrl,
     String? phone,
+    String? passwordHash,
   }) async {
     final current = await getCurrentUser();
     if (current == null) return;
@@ -44,6 +46,9 @@ class AuthRepository {
         name: name != null ? Value(name) : const Value.absent(),
         avatarUrl: avatarUrl != null ? Value(avatarUrl) : const Value.absent(),
         phone: phone != null ? Value(phone) : const Value.absent(),
+        passwordHash: passwordHash != null
+            ? Value(passwordHash)
+            : const Value.absent(),
       ),
     );
   }

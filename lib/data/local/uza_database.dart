@@ -153,6 +153,7 @@ class UserProfiles extends Table {
   TextColumn get phone => text().withLength(min: 7, max: 20)();
   TextColumn get name => text().nullable()();
   TextColumn get avatarUrl => text().nullable()();
+  TextColumn get passwordHash => text().nullable()();
   BoolColumn get isPhoneVerified =>
       boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
@@ -239,7 +240,7 @@ class UzaDatabase extends _$UzaDatabase {
   UzaDatabase() : super(ensureConnection());
 
   @override
-  int get schemaVersion => 22;
+  int get schemaVersion => 23;
 
   @override
   MigrationStrategy get migration {
@@ -349,6 +350,9 @@ class UzaDatabase extends _$UzaDatabase {
           await customStatement(
             'ALTER TABLE stories ADD COLUMN is_arrivage INTEGER NOT NULL DEFAULT 0',
           );
+        }
+        if (from < 23) {
+          await m.addColumn(userProfiles, userProfiles.passwordHash);
         }
       },
     );

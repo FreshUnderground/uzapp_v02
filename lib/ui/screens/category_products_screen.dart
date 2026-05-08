@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
@@ -27,12 +28,31 @@ class CategoryProductsScreen extends StatefulWidget {
 class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
   int? _selectedSubcategoryId;
   int? _selectedSubSubcategoryId;
-  _SortOption _sortBy = _SortOption.newest;
+  _SortOption _sortBy = _SortOption.nearest; // Default to nearest
   Position? _userPosition;
   bool _locationLoading = false;
+  List<Category> _subcategories = [];
+
+  @override
+  void initState() {
+    super.initState();
+    // Request location on init since nearest is default
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestLocation();
+    });
+  }
 
   int get _activeCategoryId =>
       _selectedSubSubcategoryId ?? _selectedSubcategoryId ?? widget.categoryId;
+
+  // Get all category IDs to include (parent + all subcategories)
+  List<int> _getAllCategoryIds() {
+    final List<int> ids = [widget.categoryId];
+    // Add direct subcategories
+    ids.addAll(_subcategories.map((c) => c.id));
+    // Sub-subcategories will be added when subcategory is selected
+    return ids;
+  }
 
   String _sortLabel(_SortOption sort) {
     switch (sort) {
@@ -234,55 +254,120 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
       stream: productRepo.watchCategoriesByParent(widget.categoryId),
       builder: (context, snapshot) {
         final subcategories = snapshot.data ?? [];
-        if (subcategories.isEmpty) return const SizedBox.shrink();
 
-        return SizedBox(
-          height: 44,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: subcategories.length,
-            itemBuilder: (context, index) {
-              final cat = subcategories[index];
-              final isSelected = _selectedSubcategoryId == cat.id;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  label: Text(cat.name),
-                  selected: isSelected,
-                  onSelected: (selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedSubcategoryId = cat.id;
-                        _selectedSubSubcategoryId = null;
-                      } else {
-                        _selectedSubcategoryId = null;
-                        _selectedSubSubcategoryId = null;
-                      }
-                    });
-                  },
-                  selectedColor: UzaColors.secondary.withValues(alpha: 0.15),
-                  checkmarkColor: UzaColors.secondary,
-                  labelStyle: TextStyle(
-                    color: isSelected ? UzaColors.secondary : Colors.black87,
-                    fontWeight: isSelected
-                        ? FontWeight.w600
-                        : FontWeight.normal,
-                    fontSize: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    side: BorderSide(
-                      color: isSelected
-                          ? UzaColors.secondary
-                          : Colors.grey[300]!,
+        // Store subcategories for later use
+        if (_subcategories != subcategories) {
+          _subcategories = subcategories;
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Row(
+                children: [
+                  Text(
+                    'Filtrer par sous-catégorie:',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
                     ),
                   ),
-                  backgroundColor: Colors.white,
-                ),
-              );
-            },
-          ),
+                  const SizedBox(width: 8),
+                  // "Tout" chip to show all products
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      label: const Text('Tout'),
+                      selected: _selectedSubcategoryId == null,
+                      onSelected: (selected) {
+                        if (selected) {
+                          setState(() {
+                            _selectedSubcategoryId = null;
+                            _selectedSubSubcategoryId = null;
+                          });
+                        }
+                      },
+                      selectedColor: UzaColors.primary.withValues(alpha: 0.15),
+                      checkmarkColor: UzaColors.primary,
+                      labelStyle: TextStyle(
+                        color: _selectedSubcategoryId == null
+                            ? UzaColors.primary
+                            : Colors.black87,
+                        fontWeight: _selectedSubcategoryId == null
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                        fontSize: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        side: BorderSide(
+                          color: _selectedSubcategoryId == null
+                              ? UzaColors.primary
+                              : Colors.grey[300]!,
+                        ),
+                      ),
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(
+              height: 44,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: subcategories.length,
+                itemBuilder: (context, index) {
+                  final cat = subcategories[index];
+                  final isSelected = _selectedSubcategoryId == cat.id;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      label: Text(cat.name),
+                      selected: isSelected,
+                      onSelected: (selected) {
+                        setState(() {
+                          if (selected) {
+                            _selectedSubcategoryId = cat.id;
+                            _selectedSubSubcategoryId = null;
+                          } else {
+                            _selectedSubcategoryId = null;
+                            _selectedSubSubcategoryId = null;
+                          }
+                        });
+                      },
+                      selectedColor: UzaColors.secondary.withValues(
+                        alpha: 0.15,
+                      ),
+                      checkmarkColor: UzaColors.secondary,
+                      labelStyle: TextStyle(
+                        color: isSelected
+                            ? UzaColors.secondary
+                            : Colors.black87,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                        fontSize: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        side: BorderSide(
+                          color: isSelected
+                              ? UzaColors.secondary
+                              : Colors.grey[300]!,
+                        ),
+                      ),
+                      backgroundColor: Colors.white,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         );
       },
     );
@@ -295,56 +380,73 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
         final subSubcategories = snapshot.data ?? [];
         if (subSubcategories.isEmpty) return const SizedBox.shrink();
 
-        return SizedBox(
-          height: 44,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: subSubcategories.length,
-            itemBuilder: (context, index) {
-              final cat = subSubcategories[index];
-              final isSelected = _selectedSubSubcategoryId == cat.id;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  label: Text(cat.name),
-                  selected: isSelected,
-                  onSelected: (selected) {
-                    setState(() {
-                      _selectedSubSubcategoryId = selected ? cat.id : null;
-                    });
-                  },
-                  selectedColor: UzaColors.primary.withValues(alpha: 0.15),
-                  checkmarkColor: UzaColors.primary,
-                  labelStyle: TextStyle(
-                    color: isSelected ? UzaColors.primary : Colors.black87,
-                    fontWeight: isSelected
-                        ? FontWeight.w600
-                        : FontWeight.normal,
-                    fontSize: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    side: BorderSide(
-                      color: isSelected ? UzaColors.primary : Colors.grey[300]!,
-                    ),
-                  ),
-                  backgroundColor: Colors.white,
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Text(
+                'Sous-catégories:',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
                 ),
-              );
-            },
-          ),
+              ),
+            ),
+            SizedBox(
+              height: 44,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: subSubcategories.length,
+                itemBuilder: (context, index) {
+                  final cat = subSubcategories[index];
+                  final isSelected = _selectedSubSubcategoryId == cat.id;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      label: Text(cat.name),
+                      selected: isSelected,
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedSubSubcategoryId = selected ? cat.id : null;
+                        });
+                      },
+                      selectedColor: UzaColors.primary.withValues(alpha: 0.15),
+                      checkmarkColor: UzaColors.primary,
+                      labelStyle: TextStyle(
+                        color: isSelected ? UzaColors.primary : Colors.black87,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                        fontSize: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        side: BorderSide(
+                          color: isSelected
+                              ? UzaColors.primary
+                              : Colors.grey[300]!,
+                        ),
+                      ),
+                      backgroundColor: Colors.white,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         );
       },
     );
   }
 
   Widget _buildStreamResults(ProductRepository productRepo) {
+    // When viewing a parent category with no subcategory selected,
+    // show products from the parent AND all its subcategories
     return StreamBuilder<List<Product>>(
-      stream: productRepo.watchProductsFiltered(
-        categoryId: _activeCategoryId,
-        sortBy: _sortStringForRepo(_sortBy),
-      ),
+      stream: _buildCategoryProductStream(productRepo),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
@@ -360,6 +462,79 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
         return _buildProductGrid(products);
       },
     );
+  }
+
+  Stream<List<Product>> _buildCategoryProductStream(
+    ProductRepository productRepo,
+  ) {
+    // If a specific subcategory or sub-subcategory is selected, only show its products
+    if (_selectedSubcategoryId != null || _selectedSubSubcategoryId != null) {
+      return productRepo.watchProductsFiltered(
+        categoryId: _activeCategoryId,
+        sortBy: _sortStringForRepo(_sortBy),
+      );
+    }
+
+    // Otherwise, show products from parent category AND all its subcategories
+    // For simplicity, we'll use a Future-based approach
+    // This will rebuild when subcategories change
+    return _watchProductsFromCategoryAndSubcategories(
+      productRepo,
+      widget.categoryId,
+      _subcategories,
+    );
+  }
+
+  Stream<List<Product>> _watchProductsFromCategoryAndSubcategories(
+    ProductRepository productRepo,
+    int parentCategoryId,
+    List<Category> subcategories,
+  ) {
+    // Create a stream controller that will emit merged results
+    final controller = StreamController<List<Product>>();
+
+    // Get all streams
+    final streams = <Stream<List<Product>>>[
+      productRepo.watchProductsFiltered(
+        categoryId: parentCategoryId,
+        sortBy: _sortStringForRepo(_sortBy),
+      ),
+      ...subcategories.map(
+        (cat) => productRepo.watchProductsFiltered(
+          categoryId: cat.id,
+          sortBy: _sortStringForRepo(_sortBy),
+        ),
+      ),
+    ];
+
+    // Subscribe to all streams and merge results
+    final subscriptions = <StreamSubscription<List<Product>>>[];
+    final allProductsMap = <int, Product>{};
+
+    for (var i = 0; i < streams.length; i++) {
+      subscriptions.add(
+        streams[i].listen((products) {
+          // Update products map
+          for (final product in products) {
+            allProductsMap[product.id] = product;
+          }
+
+          // Emit merged results
+          if (!controller.isClosed) {
+            controller.add(allProductsMap.values.toList());
+          }
+        }),
+      );
+    }
+
+    // Clean up on done
+    controller.onCancel = () {
+      for (final sub in subscriptions) {
+        sub.cancel();
+      }
+    };
+
+    return controller.stream;
   }
 
   Widget _buildNearestResults(ProductRepository productRepo) {

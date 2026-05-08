@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/local/uza_database.dart';
 import '../../core/services/contact_service.dart';
+import '../../core/services/location_service.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/services/sync_service.dart';
@@ -610,6 +611,68 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 ),
               ),
             ),
+            // Location button if shop has coordinates
+            if (shop.latitude != null && shop.longitude != null) ...[
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: () => _showLocationOptions(context, shop),
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.teal.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.location_on,
+                          color: Colors.teal,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Voir la boutique sur la carte',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: Colors.teal,
+                              ),
+                            ),
+                            Text(
+                              'Obtenir l\'itineraire',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.navigation,
+                        color: Colors.teal,
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         );
       },
@@ -781,9 +844,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         selectedRating,
                         commentController.text,
                       );
-                      if (context.mounted) Navigator.pop(context);
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        final navigator = Navigator.of(context);
+                        final scaffoldMessenger = ScaffoldMessenger.of(context);
+                        navigator.pop(context);
+                        scaffoldMessenger.showSnackBar(
                           const SnackBar(
                             content: Text('Merci pour votre avis !'),
                           ),
@@ -1184,6 +1249,79 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   }
                 },
               ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showLocationOptions(BuildContext context, Shop shop) {
+    if (shop.latitude == null || shop.longitude == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Localisation de la boutique',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                shop.name.toUpperCase(),
+                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 24),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.map, color: Colors.blue),
+                ),
+                title: const Text('Voir sur la carte'),
+                subtitle: const Text('Ouvrir dans Google Maps'),
+                onTap: () {
+                  Navigator.pop(context);
+                  LocationService.openInMaps(
+                    latitude: shop.latitude!,
+                    longitude: shop.longitude!,
+                    label: shop.name,
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.navigation, color: Colors.green),
+                ),
+                title: const Text('Obtenir l\'itineraire'),
+                subtitle: const Text('Guidage vers la boutique'),
+                onTap: () {
+                  Navigator.pop(context);
+                  LocationService.getDirections(
+                    latitude: shop.latitude!,
+                    longitude: shop.longitude!,
+                    destinationName: shop.name,
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
             ],
           ),
         );

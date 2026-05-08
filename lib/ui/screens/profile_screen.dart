@@ -31,6 +31,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/services/api_service.dart';
 import '../../core/l10n/tr.dart';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 class ProfileScreen extends StatefulWidget {
   final bool showAppBar;
@@ -43,9 +45,16 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _currentPasswordController = TextEditingController();
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   bool _isEditing = false;
   bool _isSaving = false;
   bool _hasReconnectedShops = false;
+  bool _isChangingPassword = false;
+  bool _showCurrentPassword = false;
+  bool _showNewPassword = false;
+  bool _showConfirmPassword = false;
   Uint8List? _avatarBytes;
   String? _avatarUrl;
   bool _isUploadingAvatar = false;
@@ -99,7 +108,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _recentlyViewed.dispose();
     _nameController.dispose();
     _phoneController.dispose();
+    _currentPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  /// Safely shows a SnackBar only if the widget is still mounted.
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              isError ? Icons.error_outline : Icons.check_circle,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   Future<void> _saveProfile() async {
@@ -115,20 +148,175 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _isEditing = false;
         _isSaving = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
+      _showSnackBar(tr(context, 'profile_updated'));
+    }
+  }
+
+  Future<void> _changePassword() async {
+    if (_currentPasswordController.text.isEmpty) {
+      _showSnackBar('Entrez votre mot de passe actuel', isError: true);
+      return;
+    }
+
+    if (_newPasswordController.text.isEmpty ||
+        _newPasswordController.text.length < 6) {
+      _showSnackBar(
+        'Le nouveau mot de passe doit contenir au moins 6 caract\u00e8res',
+        isError: true,
+      );
+      return;
+    }
+
+    if (_newPasswordController.text != _confirmPasswordController.text) {
+      _showSnackBar('Les mots de passe ne correspondent pas', isError: true);
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      final authService = context.read<AuthService>();
+      final authRepo = context.read<AuthRepository>();
+      final currentProfile = await authRepo.getCurrentUser();
+
+      if (currentProfile == null) {
+        throw Exception('Profil non trouvé');
+      }
+
+      // Verify current password
+      final currentPasswordHash = _hashPassword(
+        _currentPasswordController.text,
+      );
+      if (currentProfile.passwordHash != currentPasswordHash) {
+        throw Exception('Mot de passe actuel incorrect');
+      }
+
+      // Update with new password
+      final newPasswordHash = _hashPassword(_newPasswordController.text);
+      await authRepo.updateProfile(passwordHash: newPasswordHash);
+
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+          _isChangingPassword = false;
+          _currentPasswordController.clear();
+          _newPasswordController.clear();
+          _confirmPasswordController.clear();
+        });
+        _showSnackBar('Mot de passe modifi\u00e9 avec succ\u00e8s');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        _showSnackBar(
+          e.toString().replaceAll('Exception: ', ''),
+          isError: true,
+        );
+      }
+    }
+  }
+
+  String _hashPassword(String password) {
+    final bytes = utf8.encode(password);
+    final hash = sha256.convert(bytes);
+    return hash.toString();
+  }
+
+  void _showChangePasswordDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Modifier le mot de passe'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 8),
-              Text(tr(context, 'profile_updated')),
+              TextField(
+                controller: _currentPasswordController,
+                obscureText: !_showCurrentPassword,
+                decoration: InputDecoration(
+                  labelText: 'Mot de passe actuel',
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _showCurrentPassword
+                          ? Icons.visibility
+                          : Icons.visibility_off,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _showCurrentPassword = !_showCurrentPassword;
+                      });
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _newPasswordController,
+                obscureText: !_showNewPassword,
+                decoration: InputDecoration(
+                  labelText: 'Nouveau mot de passe',
+                  hintText: 'Minimum 6 caractères',
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _showNewPassword
+                          ? Icons.visibility
+                          : Icons.visibility_off,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _showNewPassword = !_showNewPassword;
+                      });
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _confirmPasswordController,
+                obscureText: !_showConfirmPassword,
+                decoration: InputDecoration(
+                  labelText: 'Confirmer le nouveau mot de passe',
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _showConfirmPassword
+                          ? Icons.visibility
+                          : Icons.visibility_off,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _showConfirmPassword = !_showConfirmPassword;
+                      });
+                    },
+                  ),
+                ),
+              ),
             ],
           ),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
         ),
-      );
-    }
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _currentPasswordController.clear();
+              _newPasswordController.clear();
+              _confirmPasswordController.clear();
+            },
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: _isSaving ? null : _changePassword,
+            child: _isSaving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Modifier'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -886,9 +1074,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 final story = stories[index];
                 final decryptedUrl = CryptoUtils.decrypt(story.mediaUrl);
                 return TapAnimator(
-                  onTap: () {
+                  onTap: () async {
                     final storyRepo = context.read<StoryRepository>();
-                    Navigator.push(
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => StoryViewScreen(
@@ -992,9 +1180,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 final arrivage = arrivages[index];
                 final decryptedUrl = CryptoUtils.decrypt(arrivage.mediaUrl);
                 return TapAnimator(
-                  onTap: () {
+                  onTap: () async {
                     final storyRepo = context.read<StoryRepository>();
-                    Navigator.push(
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => StoryViewScreen(
@@ -1416,7 +1604,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         children: [
-          // Dark mode
+          // Change password
+          TapAnimator(
+            onTap: () => _showChangePasswordDialog(),
+            child: ListTile(
+              leading: Icon(Icons.lock_outline, color: Colors.grey[700]),
+              title: Text(
+                'Mot de passe',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              subtitle: Text(
+                'Modifier votre mot de passe',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              trailing: Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: Colors.grey[400],
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ),
+          const Divider(height: 1, indent: 12, endIndent: 12),
           SwitchListTile(
             secondary: Icon(Icons.dark_mode_outlined, color: Colors.indigo),
             title: Text(
@@ -1699,9 +1911,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${tr(context, 'upload_error')}: $e')),
-        );
+        _showSnackBar('${tr(context, 'upload_error')}: $e', isError: true);
       }
     } finally {
       if (mounted) {

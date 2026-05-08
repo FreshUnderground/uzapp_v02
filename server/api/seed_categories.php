@@ -56,8 +56,9 @@ try {
         ['name' => 'Phones',     'icon' => 'smartphone',     'sort' => 1],
         ['name' => 'Ordi.',      'icon' => 'computer',       'sort' => 2],
         ['name' => 'Gadgets',    'icon' => 'devices_other',  'sort' => 3],
-        ['name' => 'Auto',       'icon' => 'directions_car', 'sort' => 4],
-        ['name' => 'Restau.',    'icon' => 'restaurant',     'sort' => 5],
+        ['name' => 'Restau.',    'icon' => 'restaurant',     'sort' => 4],
+        ['name' => 'Style',      'icon' => 'shopping_bag',   'sort' => 5],
+        ['name' => 'Auto',       'icon' => 'directions_car', 'sort' => 6],
     ];
 
     $rootIds = [];

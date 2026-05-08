@@ -4,13 +4,11 @@ import '../../data/local/uza_database.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/services/sync_service.dart';
-import '../../core/services/auth_service.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
 import '../components/custom_refresh_indicator.dart';
 import '../utils/page_transitions.dart';
 import 'story_view_screen.dart';
-import 'create_story_screen.dart';
 
 class ArrivagesScreen extends StatelessWidget {
   const ArrivagesScreen({super.key});
@@ -19,7 +17,6 @@ class ArrivagesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final storyRepo = context.watch<StoryRepository>();
     final syncService = context.read<SyncService>();
-    final authService = context.read<AuthService>();
     final shopRepo = context.read<ShopRepository>();
 
     return Scaffold(
@@ -33,6 +30,32 @@ class ArrivagesScreen extends StatelessWidget {
         elevation: 0,
         scrolledUnderElevation: 0.5,
         surfaceTintColor: Colors.transparent,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () async {
+              // Show loading
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Synchronisation en cours...'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+              // Force full sync
+              await syncService.fullResetAndSync();
+              // Show success
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('✅ Synchronisation terminée!'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            tooltip: 'Forcer la synchronisation',
+          ),
+        ],
       ),
       body: StreamBuilder<List<Story>>(
         stream: storyRepo.watchActiveArrivages(),
@@ -114,11 +137,6 @@ class ArrivagesScreen extends StatelessWidget {
           );
         },
       ),
-      // FAB to create a new arrivage (story) — only visible if the user has a shop
-      floatingActionButton: _CreateArrivageFab(
-        authService: authService,
-        shopRepo: shopRepo,
-      ),
     );
   }
 
@@ -137,53 +155,6 @@ class ArrivagesScreen extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.grey[100],
             borderRadius: BorderRadius.circular(12),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Floating Action Button that only shows when the user owns a shop.
-/// Tapping it navigates to the CreateStoryScreen with the user's shopId.
-class _CreateArrivageFab extends StatelessWidget {
-  final AuthService authService;
-  final ShopRepository shopRepo;
-
-  const _CreateArrivageFab({required this.authService, required this.shopRepo});
-
-  @override
-  Widget build(BuildContext context) {
-    final user = authService.user;
-    if (user == null) return const SizedBox.shrink();
-
-    return StreamBuilder<Shop?>(
-      stream: shopRepo.watchUserShop(user.uid),
-      builder: (context, snapshot) {
-        // Don't show while loading
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SizedBox.shrink();
-        }
-
-        final shop = snapshot.data;
-        if (shop == null) return const SizedBox.shrink();
-
-        return FloatingActionButton.extended(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    CreateStoryScreen(shopId: shop.id, isArrivage: true),
-              ),
-            );
-          },
-          backgroundColor: Theme.of(context).primaryColor,
-          foregroundColor: Colors.white,
-          icon: const Icon(Icons.add_photo_alternate_outlined),
-          label: const Text(
-            'Nouvel arrivage',
-            style: TextStyle(fontWeight: FontWeight.w600),
           ),
         );
       },

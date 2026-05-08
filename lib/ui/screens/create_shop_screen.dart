@@ -18,6 +18,7 @@ import '../../data/local/uza_database.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../data/services/sync_service.dart';
+import '../../core/services/location_service.dart';
 
 const Map<String, List<String>> cities = {
   'Butembo': ['Butembo', 'Vulamba', 'Kimemi', 'Mususa', 'vulengera'],
@@ -119,16 +120,25 @@ class _CreateShopScreenState extends State<CreateShopScreen>
   final _instagramController = TextEditingController();
   final _tiktokController = TextEditingController();
   final _youtubeController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
   ShopType _selectedType = ShopType.retail;
   String? _selectedCity;
   String? _selectedCommune;
+  bool _showPassword = false;
+  bool _showConfirmPassword = false;
 
   Uint8List? _logoPreviewBytes;
   String? _logoUrl;
 
   int _currentStep = 0;
   bool _isGoingForward = true;
+
+  // Location data
+  double? _latitude;
+  double? _longitude;
+  bool _locationCaptured = false;
 
   // OTP state
   String? _otpPhoneNumber;
@@ -151,7 +161,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
     'Contact',
     'Vérification',
     'Détails',
-    'Aperçu',
+    'Mot de passe',
   ];
 
   @override
@@ -164,6 +174,8 @@ class _CreateShopScreenState extends State<CreateShopScreen>
     _instagramController.dispose();
     _tiktokController.dispose();
     _youtubeController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
     _countdownTimer?.cancel();
     for (final c in _otpControllers) {
       c.dispose();
@@ -248,6 +260,14 @@ class _CreateShopScreenState extends State<CreateShopScreen>
       case 3:
         return true;
       case 4:
+        // Password is mandatory on final step
+        if (_passwordController.text.isEmpty ||
+            _passwordController.text.length < 6) {
+          return false;
+        }
+        if (_passwordController.text != _confirmPasswordController.text) {
+          return false;
+        }
         return true;
       default:
         return false;
@@ -299,6 +319,12 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         break;
       case 2:
         message = 'Veuillez vérifier votre numéro ou appuyer sur Passer';
+        break;
+      case 3:
+        message = 'Veuillez remplir tous les champs';
+        break;
+      case 4:
+        message = 'Veuillez créer un mot de passe (min. 6 caractères)';
         break;
       default:
         message = 'Veuillez remplir tous les champs';
@@ -470,11 +496,44 @@ class _CreateShopScreenState extends State<CreateShopScreen>
       final syncService = context.read<SyncService>();
       final phone = _phoneController.text.trim();
 
-      // 1. Create / login user
+      // 1. Check for existing shop LOCALLY first (prevent duplicate)
+      final allShops = await shopRepo.watchAllShops().first;
+      final existingLocalShop = allShops
+          .where((shop) => shop.phone == phone || shop.ownerId == phone)
+          .firstOrNull;
+
+      if (existingLocalShop != null) {
+        if (mounted) {
+          Navigator.pop(context); // Close loading dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Une boutique existe déjà avec ce numéro: ${existingLocalShop.name}',
+              ),
+              backgroundColor: Colors.orange[800],
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'OK',
+                textColor: Colors.white,
+                onPressed: () {
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                },
+              ),
+            ),
+          );
+        }
+        return; // Stop the submission process
+      }
+
+      // 2. Create / login user
       await authService.registerFromShopFlow(
         phone,
         isPhoneVerified: _otpVerified,
         name: _nameController.text.trim(),
+        password: _passwordController.text.trim().isNotEmpty
+            ? _passwordController.text.trim()
+            : null,
       );
 
       final userId = authService.user?.uid;
@@ -488,7 +547,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         return;
       }
 
-      // 2. Upload logo if any
+      // 3. Upload logo if any
       String finalLogoUrl = _logoUrl ?? '';
       if (_logoPreviewBytes != null) {
         final fileName =
@@ -507,15 +566,19 @@ class _CreateShopScreenState extends State<CreateShopScreen>
           ? CryptoUtils.encrypt(finalLogoUrl)
           : '';
 
-      // 3. Check for existing shop on server
+      // 4. Check for existing shop on server
       try {
         final shops = await apiService.fetchShops();
         final alreadyExists = shops.any((s) => s['owner_id'] == userId);
         if (alreadyExists && mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
+          final navigator = Navigator.of(context);
+          final scaffoldMessenger = ScaffoldMessenger.of(context);
+          navigator.pop();
+          scaffoldMessenger.showSnackBar(
             const SnackBar(
-              content: Text('Une boutique existe déjà pour ce numéro'),
+              content: Text(
+                'Une boutique existe déjà pour ce numéro sur le serveur',
+              ),
             ),
           );
           return;
@@ -586,18 +649,91 @@ class _CreateShopScreenState extends State<CreateShopScreen>
       // 7. Trigger immediate push
       syncService.forcePush();
 
+      // 8. Ask for location capture
       if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Boutique créée avec succès')),
+      Navigator.of(context).pop(); // Close loading dialog
+
+      final captureLocation = await LocationService.showCaptureLocationDialog(
+        context,
       );
-      Navigator.pop(context); // Close create shop screen
+      if (captureLocation) {
+        LocationService.showSecurityNotice(context);
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        if (!mounted) return;
+        LocationService.showLocationLoading(context);
+
+        final location = await LocationService.getCurrentLocation();
+        if (!mounted) return;
+        Navigator.of(context).pop(); // Close loading dialog
+
+        if (location != null) {
+          final lat = location['latitude']!;
+          final lng = location['longitude']!;
+
+          // Update shop with location
+          await shopRepo.updateShop(
+            ShopsCompanion(
+              id: drift.Value(shopId),
+              latitude: drift.Value(lat),
+              longitude: drift.Value(lng),
+            ),
+          );
+
+          // Also queue for server sync
+          await syncService.addToQueue('UPDATE', 'shops', {
+            'id': shopId,
+            'latitude': lat,
+            'longitude': lng,
+          });
+
+          syncService.forcePush();
+
+          LocationService.showLocationSuccess(
+            context,
+            latitude: lat,
+            longitude: lng,
+          );
+
+          if (!mounted) return;
+          final navigator = Navigator.of(context);
+          final scaffoldMessenger = ScaffoldMessenger.of(context);
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(content: Text('Boutique créée avec succès')),
+          );
+          navigator.pop(); // Close create shop screen
+        } else {
+          // Location failed, still show success
+          if (!mounted) return;
+          final navigator = Navigator.of(context);
+          final scaffoldMessenger = ScaffoldMessenger.of(context);
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Boutique créée! Vous pourrez ajouter la localisation plus tard.',
+              ),
+            ),
+          );
+          navigator.pop(); // Close create shop screen
+        }
+      } else {
+        // User chose to skip location
+        if (!mounted) return;
+        final navigator = Navigator.of(context);
+        final scaffoldMessenger = ScaffoldMessenger.of(context);
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(content: Text('Boutique créée avec succès')),
+        );
+        navigator.pop(); // Close create shop screen
+      }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // Close loading dialog
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
+        final navigator = Navigator.of(context);
+        final scaffoldMessenger = ScaffoldMessenger.of(context);
+        navigator.pop(); // Close loading dialog
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text('Erreur: ${e.toString()}')),
+        );
       }
     }
   }
@@ -763,7 +899,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
       case 3:
         return _buildStepDetails();
       case 4:
-        return _buildStepPreview();
+        return _buildStepPassword();
       default:
         return const SizedBox.shrink();
     }
@@ -1399,6 +1535,28 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             'YouTube',
             FontAwesomeIcons.youtube,
           ),
+          const SizedBox(height: 16),
+          if (!_otpVerified)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.orange[800], size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Votre boutique sera marquée "Non vérifiée". Vous pourrez vérifier votre numéro plus tard dans les paramètres.',
+                      style: TextStyle(color: Colors.orange[800], fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -1431,6 +1589,144 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         ),
       ),
       style: const TextStyle(fontSize: 16),
+    );
+  }
+
+  // ─── Step 5: Password ────────────────────────────────────────────
+
+  Widget _buildStepPassword() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Créez votre mot de passe',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: UzaColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Ce mot de passe vous permettra de vous connecter sur d\'autres appareils',
+            style: TextStyle(color: Colors.grey[600], fontSize: 15),
+          ),
+          const SizedBox(height: 32),
+          // Password field
+          TextFormField(
+            controller: _passwordController,
+            obscureText: !_showPassword,
+            decoration: InputDecoration(
+              labelText: 'Mot de passe *',
+              hintText: 'Minimum 6 caractères',
+              prefixIcon: const Icon(Icons.lock, size: 20),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _showPassword ? Icons.visibility : Icons.visibility_off,
+                  size: 20,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _showPassword = !_showPassword;
+                  });
+                },
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: Colors.grey[300]!),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(
+                  color: UzaColors.primary,
+                  width: 2,
+                ),
+              ),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 20,
+              ),
+            ),
+            style: const TextStyle(fontSize: 18),
+          ),
+          const SizedBox(height: 24),
+          // Confirm password field
+          TextFormField(
+            controller: _confirmPasswordController,
+            obscureText: !_showConfirmPassword,
+            decoration: InputDecoration(
+              labelText: 'Confirmer le mot de passe *',
+              prefixIcon: const Icon(Icons.lock_outline, size: 20),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _showConfirmPassword
+                      ? Icons.visibility
+                      : Icons.visibility_off,
+                  size: 20,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _showConfirmPassword = !_showConfirmPassword;
+                  });
+                },
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: Colors.grey[300]!),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(
+                  color: UzaColors.primary,
+                  width: 2,
+                ),
+              ),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 20,
+              ),
+            ),
+            style: const TextStyle(fontSize: 18),
+          ),
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: UzaColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: UzaColors.primary.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: UzaColors.primary, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Le mot de passe est obligatoire pour sécuriser votre boutique',
+                    style: TextStyle(
+                      color: UzaColors.primary.withValues(alpha: 0.9),
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

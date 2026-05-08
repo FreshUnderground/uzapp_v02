@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'sms_service.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
 
 class MockUser {
   final String uid;
@@ -251,9 +253,81 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  /// Sign in with phone number and password
+  Future<void> signInWithPassword({
+    required String phoneNumber,
+    required String password,
+    required Function onSuccess,
+    required Function(dynamic e) onFailed,
+  }) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      // Hash the password
+      final passwordHash = _hashPassword(password);
+
+      // Check local database first
+      final profile = await _repository.getCurrentUser();
+      if (profile != null && profile.phone == phoneNumber) {
+        // Verify password
+        if (profile.passwordHash == passwordHash) {
+          await _completeSignIn(
+            phoneNumber,
+            isPhoneVerified: profile.isPhoneVerified,
+          );
+          onSuccess();
+        } else {
+          throw Exception('Mot de passe incorrect');
+        }
+      } else {
+        // Check server for user using the dedicated login endpoint
+        if (_syncService != null) {
+          final loginResult = await _syncService!.api.loginWithPassword(
+            phone: phoneNumber,
+            passwordHash: passwordHash,
+          );
+
+          if (loginResult != null && loginResult['success'] == true) {
+            // Login successful - user exists and password is correct
+            final remoteProfile = loginResult['user'];
+            await _completeSignIn(
+              phoneNumber,
+              isPhoneVerified: remoteProfile['is_phone_verified'] ?? false,
+            );
+            onSuccess();
+          } else if (loginResult != null && loginResult['error'] != null) {
+            // Login failed - server returned an error
+            throw Exception(loginResult['error']);
+          } else {
+            // No response from server
+            throw Exception(
+              'Impossible de se connecter au serveur. Vérifiez votre connexion internet.',
+            );
+          }
+        } else {
+          throw Exception('Impossible de vérifier les identifiants');
+        }
+      }
+    } catch (e) {
+      onFailed(e);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Hash a password using SHA-256
+  String _hashPassword(String password) {
+    final bytes = utf8.encode(password);
+    final hash = sha256.convert(bytes);
+    return hash.toString();
+  }
+
   Future<void> _completeSignIn(
     String phone, {
     bool isPhoneVerified = false,
+    String? passwordHash,
   }) async {
     final String uid = phone;
     String? existingName;
@@ -283,6 +357,7 @@ class AuthService extends ChangeNotifier {
       phone: phone,
       name: existingName,
       avatarUrl: existingAvatar,
+      passwordHash: passwordHash,
       isPhoneVerified: isPhoneVerified,
       createdAt: DateTime.now(),
     );
@@ -297,12 +372,16 @@ class AuthService extends ChangeNotifier {
 
     // Queue for remote sync (to ensure server has latest)
     if (_syncService != null) {
-      await _syncService!.addToQueue('CREATE', 'users', {
+      final syncData = {
         'remote_id': uid,
         'phone': phone,
         'name': existingName,
         'avatar_url': existingAvatar,
-      });
+      };
+      if (passwordHash != null) {
+        syncData['password_hash'] = passwordHash;
+      }
+      await _syncService!.addToQueue('CREATE', 'users', syncData);
     }
 
     // Persist phone verification status
@@ -325,11 +404,17 @@ class AuthService extends ChangeNotifier {
     bool isPhoneVerified = false,
     String? name,
     String? avatarUrl,
+    String? password,
   }) async {
     _isLoading = true;
     notifyListeners();
     try {
-      await _completeSignIn(phone, isPhoneVerified: isPhoneVerified);
+      final passwordHash = password != null ? _hashPassword(password) : null;
+      await _completeSignIn(
+        phone,
+        isPhoneVerified: isPhoneVerified,
+        passwordHash: passwordHash,
+      );
       // Update name/avatar if provided
       if (name != null || avatarUrl != null) {
         await _repository.updateProfile(name: name, avatarUrl: avatarUrl);

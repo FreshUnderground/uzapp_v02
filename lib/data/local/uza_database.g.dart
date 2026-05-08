@@ -5364,6 +5364,17 @@ class $UserProfilesTable extends UserProfiles
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _passwordHashMeta = const VerificationMeta(
+    'passwordHash',
+  );
+  @override
+  late final GeneratedColumn<String> passwordHash = GeneratedColumn<String>(
+    'password_hash',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _isPhoneVerifiedMeta = const VerificationMeta(
     'isPhoneVerified',
   );
@@ -5398,6 +5409,7 @@ class $UserProfilesTable extends UserProfiles
     phone,
     name,
     avatarUrl,
+    passwordHash,
     isPhoneVerified,
     createdAt,
   ];
@@ -5440,6 +5452,15 @@ class $UserProfilesTable extends UserProfiles
       context.handle(
         _avatarUrlMeta,
         avatarUrl.isAcceptableOrUnknown(data['avatar_url']!, _avatarUrlMeta),
+      );
+    }
+    if (data.containsKey('password_hash')) {
+      context.handle(
+        _passwordHashMeta,
+        passwordHash.isAcceptableOrUnknown(
+          data['password_hash']!,
+          _passwordHashMeta,
+        ),
       );
     }
     if (data.containsKey('is_phone_verified')) {
@@ -5486,6 +5507,10 @@ class $UserProfilesTable extends UserProfiles
         DriftSqlType.string,
         data['${effectivePrefix}avatar_url'],
       ),
+      passwordHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}password_hash'],
+      ),
       isPhoneVerified: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_phone_verified'],
@@ -5509,6 +5534,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
   final String phone;
   final String? name;
   final String? avatarUrl;
+  final String? passwordHash;
   final bool isPhoneVerified;
   final DateTime createdAt;
   const UserProfile({
@@ -5517,6 +5543,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
     required this.phone,
     this.name,
     this.avatarUrl,
+    this.passwordHash,
     required this.isPhoneVerified,
     required this.createdAt,
   });
@@ -5534,6 +5561,9 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
     if (!nullToAbsent || avatarUrl != null) {
       map['avatar_url'] = Variable<String>(avatarUrl);
     }
+    if (!nullToAbsent || passwordHash != null) {
+      map['password_hash'] = Variable<String>(passwordHash);
+    }
     map['is_phone_verified'] = Variable<bool>(isPhoneVerified);
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
@@ -5550,6 +5580,9 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
       avatarUrl: avatarUrl == null && nullToAbsent
           ? const Value.absent()
           : Value(avatarUrl),
+      passwordHash: passwordHash == null && nullToAbsent
+          ? const Value.absent()
+          : Value(passwordHash),
       isPhoneVerified: Value(isPhoneVerified),
       createdAt: Value(createdAt),
     );
@@ -5566,6 +5599,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
       phone: serializer.fromJson<String>(json['phone']),
       name: serializer.fromJson<String?>(json['name']),
       avatarUrl: serializer.fromJson<String?>(json['avatarUrl']),
+      passwordHash: serializer.fromJson<String?>(json['passwordHash']),
       isPhoneVerified: serializer.fromJson<bool>(json['isPhoneVerified']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
@@ -5579,6 +5613,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
       'phone': serializer.toJson<String>(phone),
       'name': serializer.toJson<String?>(name),
       'avatarUrl': serializer.toJson<String?>(avatarUrl),
+      'passwordHash': serializer.toJson<String?>(passwordHash),
       'isPhoneVerified': serializer.toJson<bool>(isPhoneVerified),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
@@ -5590,6 +5625,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
     String? phone,
     Value<String?> name = const Value.absent(),
     Value<String?> avatarUrl = const Value.absent(),
+    Value<String?> passwordHash = const Value.absent(),
     bool? isPhoneVerified,
     DateTime? createdAt,
   }) => UserProfile(
@@ -5598,6 +5634,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
     phone: phone ?? this.phone,
     name: name.present ? name.value : this.name,
     avatarUrl: avatarUrl.present ? avatarUrl.value : this.avatarUrl,
+    passwordHash: passwordHash.present ? passwordHash.value : this.passwordHash,
     isPhoneVerified: isPhoneVerified ?? this.isPhoneVerified,
     createdAt: createdAt ?? this.createdAt,
   );
@@ -5608,6 +5645,9 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
       phone: data.phone.present ? data.phone.value : this.phone,
       name: data.name.present ? data.name.value : this.name,
       avatarUrl: data.avatarUrl.present ? data.avatarUrl.value : this.avatarUrl,
+      passwordHash: data.passwordHash.present
+          ? data.passwordHash.value
+          : this.passwordHash,
       isPhoneVerified: data.isPhoneVerified.present
           ? data.isPhoneVerified.value
           : this.isPhoneVerified,
@@ -5623,6 +5663,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
           ..write('phone: $phone, ')
           ..write('name: $name, ')
           ..write('avatarUrl: $avatarUrl, ')
+          ..write('passwordHash: $passwordHash, ')
           ..write('isPhoneVerified: $isPhoneVerified, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
@@ -5636,6 +5677,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
     phone,
     name,
     avatarUrl,
+    passwordHash,
     isPhoneVerified,
     createdAt,
   );
@@ -5648,6 +5690,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
           other.phone == this.phone &&
           other.name == this.name &&
           other.avatarUrl == this.avatarUrl &&
+          other.passwordHash == this.passwordHash &&
           other.isPhoneVerified == this.isPhoneVerified &&
           other.createdAt == this.createdAt);
 }
@@ -5658,6 +5701,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
   final Value<String> phone;
   final Value<String?> name;
   final Value<String?> avatarUrl;
+  final Value<String?> passwordHash;
   final Value<bool> isPhoneVerified;
   final Value<DateTime> createdAt;
   const UserProfilesCompanion({
@@ -5666,6 +5710,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
     this.phone = const Value.absent(),
     this.name = const Value.absent(),
     this.avatarUrl = const Value.absent(),
+    this.passwordHash = const Value.absent(),
     this.isPhoneVerified = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
@@ -5675,6 +5720,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
     required String phone,
     this.name = const Value.absent(),
     this.avatarUrl = const Value.absent(),
+    this.passwordHash = const Value.absent(),
     this.isPhoneVerified = const Value.absent(),
     this.createdAt = const Value.absent(),
   }) : phone = Value(phone);
@@ -5684,6 +5730,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
     Expression<String>? phone,
     Expression<String>? name,
     Expression<String>? avatarUrl,
+    Expression<String>? passwordHash,
     Expression<bool>? isPhoneVerified,
     Expression<DateTime>? createdAt,
   }) {
@@ -5693,6 +5740,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
       if (phone != null) 'phone': phone,
       if (name != null) 'name': name,
       if (avatarUrl != null) 'avatar_url': avatarUrl,
+      if (passwordHash != null) 'password_hash': passwordHash,
       if (isPhoneVerified != null) 'is_phone_verified': isPhoneVerified,
       if (createdAt != null) 'created_at': createdAt,
     });
@@ -5704,6 +5752,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
     Value<String>? phone,
     Value<String?>? name,
     Value<String?>? avatarUrl,
+    Value<String?>? passwordHash,
     Value<bool>? isPhoneVerified,
     Value<DateTime>? createdAt,
   }) {
@@ -5713,6 +5762,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
       phone: phone ?? this.phone,
       name: name ?? this.name,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      passwordHash: passwordHash ?? this.passwordHash,
       isPhoneVerified: isPhoneVerified ?? this.isPhoneVerified,
       createdAt: createdAt ?? this.createdAt,
     );
@@ -5736,6 +5786,9 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
     if (avatarUrl.present) {
       map['avatar_url'] = Variable<String>(avatarUrl.value);
     }
+    if (passwordHash.present) {
+      map['password_hash'] = Variable<String>(passwordHash.value);
+    }
     if (isPhoneVerified.present) {
       map['is_phone_verified'] = Variable<bool>(isPhoneVerified.value);
     }
@@ -5753,6 +5806,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
           ..write('phone: $phone, ')
           ..write('name: $name, ')
           ..write('avatarUrl: $avatarUrl, ')
+          ..write('passwordHash: $passwordHash, ')
           ..write('isPhoneVerified: $isPhoneVerified, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
@@ -12164,6 +12218,7 @@ typedef $$UserProfilesTableCreateCompanionBuilder =
       required String phone,
       Value<String?> name,
       Value<String?> avatarUrl,
+      Value<String?> passwordHash,
       Value<bool> isPhoneVerified,
       Value<DateTime> createdAt,
     });
@@ -12174,6 +12229,7 @@ typedef $$UserProfilesTableUpdateCompanionBuilder =
       Value<String> phone,
       Value<String?> name,
       Value<String?> avatarUrl,
+      Value<String?> passwordHash,
       Value<bool> isPhoneVerified,
       Value<DateTime> createdAt,
     });
@@ -12209,6 +12265,11 @@ class $$UserProfilesTableFilterComposer
 
   ColumnFilters<String> get avatarUrl => $composableBuilder(
     column: $table.avatarUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get passwordHash => $composableBuilder(
+    column: $table.passwordHash,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12257,6 +12318,11 @@ class $$UserProfilesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get passwordHash => $composableBuilder(
+    column: $table.passwordHash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isPhoneVerified => $composableBuilder(
     column: $table.isPhoneVerified,
     builder: (column) => ColumnOrderings(column),
@@ -12291,6 +12357,11 @@ class $$UserProfilesTableAnnotationComposer
 
   GeneratedColumn<String> get avatarUrl =>
       $composableBuilder(column: $table.avatarUrl, builder: (column) => column);
+
+  GeneratedColumn<String> get passwordHash => $composableBuilder(
+    column: $table.passwordHash,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<bool> get isPhoneVerified => $composableBuilder(
     column: $table.isPhoneVerified,
@@ -12337,6 +12408,7 @@ class $$UserProfilesTableTableManager
                 Value<String> phone = const Value.absent(),
                 Value<String?> name = const Value.absent(),
                 Value<String?> avatarUrl = const Value.absent(),
+                Value<String?> passwordHash = const Value.absent(),
                 Value<bool> isPhoneVerified = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => UserProfilesCompanion(
@@ -12345,6 +12417,7 @@ class $$UserProfilesTableTableManager
                 phone: phone,
                 name: name,
                 avatarUrl: avatarUrl,
+                passwordHash: passwordHash,
                 isPhoneVerified: isPhoneVerified,
                 createdAt: createdAt,
               ),
@@ -12355,6 +12428,7 @@ class $$UserProfilesTableTableManager
                 required String phone,
                 Value<String?> name = const Value.absent(),
                 Value<String?> avatarUrl = const Value.absent(),
+                Value<String?> passwordHash = const Value.absent(),
                 Value<bool> isPhoneVerified = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => UserProfilesCompanion.insert(
@@ -12363,6 +12437,7 @@ class $$UserProfilesTableTableManager
                 phone: phone,
                 name: name,
                 avatarUrl: avatarUrl,
+                passwordHash: passwordHash,
                 isPhoneVerified: isPhoneVerified,
                 createdAt: createdAt,
               ),

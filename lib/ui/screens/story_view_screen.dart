@@ -95,8 +95,9 @@ class _StoryViewScreenState extends State<StoryViewScreen>
 
   void _advanceMediaOrStory() {
     setState(() {
+      final totalCount = _getMediaCount();
       // If current story has more media items, go to next media
-      if (_mediaIndex + 1 < _currentMediaItems.length) {
+      if (_mediaIndex + 1 < totalCount) {
         _mediaIndex++;
         _setupCurrentMedia();
       } else {
@@ -151,10 +152,13 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   Future<void> _loadMediaItems(int storyId) async {
     try {
       final storyRepo = context.read<StoryRepository>();
+      final story = widget.stories[_currentIndex];
       final mediaItems = await storyRepo.getStoryMedia(storyId);
 
       if (mounted) {
         setState(() {
+          // Include the story's main mediaUrl as the first item
+          // (it's stored separately from storyMedia child items)
           _currentMediaItems = mediaItems;
         });
         _setupCurrentMedia();
@@ -173,27 +177,54 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   /// Get the current media URL (either from StoryMedia or the story's main mediaUrl)
   String _getCurrentMediaUrl() {
     final story = widget.stories[_currentIndex];
-    if (_currentMediaItems.isNotEmpty &&
-        _mediaIndex < _currentMediaItems.length) {
-      final url = _currentMediaItems[_mediaIndex].mediaUrl;
-      return CryptoUtils.decrypt(url);
+
+    // If we have media items from storyMedia table
+    if (_currentMediaItems.isNotEmpty) {
+      // Index 0 = story's main mediaUrl (first image)
+      // Index 1+ = media items from storyMedia table
+      if (_mediaIndex == 0) {
+        // First image: use story's main mediaUrl
+        return story.mediaUrl.isNotEmpty
+            ? CryptoUtils.decrypt(story.mediaUrl)
+            : '';
+      } else if (_mediaIndex < _currentMediaItems.length + 1) {
+        // Subsequent images: use storyMedia items (adjust index by -1)
+        final url = _currentMediaItems[_mediaIndex - 1].mediaUrl;
+        return CryptoUtils.decrypt(url);
+      }
     }
+
+    // Fallback: no media items, use the story's main mediaUrl
     return story.mediaUrl.isNotEmpty ? CryptoUtils.decrypt(story.mediaUrl) : '';
   }
 
   /// Get the current media type
   String _getCurrentMediaType() {
     final story = widget.stories[_currentIndex];
-    if (_currentMediaItems.isNotEmpty &&
-        _mediaIndex < _currentMediaItems.length) {
-      return _currentMediaItems[_mediaIndex].mediaType;
+
+    // If we have media items from storyMedia table
+    if (_currentMediaItems.isNotEmpty) {
+      // Index 0 = story's main mediaUrl (first image)
+      // Index 1+ = media items from storyMedia table
+      if (_mediaIndex == 0) {
+        // First image: use story's main mediaType
+        return story.mediaType;
+      } else if (_mediaIndex < _currentMediaItems.length + 1) {
+        // Subsequent images: use storyMedia items (adjust index by -1)
+        return _currentMediaItems[_mediaIndex - 1].mediaType;
+      }
     }
+
+    // Fallback: no media items, use the story's main mediaType
     return story.mediaType;
   }
 
   /// Total media count for current story (includes StoryMedia or just the main one)
   int _getMediaCount() {
-    if (_currentMediaItems.isNotEmpty) return _currentMediaItems.length;
+    if (_currentMediaItems.isNotEmpty) {
+      // Count includes story's main mediaUrl + all storyMedia items
+      return _currentMediaItems.length + 1;
+    }
     return 1; // Fallback to single media
   }
 

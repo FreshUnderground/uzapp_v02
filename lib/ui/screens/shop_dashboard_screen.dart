@@ -7,6 +7,7 @@ import '../../data/local/uza_database.dart';
 import 'manage_products_screen.dart';
 import 'edit_shop_screen.dart';
 import '../../core/services/contact_service.dart';
+import '../../core/services/location_service.dart';
 import '../../data/services/sync_service.dart';
 import 'dart:async';
 import 'package:drift/drift.dart' as drift;
@@ -107,6 +108,11 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                         children: [
                           _buildStatsGrid(shop.id),
                           const SizedBox(height: 32),
+                          // Location button for shop dashboard
+                          if (shop.latitude != null && shop.longitude != null)
+                            _buildLocationButton(context, shop),
+                          if (shop.latitude != null && shop.longitude != null)
+                            const SizedBox(height: 32),
                           _buildResponsiveLayout(context, shop),
                         ],
                       ),
@@ -579,6 +585,128 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                 onTap: () {}, // Optional: call the user back or chat
               );
             },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLocationButton(BuildContext context, Shop shop) {
+    return InkWell(
+      onTap: () => _showLocationOptions(context, shop),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.teal.withValues(alpha: 0.1),
+              Colors.teal.withValues(alpha: 0.05),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.teal.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.teal.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.navigation, color: Colors.teal, size: 28),
+            ),
+            const SizedBox(width: 20),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Obtenir l\'itineraire',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.teal,
+                    ),
+                  ),
+                  Text(
+                    'Ouvrir dans Google Maps',
+                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.teal, size: 28),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showLocationOptions(BuildContext context, Shop shop) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Options de localisation',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.map, color: Colors.blue),
+                ),
+                title: const Text('Voir sur la carte'),
+                subtitle: const Text('Ouvrir dans Google Maps'),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (shop.latitude != null && shop.longitude != null) {
+                    LocationService.openInMaps(
+                      latitude: shop.latitude!,
+                      longitude: shop.longitude!,
+                      label: shop.name,
+                    );
+                  }
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.directions, color: Colors.green),
+                ),
+                title: const Text('Obtenir l\'itineraire'),
+                subtitle: const Text('Guidage pas à pas'),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (shop.latitude != null && shop.longitude != null) {
+                    LocationService.getDirections(
+                      latitude: shop.latitude!,
+                      longitude: shop.longitude!,
+                      destinationName: shop.name,
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
           ),
         );
       },

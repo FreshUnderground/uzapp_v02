@@ -142,6 +142,23 @@ try {
     $createdAfter = isset($_GET['created_after']) ? $_GET['created_after'] : null;
     $includeMedia = isset($_GET['include_media']) && $_GET['include_media'] === '1';
     $isSyncMode = $updatedSince || $createdAfter;
+    
+    // ALWAYS include media in sync mode to support multi-media stories
+    if ($isSyncMode) {
+        $includeMedia = true;
+    }
+
+    // Clean up expired stories before fetching (server-side cleanup)
+    try {
+        $deleteStmt = $db->prepare("DELETE FROM stories WHERE expires_at < NOW()");
+        $deleteStmt->execute();
+        $deletedCount = $deleteStmt->rowCount();
+        if ($deletedCount > 0) {
+            error_log("Cleaned up $deletedCount expired stories");
+        }
+    } catch (PDOException $e) {
+        error_log("Story cleanup error: " . $e->getMessage());
+    }
 
     if ($isSyncMode) {
         $query = "SELECT s.*, sh.name AS shop_name FROM stories s LEFT JOIN shops sh ON s.shop_id = sh.id";
@@ -162,11 +179,11 @@ try {
         $perPage = min(max(1, (int)($_GET['per_page'] ?? 20)), 100);
         $offset = ($page - 1) * $perPage;
 
-        $countStmt = $db->prepare("SELECT COUNT(*) as total FROM stories");
+        $countStmt = $db->prepare("SELECT COUNT(*) as total FROM stories WHERE expires_at > NOW()");
         $countStmt->execute();
         $total = (int)$countStmt->fetch()['total'];
 
-        $query = "SELECT s.*, sh.name AS shop_name FROM stories s LEFT JOIN shops sh ON s.shop_id = sh.id ORDER BY s.id DESC LIMIT ? OFFSET ?";
+        $query = "SELECT s.*, sh.name AS shop_name FROM stories s LEFT JOIN shops sh ON s.shop_id = sh.id WHERE s.expires_at > NOW() ORDER BY s.id DESC LIMIT ? OFFSET ?";
         $stmt = $db->prepare($query);
         $stmt->execute([$perPage, $offset]);
         $stories = $stmt->fetchAll();

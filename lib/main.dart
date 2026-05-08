@@ -27,6 +27,13 @@ import 'ui/screens/shop_profile_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Set up global error handler
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('GLOBAL ERROR: ${details.exception}');
+    debugPrint('Stack trace: ${details.stack}');
+  };
+
   // Allow fetching fonts from the internet if AssetManifest.json is missing on web
   GoogleFonts.config.allowRuntimeFetching = true;
 
@@ -271,33 +278,53 @@ class _UzaAppState extends State<UzaApp> {
   @override
   void initState() {
     super.initState();
-    // Start background sync
-    final syncService = context.read<SyncService>();
-    context.read<AuthService>().syncService = syncService;
-    context.read<AuthService>().shopRepository = context.read<ShopRepository>();
-    syncService.startAutoSync(
-      interval: const Duration(minutes: 1),
-    ); // Faster for demo
-
-    // Eager initial sync — defer to after build completes
+    // Start background sync after build completes to ensure providers are ready
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      syncService.checkFirstSync(); // Initialise isFirstSync flag from local DB
-      syncService.syncNow();
+      if (!mounted) return;
+      try {
+        final syncService = context.read<SyncService>();
+        final authService = context.read<AuthService>();
+        final shopRepository = context.read<ShopRepository>();
+
+        authService.syncService = syncService;
+        authService.shopRepository = shopRepository;
+
+        syncService.startAutoSync(
+          interval: const Duration(minutes: 1),
+        ); // Faster for demo
+
+        // Eager initial sync
+        syncService
+            .checkFirstSync(); // Initialise isFirstSync flag from local DB
+        syncService.syncNow();
+      } catch (e, stack) {
+        debugPrint('Error initializing sync: $e');
+        debugPrint('Stack trace: $stack');
+      }
     });
 
     // Initialize local notifications after providers are ready
     if (!kIsWeb) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        final notifService = context.read<NotificationService>();
-        final pushService = PushNotificationService(
-          notificationService: notifService,
-        );
-        final shopRepo = context.read<ShopRepository>();
-        final productRepo = context.read<ProductRepository>();
-        pushService.initialize().then((_) {
-          // Listen for notification deep links
-          _listenForNotificationDeepLinks(notifService, shopRepo, productRepo);
-        });
+        if (!mounted) return;
+        try {
+          final notifService = context.read<NotificationService>();
+          final pushService = PushNotificationService(
+            notificationService: notifService,
+          );
+          final shopRepo = context.read<ShopRepository>();
+          final productRepo = context.read<ProductRepository>();
+          pushService.initialize().then((_) {
+            // Listen for notification deep links
+            _listenForNotificationDeepLinks(
+              notifService,
+              shopRepo,
+              productRepo,
+            );
+          });
+        } catch (e) {
+          debugPrint('Error initializing notifications: $e');
+        }
       });
     }
   }

@@ -72,8 +72,10 @@ class _ReportDialogState extends State<ReportDialog> {
       );
 
       if (mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
+        final navigator = Navigator.of(context);
+        final scaffoldMessenger = ScaffoldMessenger.of(context);
+        navigator.pop();
+        scaffoldMessenger.showSnackBar(
           const SnackBar(
             content: Text('Signalement envoyé. Merci pour votre aide.'),
             backgroundColor: Color(0xFF019C94),
