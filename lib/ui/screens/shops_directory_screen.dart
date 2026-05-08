@@ -262,6 +262,52 @@ class _ShopDirectoryCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  // Itinerary button (if location exists)
+                  if (shop.latitude != null && shop.longitude != null)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Material(
+                        color: Colors.teal,
+                        borderRadius: BorderRadius.circular(20),
+                        elevation: 2,
+                        child: InkWell(
+                          onTap: () {
+                            LocationService.getDirections(
+                              latitude: shop.latitude!,
+                              longitude: shop.longitude!,
+                              destinationName: shop.name,
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(
+                                  Icons.navigation,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Itinéraire',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),

@@ -615,7 +615,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             if (shop.latitude != null && shop.longitude != null) ...[
               const SizedBox(height: 12),
               InkWell(
-                onTap: () => _showLocationOptions(context, shop),
+                onTap: () {
+                  LocationService.getDirections(
+                    latitude: shop.latitude!,
+                    longitude: shop.longitude!,
+                    destinationName: shop.name,
+                  );
+                },
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   padding: const EdgeInsets.all(12),
@@ -635,7 +641,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(
-                          Icons.location_on,
+                          Icons.navigation,
                           color: Colors.teal,
                           size: 24,
                         ),
@@ -646,7 +652,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Voir la boutique sur la carte',
+                              'Obtenir l\'itineraire',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
@@ -654,7 +660,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               ),
                             ),
                             Text(
-                              'Obtenir l\'itineraire',
+                              'Ouvrir dans Google Maps',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey,
@@ -664,7 +670,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         ),
                       ),
                       const Icon(
-                        Icons.navigation,
+                        Icons.chevron_right,
                         color: Colors.teal,
                         size: 20,
                       ),
@@ -1249,79 +1255,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   }
                 },
               ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _showLocationOptions(BuildContext context, Shop shop) {
-    if (shop.latitude == null || shop.longitude == null) return;
-
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Localisation de la boutique',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                shop.name.toUpperCase(),
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 24),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.map, color: Colors.blue),
-                ),
-                title: const Text('Voir sur la carte'),
-                subtitle: const Text('Ouvrir dans Google Maps'),
-                onTap: () {
-                  Navigator.pop(context);
-                  LocationService.openInMaps(
-                    latitude: shop.latitude!,
-                    longitude: shop.longitude!,
-                    label: shop.name,
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green[50],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.navigation, color: Colors.green),
-                ),
-                title: const Text('Obtenir l\'itineraire'),
-                subtitle: const Text('Guidage vers la boutique'),
-                onTap: () {
-                  Navigator.pop(context);
-                  LocationService.getDirections(
-                    latitude: shop.latitude!,
-                    longitude: shop.longitude!,
-                    destinationName: shop.name,
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
             ],
           ),
         );

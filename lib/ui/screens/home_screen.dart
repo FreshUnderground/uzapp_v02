@@ -331,6 +331,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget? _buildDynamicFAB(BuildContext context) {
+    // Hide FAB when story overlay is active
+    if (_overlayStories != null) return null;
+
     // Show FAB only on Accueil (0) and Explorer (1) tabs
     if (_selectedIndex != 0 && _selectedIndex != 1) return null;
 

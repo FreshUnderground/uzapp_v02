@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:drift/drift.dart' as drift;
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../core/services/contact_service.dart';
 import '../../core/services/location_service.dart';
 import '../../data/repositories/shop_repository.dart';
-import '../../data/services/sync_service.dart';
 import '../components/product_card.dart';
 import 'product_detail_screen.dart';
 import '../../core/res/uza_colors.dart';
@@ -29,90 +27,10 @@ class ShopProfileScreen extends StatefulWidget {
 }
 
 class _ShopProfileScreenState extends State<ShopProfileScreen> {
+  bool _showStats = false; // Hidden by default
+
   bool _isShopVerified(BuildContext context) {
     return widget.shop.isVerified;
-  }
-
-  /// Update shop location
-  Future<void> _updateLocation() async {
-    // Check if user is the shop owner
-    final authService = context.read<AuthService>();
-    final userId = authService.user?.uid;
-
-    if (userId == null || widget.shop.ownerId != userId) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Seul le proprietaire peut modifier la localisation.',
-            ),
-          ),
-        );
-      }
-      return;
-    }
-
-    // Show security notice
-    LocationService.showSecurityNotice(context);
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    if (!mounted) return;
-    LocationService.showLocationLoading(context);
-
-    try {
-      final location = await LocationService.getCurrentLocation();
-      if (!mounted) return;
-      Navigator.of(context).pop(); // Close loading dialog
-
-      if (location != null) {
-        final lat = location['latitude']!;
-        final lng = location['longitude']!;
-
-        // Update shop with location
-        final shopRepo = context.read<ShopRepository>();
-        await shopRepo.updateShop(
-          ShopsCompanion(
-            id: drift.Value(widget.shop.id),
-            latitude: drift.Value(lat),
-            longitude: drift.Value(lng),
-          ),
-        );
-
-        // Also queue for server sync
-        final syncService = context.read<SyncService>();
-        await syncService.addToQueue('UPDATE', 'shops', {
-          'id': widget.shop.id,
-          'latitude': lat,
-          'longitude': lng,
-        });
-
-        syncService.forcePush();
-
-        if (mounted) {
-          LocationService.showLocationSuccess(
-            context,
-            latitude: lat,
-            longitude: lng,
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Impossible de capturer la localisation. Verifiez les permissions.',
-              ),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (!mounted) return;
-      Navigator.of(context).pop(); // Close loading dialog
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}')));
-    }
   }
 
   @override
@@ -278,96 +196,8 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                                         ],
                                       ),
                                     ],
-                                    // Update location button for shop owner
+                                    // Itinerary button - opens GPS directly
                                     _buildUpdateLocationButton(context, shop),
-                                    // Prominent location button if coordinates exist
-                                    if (shop.latitude != null &&
-                                        shop.longitude != null) ...[
-                                      const SizedBox(height: 16),
-                                      InkWell(
-                                        onTap: () =>
-                                            _showLocationOptions(context, shop),
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: Container(
-                                          width: double.infinity,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 16,
-                                            vertical: 12,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              colors: [
-                                                Colors.teal.withValues(
-                                                  alpha: 0.1,
-                                                ),
-                                                Colors.teal.withValues(
-                                                  alpha: 0.05,
-                                                ),
-                                              ],
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                            border: Border.all(
-                                              color: Colors.teal.withValues(
-                                                alpha: 0.3,
-                                              ),
-                                            ),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Container(
-                                                padding: const EdgeInsets.all(
-                                                  10,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.teal.withValues(
-                                                    alpha: 0.2,
-                                                  ),
-                                                  borderRadius:
-                                                      BorderRadius.circular(10),
-                                                ),
-                                                child: const Icon(
-                                                  Icons.navigation,
-                                                  color: Colors.teal,
-                                                  size: 24,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 16),
-                                              const Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(
-                                                      'Obtenir l\'itineraire',
-                                                      style: TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        fontSize: 15,
-                                                        color: Colors.teal,
-                                                      ),
-                                                    ),
-                                                    Text(
-                                                      'Ouvrir dans Google Maps',
-                                                      style: TextStyle(
-                                                        fontSize: 12,
-                                                        color: Colors.grey,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                              const Icon(
-                                                Icons.chevron_right,
-                                                color: Colors.teal,
-                                                size: 24,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
                                     const SizedBox(height: 16),
                                     Text(
                                       shop.description ?? 'Aucune description',
@@ -439,76 +269,8 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                                   ],
                                 ),
                               ],
-                              // Update location button for shop owner
+                              // Itinerary button - opens GPS directly
                               _buildUpdateLocationButton(context, shop),
-                              // Prominent location button if coordinates exist
-                              if (shop.latitude != null &&
-                                  shop.longitude != null) ...[
-                                const SizedBox(height: 12),
-                                InkWell(
-                                  onTap: () =>
-                                      _showLocationOptions(context, shop),
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 12,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          Colors.teal.withValues(alpha: 0.1),
-                                          Colors.teal.withValues(alpha: 0.05),
-                                        ],
-                                      ),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Colors.teal.withValues(
-                                          alpha: 0.3,
-                                        ),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            color: Colors.teal.withValues(
-                                              alpha: 0.2,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                          ),
-                                          child: const Icon(
-                                            Icons.navigation,
-                                            color: Colors.teal,
-                                            size: 20,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        const Text(
-                                          'Obtenir l\'itineraire',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 14,
-                                            color: Colors.teal,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        const Icon(
-                                          Icons.chevron_right,
-                                          color: Colors.teal,
-                                          size: 20,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
                               const SizedBox(height: 12),
                               Text(
                                 shop.description ?? 'Aucune description',
@@ -773,6 +535,56 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
     final isOwner = context.read<AuthService>().user?.uid == shop.ownerId;
     if (!isOwner) return const SliverToBoxAdapter(child: SizedBox.shrink());
 
+    if (!_showStats) {
+      // Show a small toggle button to reveal stats
+      return SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          child: InkWell(
+            onTap: () {
+              setState(() {
+                _showStats = true;
+              });
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.analytics_outlined,
+                    color: UzaColors.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Voir les statistiques',
+                    style: TextStyle(
+                      color: UzaColors.primary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(
+                    Icons.expand_more,
+                    color: UzaColors.primary,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     final db = context.read<UzaDatabase>();
 
     return SliverToBoxAdapter(
@@ -810,22 +622,59 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                       ),
                     ],
                   ),
-                  child: Row(
+                  child: Column(
                     children: [
-                      _buildStatItem(
-                        icon: Icons.remove_red_eye_outlined,
-                        value: totalViews,
-                        label: 'Vues',
+                      Row(
+                        children: [
+                          _buildStatItem(
+                            icon: Icons.remove_red_eye_outlined,
+                            value: totalViews,
+                            label: 'Vues',
+                          ),
+                          _buildStatItem(
+                            icon: Icons.phone_outlined,
+                            value: totalContacts,
+                            label: 'Contacts',
+                          ),
+                          _buildStatItem(
+                            icon: Icons.shopping_bag_outlined,
+                            value: totalProducts,
+                            label: 'Produits',
+                          ),
+                        ],
                       ),
-                      _buildStatItem(
-                        icon: Icons.phone_outlined,
-                        value: totalContacts,
-                        label: 'Contacts',
-                      ),
-                      _buildStatItem(
-                        icon: Icons.shopping_bag_outlined,
-                        value: totalProducts,
-                        label: 'Produits',
+                      const SizedBox(height: 12),
+                      InkWell(
+                        onTap: () {
+                          setState(() {
+                            _showStats = false;
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.expand_less,
+                                size: 18,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Masquer les statistiques',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -860,20 +709,23 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
     );
   }
 
-  /// Build update location button (only visible to shop owner)
+  /// Build itinerary button (only visible to shop owner)
   Widget _buildUpdateLocationButton(BuildContext context, Shop shop) {
-    final authService = context.read<AuthService>();
-    final userId = authService.user?.uid;
-
-    // Only show button if user is the shop owner
-    if (userId == null || shop.ownerId != userId) {
+    // Only show button if shop has coordinates
+    if (shop.latitude == null || shop.longitude == null) {
       return const SizedBox.shrink();
     }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: InkWell(
-        onTap: _updateLocation,
+        onTap: () {
+          LocationService.getDirections(
+            latitude: shop.latitude!,
+            longitude: shop.longitude!,
+            destinationName: shop.name,
+          );
+        },
         borderRadius: BorderRadius.circular(12),
         child: Container(
           width: double.infinity,
@@ -881,13 +733,13 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                UzaColors.primary.withValues(alpha: 0.1),
-                UzaColors.primary.withValues(alpha: 0.05),
+                Colors.teal.withValues(alpha: 0.1),
+                Colors.teal.withValues(alpha: 0.05),
               ],
             ),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: UzaColors.primary.withValues(alpha: 0.3),
+              color: Colors.teal.withValues(alpha: 0.3),
               width: 1.5,
             ),
           ),
@@ -896,12 +748,12 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: UzaColors.primary.withValues(alpha: 0.2),
+                  color: Colors.teal.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
-                  Icons.edit_location_alt,
-                  color: UzaColors.primary,
+                  Icons.navigation,
+                  color: Colors.teal,
                   size: 24,
                 ),
               ),
@@ -911,81 +763,25 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Modifier la localisation',
+                      'Obtenir l\'itineraire',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
-                        color: UzaColors.primary,
+                        color: Colors.teal,
                       ),
                     ),
                     Text(
-                      'Mettre a jour la position GPS',
+                      'Ouvrir dans Google Maps',
                       style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   ],
                 ),
               ),
-              const Icon(
-                Icons.chevron_right,
-                color: UzaColors.primary,
-                size: 24,
-              ),
+              const Icon(Icons.chevron_right, color: Colors.teal, size: 24),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  void _showLocationOptions(BuildContext context, Shop shop) {
-    if (shop.latitude == null || shop.longitude == null) return;
-
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Localisation de la boutique',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                shop.name.toUpperCase(),
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 24),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.teal[50],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.directions, color: Colors.teal),
-                ),
-                title: const Text('Obtenir l\'itineraire'),
-                subtitle: const Text('Guidage vers la boutique'),
-                onTap: () {
-                  Navigator.pop(context);
-                  LocationService.getDirections(
-                    latitude: shop.latitude!,
-                    longitude: shop.longitude!,
-                    destinationName: shop.name,
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        );
-      },
     );
   }
 }

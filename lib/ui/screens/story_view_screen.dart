@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/story_repository.dart';
+import '../../data/repositories/shop_repository.dart';
 import '../../core/utils/crypto_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
@@ -657,7 +658,14 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   }
 
   Future<void> _openWhatsApp(Story story) async {
-    final shop = widget.shopLookup[story.shopId];
+    Shop? shop = widget.shopLookup[story.shopId];
+
+    // If shop not in lookup, fetch it from the repository
+    if (shop == null) {
+      final shopRepo = context.read<ShopRepository>();
+      shop = await shopRepo.getShopById(story.shopId);
+    }
+
     final number = shop?.whatsapp ?? shop?.phone;
 
     if (number == null || number.isEmpty) {

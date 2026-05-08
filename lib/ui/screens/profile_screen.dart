@@ -9,6 +9,7 @@ import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
 import 'shop_dashboard_screen.dart';
 import 'create_shop_screen.dart';
+import 'shop_verification_screen.dart';
 import 'settings_screen.dart';
 import 'help_screen.dart';
 import 'auth/login_screen.dart';
@@ -821,10 +822,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       backgroundColor: Colors.orange.withValues(alpha: 0.08),
       hasBorder: true,
       padding: const EdgeInsets.all(16),
-      onTap: () => Navigator.push(
-        context,
-        SlideUpRoute(page: const CreateShopScreen(showVerificationOnly: true)),
-      ),
+      onTap: () async {
+        final result = await Navigator.push(
+          context,
+          SlideUpRoute(page: ShopVerificationScreen(shop: shop)),
+        );
+        // Refresh the screen if verification was successful
+        if (result == true && mounted) {
+          setState(() {});
+        }
+      },
       child: Row(
         children: [
           Container(
