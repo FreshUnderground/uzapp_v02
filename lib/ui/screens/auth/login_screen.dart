@@ -6,10 +6,7 @@ import '../../../core/res/uza_colors.dart';
 import '../../utils/page_transitions.dart';
 import '../../components/tap_animator.dart';
 import 'verification_screen.dart';
-import '../../../data/repositories/shop_repository.dart';
-import '../shop_dashboard_screen.dart';
 import '../home_screen.dart';
-import 'package:flutter/foundation.dart';
 
 class StepIndicator extends StatelessWidget {
   final int currentStep;
@@ -65,52 +62,7 @@ class _LoginScreenState extends State<LoginScreen> {
         authService.signInWithPassword(
           phoneNumber: _phoneNumber,
           password: _passwordController.text,
-          onSuccess: () async {
-            if (!mounted) return;
-
-            // Wait a moment for shop reconnection to complete
-            await Future.delayed(const Duration(milliseconds: 500));
-
-            if (!mounted) return;
-
-            try {
-              // Check if user has a shop
-              final shopRepo = context.read<ShopRepository>();
-              final authService = context.read<AuthService>();
-              final userId = authService.user?.uid ?? _phoneNumber;
-
-              // Get user's shop
-              final userShop = await shopRepo.watchUserShop(userId).first;
-
-              if (!mounted) return;
-
-              if (userShop != null) {
-                // User has a shop, navigate to shop dashboard
-                debugPrint('Login: User has shop, navigating to dashboard');
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(
-                    builder: (_) => const ShopDashboardScreen(),
-                  ),
-                  (route) => false,
-                );
-              } else {
-                // No shop, navigate to home
-                debugPrint('Login: User has no shop, navigating to home');
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const HomeScreen()),
-                  (route) => false,
-                );
-              }
-            } catch (e) {
-              debugPrint('Error checking for shop: $e');
-              // Fallback to home screen
-              if (!mounted) return;
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const HomeScreen()),
-                (route) => false,
-              );
-            }
-          },
+          onSuccess: () => _goToBestDestination(),
           onFailed: (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -149,6 +101,18 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _goToBestDestination() async {
+    if (!mounted) return;
+
+    await Future.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const HomeScreen(initialIndex: 3)),
+      (route) => false,
+    );
+  }
+
   @override
   void dispose() {
     _passwordController.dispose();
@@ -158,323 +122,414 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final authService = context.watch<AuthService>();
+    final canSubmit = _isPhoneValid && !authService.isLoading;
+
+    InputDecoration fieldDecoration({
+      required String label,
+      required String hint,
+      required IconData icon,
+      Widget? suffixIcon,
+    }) {
+      return InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon, color: UzaColors.primary),
+        suffixIcon: suffixIcon,
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 18,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: UzaColors.primary, width: 1.8),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: Colors.redAccent),
+        ),
+      );
+    }
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF7F8FB),
       body: Stack(
         children: [
-          // Subtle top gradient decoration
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              height: 280,
+          Positioned.fill(
+            child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                   colors: [
-                    UzaColors.primary.withValues(alpha: 0.08),
-                    UzaColors.primary.withValues(alpha: 0.02),
-                    Colors.transparent,
+                    UzaColors.primary.withValues(alpha: 0.16),
+                    Colors.white,
+                    UzaColors.secondary.withValues(alpha: 0.12),
                   ],
                 ),
               ),
             ),
           ),
-          // Curved decorative shape
           Positioned(
-            top: -60,
-            right: -40,
+            top: -90,
+            right: -70,
             child: Container(
-              width: 200,
-              height: 200,
+              width: 240,
+              height: 240,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: UzaColors.secondary.withValues(alpha: 0.08),
+                color: UzaColors.primary.withValues(alpha: 0.10),
               ),
             ),
           ),
           Positioned(
-            top: 80,
-            left: -30,
+            bottom: -80,
+            left: -60,
             child: Container(
-              width: 120,
-              height: 120,
+              width: 220,
+              height: 220,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: UzaColors.primary.withValues(alpha: 0.06),
+                color: UzaColors.secondary.withValues(alpha: 0.12),
               ),
             ),
           ),
           SafeArea(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 40),
-                      // App Logo
-                      Center(
-                        child: Container(
-                          width: 100,
-                          height: 100,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 16, top: 12),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Material(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(16),
+                  elevation: 8,
+                  shadowColor: Colors.black.withValues(alpha: 0.10),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () {
+                      final navigator = Navigator.of(context);
+                      if (navigator.canPop()) {
+                        navigator.pop();
+                      } else {
+                        navigator.pushReplacement(
+                          MaterialPageRoute(builder: (_) => const HomeScreen()),
+                        );
+                      }
+                    },
+                    child: const SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: Icon(
+                        Icons.arrow_back_ios_new_rounded,
+                        size: 20,
+                        color: UzaColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 28,
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 96,
+                            height: 96,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(30),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: UzaColors.primary.withValues(
+                                    alpha: 0.18,
+                                  ),
+                                  blurRadius: 28,
+                                  offset: const Offset(0, 14),
+                                ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(22),
+                              child: Image.asset(
+                                'assets/logo.png',
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return const Icon(
+                                    Icons.storefront_rounded,
+                                    size: 46,
+                                    color: UzaColors.primary,
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 26),
+                        Text(
+                          'Bienvenue sur Uzaapp',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.headlineMedium
+                              ?.copyWith(
+                                color: UzaColors.textPrimary,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.4,
+                              ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Connectez-vous pour gérer votre boutique, vos produits et vos statistiques.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: UzaColors.textSecondary,
+                            fontSize: 15.5,
+                            height: 1.45,
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        Container(
+                          padding: const EdgeInsets.all(22),
                           decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
+                            color: Colors.white.withValues(alpha: 0.94),
+                            borderRadius: BorderRadius.circular(28),
+                            border: Border.all(color: Colors.white),
                             boxShadow: [
                               BoxShadow(
-                                color: UzaColors.primary.withValues(
-                                  alpha: 0.15,
-                                ),
-                                blurRadius: 24,
-                                offset: const Offset(0, 8),
+                                color: Colors.black.withValues(alpha: 0.08),
+                                blurRadius: 30,
+                                offset: const Offset(0, 18),
                               ),
                             ],
                           ),
-                          child: ClipOval(
-                            child: Image.asset(
-                              'assets/logo.png',
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return const Icon(
-                                  Icons.shopping_bag,
-                                  size: 48,
-                                  color: UzaColors.primary,
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                      Text(
-                        "Bienvenue sur Uzaapp",
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: UzaColors.textPrimary,
-                              fontSize: 28,
-                            ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        "Connectez-vous pour retrouver votre boutique",
-                        style: TextStyle(
-                          color: UzaColors.textSecondary,
-                          fontSize: 16,
-                          height: 1.4,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 48),
-                      const StepIndicator(currentStep: 1, totalSteps: 2),
-                      const SizedBox(height: 48),
-                      // Password login is the primary method for reconnection
-                      Text(
-                        'Connectez-vous avec votre mot de passe',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: UzaColors.textPrimary,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Vous avez déjà un compte? Entrez votre numéro et mot de passe',
-                        style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 24),
-                      // Password input - shown by default
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: !_showPassword,
-                        decoration: InputDecoration(
-                          labelText: 'Mot de passe',
-                          labelStyle: const TextStyle(fontSize: 16),
-                          hintText: 'Entrez votre mot de passe',
-                          hintStyle: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[400],
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(
-                              color: UzaColors.divider,
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: Colors.grey[300]!),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(
-                              color: UzaColors.primary,
-                              width: 2,
-                            ),
-                          ),
-                          filled: true,
-                          fillColor: Colors.grey[50],
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 18,
-                          ),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _showPassword
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                              color: Colors.grey[600],
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _showPassword = !_showPassword;
-                              });
-                            },
-                          ),
-                        ),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Entrez votre mot de passe';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      // Forgot password link
-                      Center(
-                        child: TextButton(
-                          onPressed: () {
-                            // TODO: Implement password reset via OTP
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: const Text(
-                                  'Pour réinitialiser votre mot de passe, veuillez contacter le support.',
-                                ),
-                                backgroundColor: Colors.orange[800],
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          },
-                          child: Text(
-                            'Mot de passe oublié ?',
-                            style: TextStyle(
-                              color: UzaColors.primary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                      // Phone input - larger and more prominent
-                      IntlPhoneField(
-                        decoration: InputDecoration(
-                          labelText: 'Numéro de téléphone',
-                          labelStyle: const TextStyle(fontSize: 16),
-                          hintText: 'XX XXX XX XX',
-                          hintStyle: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey[400],
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(
-                              color: UzaColors.divider,
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: Colors.grey[300]!),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(
-                              color: UzaColors.primary,
-                              width: 2,
-                            ),
-                          ),
-                          filled: true,
-                          fillColor: Colors.grey[50],
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 22,
-                          ),
-                        ),
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 0.5,
-                        ),
-                        initialCountryCode: 'CD',
-                        disableLengthCheck: false,
-                        invalidNumberMessage: 'Numéro invalide',
-                        onChanged: (phone) {
-                          setState(() {
-                            _phoneNumber = phone.completeNumber;
-                            _isPhoneValid = phone.number.length >= 9;
-                          });
-                        },
-                        validator: (phone) {
-                          if (phone == null || phone.number.length < 9) {
-                            return 'Entrez un numéro valide';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 32),
-                      // Continuer button
-                      TapAnimator(
-                        onTap: (_isPhoneValid && !authService.isLoading)
-                            ? _onContinue
-                            : null,
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 18),
-                          decoration: BoxDecoration(
-                            color: (_isPhoneValid && !authService.isLoading)
-                                ? UzaColors.primary
-                                : Colors.grey[300],
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: authService.isLoading
-                              ? const SizedBox(
-                                  height: 24,
-                                  child: Center(
-                                    child: SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: UzaColors.primary.withValues(
+                                        alpha: 0.10,
                                       ),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: const Icon(
+                                      Icons.lock_open_rounded,
+                                      color: UzaColors.primary,
                                     ),
                                   ),
-                                )
-                              : const Text(
-                                  'Se connecter',
-                                  style: TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Connexion boutique',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w800,
+                                                color: UzaColors.textPrimary,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          'Même numéro que lors de la création',
+                                          style: TextStyle(
+                                            color: Colors.grey.shade600,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  textAlign: TextAlign.center,
+                                ],
+                              ),
+                              const SizedBox(height: 22),
+                              IntlPhoneField(
+                                decoration: fieldDecoration(
+                                  label: 'Numéro de téléphone',
+                                  hint: 'XX XXX XX XX',
+                                  icon: Icons.phone_rounded,
                                 ),
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                initialCountryCode: 'CD',
+                                disableLengthCheck: false,
+                                invalidNumberMessage: 'Numéro invalide',
+                                onChanged: (phone) {
+                                  setState(() {
+                                    _phoneNumber = phone.completeNumber;
+                                    _isPhoneValid = phone.number.length >= 9;
+                                  });
+                                },
+                                validator: (phone) {
+                                  if (phone == null ||
+                                      phone.number.length < 9) {
+                                    return 'Entrez un numéro valide';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 14),
+                              TextFormField(
+                                controller: _passwordController,
+                                obscureText: !_showPassword,
+                                decoration: fieldDecoration(
+                                  label: 'Mot de passe',
+                                  hint: 'Entrez votre mot de passe',
+                                  icon: Icons.key_rounded,
+                                  suffixIcon: IconButton(
+                                    icon: Icon(
+                                      _showPassword
+                                          ? Icons.visibility_rounded
+                                          : Icons.visibility_off_rounded,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                    onPressed: () {
+                                      setState(
+                                        () => _showPassword = !_showPassword,
+                                      );
+                                    },
+                                  ),
+                                ),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) {
+                                    return 'Entrez votre mot de passe';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: const Text(
+                                          'Si vous avez oublié le mot de passe, connectez-vous par OTP ou contactez le support.',
+                                        ),
+                                        backgroundColor: Colors.orange.shade800,
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  },
+                                  child: const Text('Mot de passe oublié ?'),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              TapAnimator(
+                                onTap: canSubmit ? _onContinue : null,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 17,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    gradient: canSubmit
+                                        ? const LinearGradient(
+                                            colors: [
+                                              UzaColors.primary,
+                                              UzaColors.secondary,
+                                            ],
+                                          )
+                                        : null,
+                                    color: canSubmit
+                                        ? null
+                                        : Colors.grey.shade300,
+                                    borderRadius: BorderRadius.circular(18),
+                                    boxShadow: canSubmit
+                                        ? [
+                                            BoxShadow(
+                                              color: UzaColors.primary
+                                                  .withValues(alpha: 0.28),
+                                              blurRadius: 18,
+                                              offset: const Offset(0, 10),
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                  child: authService.isLoading
+                                      ? const SizedBox(
+                                          height: 22,
+                                          width: 22,
+                                          child: Center(
+                                            child: CircularProgressIndicator(
+                                              color: Colors.white,
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                        )
+                                      : const Text(
+                                          'Se connecter',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 16.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
+                        const SizedBox(height: 18),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.verified_user_rounded,
+                              size: 18,
+                              color: UzaColors.primary.withValues(alpha: 0.8),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Accès sécurisé à votre espace vendeur',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

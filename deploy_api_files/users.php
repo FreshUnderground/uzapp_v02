@@ -4,6 +4,33 @@ authenticate();
 
 header('Content-Type: application/json');
 
+function phone_variations($phone) {
+    $cleaned = preg_replace('/\s+/', '', trim($phone));
+    $digits = preg_replace('/\D+/', '', $cleaned);
+    $variations = array_filter([$cleaned, $digits]);
+
+    if (strpos($digits, '243') === 0 && strlen($digits) >= 12) {
+        $local = substr($digits, 3);
+        $variations[] = $local;
+        $variations[] = '0' . $local;
+        $variations[] = $digits;
+        $variations[] = '+' . $digits;
+    } elseif (strpos($digits, '0') === 0 && strlen($digits) >= 10) {
+        $local = substr($digits, 1);
+        $variations[] = $local;
+        $variations[] = '0' . $local;
+        $variations[] = '243' . $local;
+        $variations[] = '+243' . $local;
+    } elseif (strlen($digits) === 9) {
+        $variations[] = $digits;
+        $variations[] = '0' . $digits;
+        $variations[] = '243' . $digits;
+        $variations[] = '+243' . $digits;
+    }
+
+    return array_values(array_unique(array_filter($variations)));
+}
+
 try {
     $db = DB::getInstance();
 
@@ -20,9 +47,11 @@ try {
             throw new Exception('Phone number is required');
         }
 
-        // Check if user exists by phone
-        $stmt = $db->prepare("SELECT id FROM users WHERE phone = ?");
-        $stmt->execute([$phone]);
+        // Check if user exists by phone, accepting local and international DRC formats.
+        $phoneVariations = phone_variations($phone);
+        $placeholders = implode(',', array_fill(0, count($phoneVariations), '?'));
+        $stmt = $db->prepare("SELECT id, phone FROM users WHERE phone IN ($placeholders) LIMIT 1");
+        $stmt->execute($phoneVariations);
         $existing = $stmt->fetch();
 
         if ($existing) {
@@ -36,11 +65,11 @@ try {
                 }
             }
             if (!empty($fields)) {
-                $params[] = $phone;
-                $stmt = $db->prepare("UPDATE users SET " . implode(', ', $fields) . " WHERE phone = ?");
+                $params[] = $existing['id'];
+                $stmt = $db->prepare("UPDATE users SET " . implode(', ', $fields) . " WHERE id = ?");
                 $stmt->execute($params);
             }
-            echo json_encode(['success' => true, 'phone' => $phone, 'action' => 'UPDATE']);
+            echo json_encode(['success' => true, 'phone' => $existing['phone'], 'action' => 'UPDATE']);
         } else {
             // CREATE new user
             $keys = array_keys($input);
@@ -58,8 +87,10 @@ try {
     // GET Logic (Fetch by phone)
     $phone = isset($_GET['phone']) ? $_GET['phone'] : null;
     if ($phone) {
-        $stmt = $db->prepare("SELECT * FROM users WHERE phone = ?");
-        $stmt->execute([$phone]);
+        $phoneVariations = phone_variations($phone);
+        $placeholders = implode(',', array_fill(0, count($phoneVariations), '?'));
+        $stmt = $db->prepare("SELECT * FROM users WHERE phone IN ($placeholders) LIMIT 1");
+        $stmt->execute($phoneVariations);
         $user = $stmt->fetch();
         if ($user) {
             $user['is_phone_verified'] = (bool)$user['is_phone_verified'];

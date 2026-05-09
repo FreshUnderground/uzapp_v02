@@ -9,7 +9,8 @@ $ALLOWED_SHOP_COLUMNS = [
     'id', 'name', 'description', 'logo_url', 'type', 'owner_id', 'address', 'whatsapp',
     'phone', 'email', 'instagram_url', 'tiktok_url', 'facebook_url', 'youtube_url',
     'banner_url', 'boost_status', 'banner_status', 'banner_text', 'video_url',
-    'is_boosted', 'is_verified', 'verified_at', 'created_at', 'updated_at'
+    'is_boosted', 'is_verified', 'verified_at', 'created_at', 'updated_at',
+    'latitude', 'longitude', 'city', 'commune'
 ];
 
 try {

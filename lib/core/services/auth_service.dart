@@ -62,6 +62,36 @@ class AuthService extends ChangeNotifier {
   bool get isPhoneVerified => _isPhoneVerified;
   MockUser? get user => _currentUser;
 
+  bool _isSamePhone(String first, String second) {
+    return _phoneVariations(first).any(_phoneVariations(second).contains);
+  }
+
+  List<String> _phoneVariations(String phone) {
+    final cleaned = phone.trim().replaceAll(RegExp(r'\s+'), '');
+    final digits = cleaned.replaceAll(RegExp(r'[^0-9]'), '');
+    final variations = <String>{cleaned, digits};
+
+    if (digits.startsWith('243') && digits.length >= 12) {
+      final local = digits.substring(3);
+      variations.add(local);
+      variations.add('0$local');
+      variations.add(digits);
+      variations.add('+$digits');
+    } else if (digits.startsWith('0') && digits.length >= 10) {
+      final withoutLeading0 = digits.substring(1);
+      variations.add(withoutLeading0);
+      variations.add('243$withoutLeading0');
+      variations.add('+243$withoutLeading0');
+    } else if (digits.length == 9) {
+      variations.add('0$digits');
+      variations.add('243$digits');
+      variations.add('+243$digits');
+    }
+
+    variations.removeWhere((value) => value.isEmpty);
+    return variations.toList();
+  }
+
   /// Restores the user session from the local database.
   ///
   /// The user's phone number is the stable identifier (uid) across app
@@ -267,16 +297,24 @@ class AuthService extends ChangeNotifier {
       // Hash the password
       final passwordHash = _hashPassword(password);
 
-      // Check local database first
+      // Check local database first, accepting common phone formats.
       final profile = await _repository.getCurrentUser();
-      if (profile != null && profile.phone == phoneNumber) {
-        // Verify password
+      final localProfileMatches =
+          profile != null && _isSamePhone(profile.phone, phoneNumber);
+      if (localProfileMatches) {
+        // Verify password without losing the stored hash on successful login.
         if (profile.passwordHash == passwordHash) {
           await _completeSignIn(
-            phoneNumber,
+            profile.phone,
             isPhoneVerified: profile.isPhoneVerified,
+            passwordHash: passwordHash,
           );
           onSuccess();
+        } else if (profile.passwordHash == null ||
+            profile.passwordHash!.isEmpty) {
+          throw Exception(
+            'Compte trouvé, mais aucun mot de passe n’est enregistré. Utilisez le code OTP ou recréez le mot de passe.',
+          );
         } else {
           throw Exception('Mot de passe incorrect');
         }
@@ -291,9 +329,11 @@ class AuthService extends ChangeNotifier {
           if (loginResult != null && loginResult['success'] == true) {
             // Login successful - user exists and password is correct
             final remoteProfile = loginResult['user'];
+            final remotePhone = remoteProfile['phone'] as String?;
             await _completeSignIn(
-              phoneNumber,
+              remotePhone?.isNotEmpty == true ? remotePhone! : phoneNumber,
               isPhoneVerified: remoteProfile['is_phone_verified'] ?? false,
+              passwordHash: passwordHash,
             );
             onSuccess();
           } else if (loginResult != null && loginResult['error'] != null) {

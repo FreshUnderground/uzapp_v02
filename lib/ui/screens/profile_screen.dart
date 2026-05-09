@@ -27,6 +27,7 @@ import 'story_view_screen.dart';
 import 'shop_profile_screen.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../core/utils/crypto_utils.dart';
+import '../../core/utils/image_utils.dart';
 import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
@@ -1109,35 +1110,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(14),
-                          child: decryptedUrl.isNotEmpty
-                              ? CachedNetworkImage(
-                                  imageUrl: decryptedUrl,
-                                  fit: BoxFit.cover,
-                                  placeholder: (_, __) => Container(
-                                    color: Colors.grey[200],
-                                    child: Icon(
-                                      Icons.auto_awesome,
-                                      color: Colors.purple[300],
-                                      size: 24,
-                                    ),
-                                  ),
-                                  errorWidget: (_, __, ___) => Container(
-                                    color: Colors.grey[200],
-                                    child: Icon(
-                                      Icons.auto_awesome,
-                                      color: Colors.purple[300],
-                                      size: 24,
-                                    ),
-                                  ),
-                                )
-                              : Container(
-                                  color: Colors.grey[200],
-                                  child: Icon(
-                                    Icons.auto_awesome,
-                                    color: Colors.purple[300],
-                                    size: 24,
-                                  ),
-                                ),
+                          child: ImageUtils.buildCachedImage(
+                            decryptedUrl,
+                            fit: BoxFit.cover,
+                            placeholder: Container(
+                              color: Colors.grey[200],
+                              child: Icon(
+                                Icons.auto_awesome,
+                                color: Colors.purple[300],
+                                size: 24,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -1215,41 +1199,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(14),
-                          child: decryptedUrl.isNotEmpty
-                              ? CachedNetworkImage(
-                                  imageUrl: decryptedUrl,
-                                  fit: BoxFit.cover,
-                                  placeholder: (_, __) => Container(
-                                    color: Colors.grey[200],
-                                    child: Icon(
-                                      Icons.local_shipping,
-                                      color: UzaColors.secondary.withValues(
-                                        alpha: 0.6,
-                                      ),
-                                      size: 24,
-                                    ),
-                                  ),
-                                  errorWidget: (_, __, ___) => Container(
-                                    color: Colors.grey[200],
-                                    child: Icon(
-                                      Icons.local_shipping,
-                                      color: UzaColors.secondary.withValues(
-                                        alpha: 0.6,
-                                      ),
-                                      size: 24,
-                                    ),
-                                  ),
-                                )
-                              : Container(
-                                  color: Colors.grey[200],
-                                  child: Icon(
-                                    Icons.local_shipping,
-                                    color: UzaColors.secondary.withValues(
-                                      alpha: 0.6,
-                                    ),
-                                    size: 24,
-                                  ),
+                          child: ImageUtils.buildCachedImage(
+                            decryptedUrl,
+                            fit: BoxFit.cover,
+                            placeholder: Container(
+                              color: Colors.grey[200],
+                              child: Icon(
+                                Icons.local_shipping,
+                                color: UzaColors.secondary.withValues(
+                                  alpha: 0.6,
                                 ),
+                                size: 24,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 4),

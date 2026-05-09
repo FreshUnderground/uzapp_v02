@@ -9,6 +9,14 @@ class Skeletons {
   static Widget shopCard(BuildContext context) {
     return const ShopCardSkeleton();
   }
+
+  static Widget arrivageCard(BuildContext context) {
+    return const ArrivageCardSkeleton();
+  }
+
+  static Widget storyCircle(BuildContext context) {
+    return const StoryCircleSkeleton();
+  }
 }
 
 class ProductCardSkeleton extends StatelessWidget {
@@ -97,6 +105,55 @@ class ShopCardSkeleton extends StatelessWidget {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class ArrivageCardSkeleton extends StatelessWidget {
+  const ArrivageCardSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[200]!,
+      highlightColor: Colors.white,
+      child: Container(
+        width: 120,
+        margin: const EdgeInsets.only(right: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+}
+
+class StoryCircleSkeleton extends StatelessWidget {
+  const StoryCircleSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[200]!,
+      highlightColor: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 12),
+        child: Column(
+          children: [
+            Container(
+              width: 66,
+              height: 66,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(height: 10, width: 50, color: Colors.white),
           ],
         ),
       ),

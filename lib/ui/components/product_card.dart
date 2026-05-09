@@ -48,10 +48,10 @@ class _ProductCardState extends State<ProductCard> {
         curve: Curves.easeOutCubic,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+          margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
                 color: _isHovered
@@ -64,7 +64,7 @@ class _ProductCardState extends State<ProductCard> {
           ),
           child: InkWell(
             onTap: widget.onTap,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -72,12 +72,12 @@ class _ProductCardState extends State<ProductCard> {
                   children: [
                     ClipRRect(
                       borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(16),
+                        top: Radius.circular(12),
                       ),
                       child: Hero(
                         tag: 'product_image_${widget.product.id}',
                         child: AspectRatio(
-                          aspectRatio: 1.35,
+                          aspectRatio: 1.2,
                           child: Builder(
                             builder: (context) {
                               final images = ImageUtils.getDecryptedList(
@@ -93,7 +93,7 @@ class _ProductCardState extends State<ProductCard> {
                                 firstImage,
                                 fit: BoxFit.cover,
                                 thumbnailUrl: widget.thumbnailUrl,
-                                memCacheWidth: 200,
+                                memCacheWidth: 150,
                               );
                             },
                           ),
@@ -187,7 +187,7 @@ class _ProductCardState extends State<ProductCard> {
                 ),
                 // Info Section
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+                  padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -195,8 +195,8 @@ class _ProductCardState extends State<ProductCard> {
                         widget.product.name.toUpperCase(),
                         style: const TextStyle(
                           fontWeight: FontWeight.w900,
-                          fontSize: 9.5,
-                          letterSpacing: 0.3,
+                          fontSize: 8.5,
+                          letterSpacing: 0.2,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -206,7 +206,7 @@ class _ProductCardState extends State<ProductCard> {
                         const SizedBox(height: 2),
                         ConditionBadge(condition: widget.condition),
                       ],
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
                       // Shop Name (subtle, no logo)
                       FutureBuilder<Shop?>(
                         future: shopRepo.getShopById(widget.product.shopId),
@@ -222,7 +222,7 @@ class _ProductCardState extends State<ProductCard> {
                                   shop.name,
                                   style: TextStyle(
                                     color: Colors.grey[500],
-                                    fontSize: 8.5,
+                                    fontSize: 7.5,
                                     fontWeight: FontWeight.w500,
                                   ),
                                   maxLines: 1,
@@ -243,7 +243,7 @@ class _ProductCardState extends State<ProductCard> {
                                       '~${_formatDistance(widget.distanceKm!)}',
                                       style: TextStyle(
                                         color: UzaColors.primary,
-                                        fontSize: 9,
+                                        fontSize: 8,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),

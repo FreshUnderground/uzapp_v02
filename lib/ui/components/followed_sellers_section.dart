@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../data/local/uza_database.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/utils/crypto_utils.dart';
 import 'tap_animator.dart';
 
 /// Section showing "Tes vendeurs" — horizontal scroll of followed shop circles
@@ -161,10 +162,17 @@ class _SellerCircle extends StatelessWidget {
                   child: CircleAvatar(
                     radius: 30,
                     backgroundColor: Colors.grey[100],
-                    backgroundImage:
-                        (shop.logoUrl != null && shop.logoUrl!.isNotEmpty)
-                        ? CachedNetworkImageProvider(shop.logoUrl!)
-                        : null,
+                    backgroundImage: () {
+                      if (shop.logoUrl == null || shop.logoUrl!.isEmpty)
+                        return null;
+                      final decrypted = CryptoUtils.decrypt(shop.logoUrl!);
+                      if (decrypted.isEmpty ||
+                          (!decrypted.startsWith('http://') &&
+                              !decrypted.startsWith('https://')))
+                        return null;
+                      return CachedNetworkImageProvider(decrypted)
+                          as ImageProvider;
+                    }(),
                     child: (shop.logoUrl == null || shop.logoUrl!.isEmpty)
                         ? Icon(
                             Icons.store,

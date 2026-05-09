@@ -252,6 +252,13 @@ class ProductRepository {
         .map((rows) => rows.first.read(db.analytics.id.count()) ?? 0);
   }
 
+  /// Watch all products ordered by newest first (no limit).
+  Stream<List<Product>> watchAllProducts() {
+    return (db.select(
+      db.products,
+    )..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch();
+  }
+
   Stream<List<Product>> watchTrendingProducts({int limit = 10}) {
     // Now using global synced stats for trending status
     return (db.select(db.products)
@@ -481,7 +488,7 @@ class ProductRepository {
           ),
         );
 
-    // Update product rating average (Simplified: in a real app, this should be a background sync or calculated)
+    // Update product rating average
     final reviews = await (db.select(
       db.productReviews,
     )..where((t) => t.productId.equals(productId))).get();
@@ -495,6 +502,145 @@ class ProductRepository {
           ratingAvg: Value(avg),
           ratingsCount: Value(reviews.length),
         ),
+      );
+    }
+  }
+
+  // ── Product Like Methods ──────────────────────────────────────
+
+  /// Like a product. Returns true if a new like was created.
+  Future<bool> likeProduct(int productId, String userPhone) async {
+    final existing =
+        await (db.select(db.productLikes)..where(
+              (t) =>
+                  t.productId.equals(productId) & t.userPhone.equals(userPhone),
+            ))
+            .getSingleOrNull();
+    if (existing != null) return false; // Already liked
+
+    await db
+        .into(db.productLikes)
+        .insert(
+          ProductLikesCompanion.insert(
+            productId: productId,
+            userPhone: userPhone,
+          ),
+        );
+
+    // Queue sync to backend
+    if (syncService != null) {
+      await syncService!.addToQueue('CREATE', 'product_likes', {
+        'product_id': productId,
+        'user_phone': userPhone,
+      });
+    }
+    return true;
+  }
+
+  /// Unlike a product. Returns true if a like was removed.
+  Future<bool> unlikeProduct(int productId, String userPhone) async {
+    final existing =
+        await (db.select(db.productLikes)..where(
+              (t) =>
+                  t.productId.equals(productId) & t.userPhone.equals(userPhone),
+            ))
+            .getSingleOrNull();
+    if (existing == null) return false; // Not liked
+
+    await (db.delete(
+      db.productLikes,
+    )..where((t) => t.id.equals(existing.id))).go();
+
+    // Queue sync to backend
+    if (syncService != null) {
+      await syncService!.addToQueue('DELETE', 'product_likes', {
+        'product_id': productId,
+        'user_phone': userPhone,
+      });
+    }
+    return true;
+  }
+
+  /// Toggle like on a product. Returns true if now liked, false if unliked.
+  Future<bool> toggleLike(int productId, String userPhone) async {
+    final isLiked = await isProductLiked(productId, userPhone);
+    if (isLiked) {
+      await unlikeProduct(productId, userPhone);
+      return false;
+    } else {
+      await likeProduct(productId, userPhone);
+      return true;
+    }
+  }
+
+  /// Check if a product is liked by a specific user.
+  Future<bool> isProductLiked(int productId, String userPhone) async {
+    final existing =
+        await (db.select(db.productLikes)..where(
+              (t) =>
+                  t.productId.equals(productId) & t.userPhone.equals(userPhone),
+            ))
+            .getSingleOrNull();
+    return existing != null;
+  }
+
+  /// Watch whether a product is liked by a specific user (reactive).
+  Stream<bool> watchIsProductLiked(int productId, String userPhone) {
+    return (db.select(db.productLikes)..where(
+          (t) => t.productId.equals(productId) & t.userPhone.equals(userPhone),
+        ))
+        .watch()
+        .map((rows) => rows.isNotEmpty);
+  }
+
+  /// Get total like count for a product.
+  Future<int> getProductLikeCount(int productId) async {
+    final countExpr = db.productLikes.id.count();
+    final result =
+        await (db.selectOnly(db.productLikes)
+              ..addColumns([countExpr])
+              ..where(db.productLikes.productId.equals(productId)))
+            .getSingle();
+    return result.read(countExpr) ?? 0;
+  }
+
+  /// Watch total like count for a product (reactive).
+  Stream<int> watchProductLikeCount(int productId) {
+    final countExpr = db.productLikes.id.count();
+    return (db.selectOnly(db.productLikes)
+          ..addColumns([countExpr])
+          ..where(db.productLikes.productId.equals(productId)))
+        .watch()
+        .map((rows) => rows.first.read(countExpr) ?? 0);
+  }
+
+  /// Get total likes for all products of a shop.
+  Future<int> getShopTotalLikes(int shopId) async {
+    final products = await (db.select(
+      db.products,
+    )..where((t) => t.shopId.equals(shopId))).get();
+    final productIds = products.map((p) => p.id).toList();
+    if (productIds.isEmpty) return 0;
+
+    final countExpr = db.productLikes.id.count();
+    final result =
+        await (db.selectOnly(db.productLikes)
+              ..addColumns([countExpr])
+              ..where(db.productLikes.productId.isIn(productIds)))
+            .getSingle();
+    return result.read(countExpr) ?? 0;
+  }
+
+  /// Get unsynced product likes for batch sync.
+  Future<List<ProductLike>> getUnsyncedLikes() {
+    return (db.select(db.productLikes)..where((t) => t.synced.equals(0))).get();
+  }
+
+  /// Mark likes as synced by their IDs.
+  Future<void> markLikesSynced(List<int> likeIds) async {
+    for (final id in likeIds) {
+      await (db.update(db.productLikes)..where((t) => t.id.equals(id))).write(
+        const ProductLikesCompanion(synced: Value(1)),
       );
     }
   }

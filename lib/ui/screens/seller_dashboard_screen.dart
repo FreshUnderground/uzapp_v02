@@ -4,6 +4,7 @@ import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/utils/image_utils.dart';
 import '../components/modern_card.dart';
 import '../components/tap_animator.dart';
 import '../components/staggered_list.dart';
@@ -179,10 +180,12 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
             child: _shop?.logoUrl != null && _shop!.logoUrl!.isNotEmpty
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(14),
-                    child: Image.network(
-                      _shop!.logoUrl!,
-                      errorBuilder: (_, __, ___) =>
-                          const Icon(Icons.store, color: Colors.white),
+                    child: ImageUtils.buildCachedImage(
+                      _shop!.logoUrl,
+                      height: 48,
+                      width: 48,
+                      fit: BoxFit.cover,
+                      placeholder: const Icon(Icons.store, color: Colors.white),
                     ),
                   )
                 : const Icon(Icons.store, color: Colors.white),
@@ -401,10 +404,12 @@ class _TopProductItem extends StatelessWidget {
                 child: firstImage.isNotEmpty
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
+                        child: ImageUtils.buildCachedImage(
                           firstImage,
+                          height: 44,
+                          width: 44,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const Icon(
+                          placeholder: const Icon(
                             Icons.image_outlined,
                             size: 20,
                             color: Colors.grey,

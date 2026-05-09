@@ -82,7 +82,7 @@ class ImageUtils {
   }
 
   static Widget buildCachedImage(
-    String source, {
+    String? source, {
     double? height,
     double? width,
     BoxFit fit = BoxFit.cover,
@@ -91,6 +91,16 @@ class ImageUtils {
     String? thumbnailUrl,
     int? memCacheWidth,
   }) {
+    if (source == null || source.isEmpty) {
+      return buildErrorWidget(
+        height: height,
+        width: width,
+        borderRadius: borderRadius,
+      );
+    }
+
+    // Decrypt if the URL was stored encrypted (AES-encrypted strings from sync)
+    source = CryptoUtils.decrypt(source);
     if (source.isEmpty) {
       return buildErrorWidget(
         height: height,
@@ -137,57 +147,39 @@ class ImageUtils {
     // Apply proxy for external URLs on web
     final String imageUrl = _getProxiedUrl(source);
 
-    return CachedNetworkImage(
+    return _RetryCachedImage(
       imageUrl: imageUrl,
       height: height,
       width: width,
       fit: fit,
+      borderRadius: borderRadius,
+      placeholder: placeholder,
+      thumbnailUrl: thumbnailUrl,
       memCacheWidth: memCacheWidth,
-      fadeInDuration: const Duration(milliseconds: 200),
-      imageBuilder: (context, imageProvider) => Container(
-        decoration: BoxDecoration(
-          borderRadius: borderRadius ?? BorderRadius.zero,
-          image: DecorationImage(image: imageProvider, fit: fit),
-        ),
-      ),
-      placeholder: (context, url) {
-        if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) {
-          return Container(
-            height: height,
-            width: width,
-            decoration: BoxDecoration(
-              borderRadius: borderRadius ?? BorderRadius.zero,
-            ),
-            child: ClipRRect(
-              borderRadius: borderRadius ?? BorderRadius.zero,
-              child: Image.network(
-                thumbnailUrl,
-                fit: BoxFit.cover,
-                width: width,
-                height: height,
-              ),
-            ),
-          );
-        }
-        return placeholder ??
-            buildPlaceholder(
-              height: height,
-              width: width,
-              borderRadius: borderRadius,
-            );
-      },
-      errorWidget: (context, url, error) {
-        // Log specifically for storage quota errors
-        if (error.toString().contains('402')) {
-          debugPrint('STORAGE QUOTA EXCEEDED for $url');
-        }
-        return buildErrorWidget(
+    );
+  }
+
+  static Widget buildCachedImageProvider(
+    ImageProvider imageProvider, {
+    double? height,
+    double? width,
+    BoxFit fit = BoxFit.cover,
+    BorderRadius? borderRadius,
+  }) {
+    return ClipRRect(
+      borderRadius: borderRadius ?? BorderRadius.zero,
+      child: Image(
+        image: imageProvider,
+        height: height,
+        width: width,
+        fit: fit,
+        errorBuilder: (context, error, stackTrace) => buildErrorWidget(
           height: height,
           width: width,
           borderRadius: borderRadius,
           error: error,
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -274,6 +266,110 @@ class ImageUtils {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _RetryCachedImage extends StatefulWidget {
+  final String imageUrl;
+  final double? height;
+  final double? width;
+  final BoxFit fit;
+  final BorderRadius? borderRadius;
+  final Widget? placeholder;
+  final String? thumbnailUrl;
+  final int? memCacheWidth;
+
+  const _RetryCachedImage({
+    required this.imageUrl,
+    this.height,
+    this.width,
+    this.fit = BoxFit.cover,
+    this.borderRadius,
+    this.placeholder,
+    this.thumbnailUrl,
+    this.memCacheWidth,
+  });
+
+  @override
+  State<_RetryCachedImage> createState() => _RetryCachedImageState();
+}
+
+class _RetryCachedImageState extends State<_RetryCachedImage> {
+  int _retryCount = 0;
+
+  void _scheduleRetry() {
+    if (_retryCount < 2) {
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          setState(() => _retryCount++);
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CachedNetworkImage(
+      key: ValueKey('${widget.imageUrl}_$_retryCount'),
+      imageUrl: widget.imageUrl,
+      height: widget.height,
+      width: widget.width,
+      fit: widget.fit,
+      memCacheWidth: widget.memCacheWidth,
+      fadeInDuration: const Duration(milliseconds: 200),
+      imageBuilder: (context, imageProvider) => Container(
+        decoration: BoxDecoration(
+          borderRadius: widget.borderRadius ?? BorderRadius.zero,
+          image: DecorationImage(image: imageProvider, fit: widget.fit),
+        ),
+      ),
+      placeholder: (context, url) {
+        if (widget.thumbnailUrl != null && widget.thumbnailUrl!.isNotEmpty) {
+          return Container(
+            height: widget.height,
+            width: widget.width,
+            decoration: BoxDecoration(
+              borderRadius: widget.borderRadius ?? BorderRadius.zero,
+            ),
+            child: ClipRRect(
+              borderRadius: widget.borderRadius ?? BorderRadius.zero,
+              child: CachedNetworkImage(
+                imageUrl: widget.thumbnailUrl!,
+                fit: BoxFit.cover,
+                width: widget.width,
+                height: widget.height,
+              ),
+            ),
+          );
+        }
+        return widget.placeholder ??
+            ImageUtils.buildPlaceholder(
+              height: widget.height,
+              width: widget.width,
+              borderRadius: widget.borderRadius,
+            );
+      },
+      errorWidget: (context, url, error) {
+        if (error.toString().contains('402')) {
+          debugPrint('STORAGE QUOTA EXCEEDED for $url');
+        }
+        if (_retryCount < 2) {
+          _scheduleRetry();
+          return widget.placeholder ??
+              ImageUtils.buildPlaceholder(
+                height: widget.height,
+                width: widget.width,
+                borderRadius: widget.borderRadius,
+              );
+        }
+        return ImageUtils.buildErrorWidget(
+          height: widget.height,
+          width: widget.width,
+          borderRadius: widget.borderRadius,
+          error: error,
+        );
+      },
     );
   }
 }

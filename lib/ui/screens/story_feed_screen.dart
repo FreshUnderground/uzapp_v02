@@ -6,6 +6,9 @@ import '../../data/local/uza_database.dart';
 import '../screens/story_view_screen.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/utils/crypto_utils.dart';
+import '../../core/utils/image_utils.dart';
+import '../../data/services/sync_service.dart';
+import '../components/skeletons.dart';
 
 class StoryFeedScreen extends StatelessWidget {
   final Function(List<Story>, int)? onOpenStory;
@@ -24,6 +27,7 @@ class StoryFeedScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final storyRepo = context.watch<StoryRepository>();
+    final syncService = context.watch<SyncService>();
 
     return StreamBuilder<Map<int, List<Story>>>(
       stream: storyRepo.watchStoriesGroupedByShop(),
@@ -32,6 +36,18 @@ class StoryFeedScreen extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          // Show shimmer skeletons while the first sync is in progress
+          if (syncService.isSyncing || syncService.isFirstSync) {
+            if (isCompact) {
+              return ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: 5,
+                itemBuilder: (_, __) => Skeletons.storyCircle(context),
+              );
+            }
+            return const Center(child: CircularProgressIndicator());
+          }
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -133,25 +149,41 @@ class _CompactStoryFeed extends StatelessWidget {
                       color: Colors.white,
                       shape: BoxShape.circle,
                     ),
-                    child: CircleAvatar(
-                      radius: 30,
-                      backgroundColor: Colors.grey[200],
-                      backgroundImage: NetworkImage(
-                        firstStory.mediaUrl.isNotEmpty
-                            ? CryptoUtils.decrypt(firstStory.mediaUrl)
-                            : '',
-                      ),
-                      child: firstStory.mediaType == 'video'
-                          ? const Positioned(
-                              right: 0,
-                              bottom: 0,
-                              child: Icon(
-                                Icons.play_arrow,
-                                color: UzaColors.primary,
-                                size: 16,
+                    child: ClipOval(
+                      child: SizedBox(
+                        width: 60,
+                        height: 60,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            ImageUtils.buildCachedImage(
+                              firstStory.mediaUrl.isNotEmpty
+                                  ? CryptoUtils.decrypt(firstStory.mediaUrl)
+                                  : '',
+                              width: 60,
+                              height: 60,
+                              fit: BoxFit.cover,
+                            ),
+                            if (firstStory.mediaType == 'video')
+                              Positioned(
+                                right: 2,
+                                bottom: 2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.play_arrow,
+                                    color: UzaColors.primary,
+                                    size: 12,
+                                  ),
+                                ),
                               ),
-                            )
-                          : null,
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -377,14 +409,6 @@ class _FullStoryFeed extends StatelessWidget {
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  image: DecorationImage(
-                    image: NetworkImage(
-                      firstStory.mediaUrl.isNotEmpty
-                          ? CryptoUtils.decrypt(firstStory.mediaUrl)
-                          : '',
-                    ),
-                    fit: BoxFit.cover,
-                  ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.1),
@@ -393,91 +417,106 @@ class _FullStoryFeed extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.8),
-                      ],
-                    ),
-                  ),
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(2),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: UzaColors.primary,
-                                width: 2,
-                              ),
-                            ),
-                            child: CircleAvatar(
-                              radius: 14,
-                              backgroundColor: Colors.grey[200],
-                              child: const Icon(
-                                Icons.person,
-                                size: 16,
-                                color: UzaColors.textSecondary,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: FutureBuilder<Shop?>(
-                              future: context
-                                  .read<ShopRepository>()
-                                  .getShopById(shopId),
-                              builder: (context, snapshot) {
-                                return Text(
-                                  snapshot.data?.name ?? 'Boutique',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                );
-                              },
-                            ),
-                          ),
-                          // Story count badge
-                          if (stories.length > 1)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: UzaColors.primary.withValues(alpha: 0.9),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                '${stories.length}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                        ],
+                      ImageUtils.buildCachedImage(
+                        firstStory.mediaUrl.isNotEmpty
+                            ? CryptoUtils.decrypt(firstStory.mediaUrl)
+                            : '',
+                        fit: BoxFit.cover,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _formatTime(firstStory.createdAt),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
+                      Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.8),
+                            ],
+                          ),
+                        ),
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: UzaColors.primary,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: CircleAvatar(
+                                    radius: 14,
+                                    backgroundColor: Colors.grey[200],
+                                    child: const Icon(
+                                      Icons.person,
+                                      size: 16,
+                                      color: UzaColors.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: FutureBuilder<Shop?>(
+                                    future: context
+                                        .read<ShopRepository>()
+                                        .getShopById(shopId),
+                                    builder: (context, snapshot) {
+                                      return Text(
+                                        snapshot.data?.name ?? 'Boutique',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      );
+                                    },
+                                  ),
+                                ),
+                                // Story count badge
+                                if (stories.length > 1)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: UzaColors.primary.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '${stories.length}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _formatTime(firstStory.createdAt),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../data/local/uza_database.dart';
 import '../../core/services/contact_service.dart';
 import '../../core/services/location_service.dart';
+import '../../core/services/auth_service.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/services/sync_service.dart';
@@ -13,8 +14,12 @@ import '../../data/repositories/cart_repository.dart';
 import 'shop_profile_screen.dart';
 import 'cart_screen.dart';
 import '../../core/utils/image_utils.dart';
+import '../../core/utils/crypto_utils.dart';
 import '../components/product_card.dart';
 import 'package:flutter/services.dart';
+import 'dart:convert';
+import '../components/product_metadata_display.dart';
+import '../../core/utils/category_helper.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final Product product;
@@ -126,6 +131,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     const SizedBox(height: 12),
                     _buildDescription(),
                     const SizedBox(height: 24),
+                    _buildCategoryMetadata(),
+                    const SizedBox(height: 24),
                     _buildProductStats(),
                     const SizedBox(height: 32),
                     _buildSellerSection(shopRepo),
@@ -152,6 +159,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   AppBar _buildAppBar(ShopRepository shopRepo) {
+    final userPhone = context.read<AuthService>().user?.phoneNumber ?? '';
     return AppBar(
       actions: [
         FutureBuilder<Shop?>(
@@ -178,6 +186,33 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             );
           },
         ),
+        // Like button
+        StreamBuilder<bool>(
+          stream: userPhone.isNotEmpty
+              ? context.read<ProductRepository>().watchIsProductLiked(
+                  widget.product.id,
+                  userPhone,
+                )
+              : Stream.value(false),
+          builder: (context, snapshot) {
+            final isLiked = snapshot.data ?? false;
+            return IconButton(
+              icon: Icon(
+                isLiked ? Icons.favorite : Icons.favorite_border,
+                color: isLiked ? Colors.red : null,
+              ),
+              onPressed: () {
+                if (userPhone.isNotEmpty) {
+                  context.read<ProductRepository>().toggleLike(
+                    widget.product.id,
+                    userPhone,
+                  );
+                }
+              },
+            );
+          },
+        ),
+        // Wishlist button
         StreamBuilder<bool>(
           stream: context.read<ProductRepository>().watchIsInWishlist(
             widget.product.id,
@@ -186,8 +221,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             final isInWishlist = snapshot.data ?? false;
             return IconButton(
               icon: Icon(
-                isInWishlist ? Icons.favorite : Icons.favorite_border,
-                color: isInWishlist ? Colors.red : null,
+                isInWishlist ? Icons.bookmark : Icons.bookmark_border,
+                color: isInWishlist ? UzaColors.primary : null,
               ),
               onPressed: () => context.read<ProductRepository>().toggleWishlist(
                 widget.product.id,
@@ -229,15 +264,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       const SizedBox(height: 16),
                       _buildPriceSection(),
                       const SizedBox(height: 24),
-                      const Text(
-                        'Description',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      _buildDescription(),
+                      _buildDescriptionCard(),
+                      const SizedBox(height: 16),
+                      _buildCategoryMetadata(),
                       const SizedBox(height: 16),
                       _buildProductStats(),
                       const SizedBox(height: 24),
@@ -302,6 +331,52 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   .toList(),
             ),
           ),
+        // Floating "Ajouter au panier" button
+        Positioned(
+          bottom: _images.length > 1 ? 56 : 16,
+          right: 16,
+          child: GestureDetector(
+            onTap: () {
+              HapticFeedback.lightImpact();
+              context.read<CartRepository>().addToCart(widget.product.id);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text('Produit ajouté à votre sélection'),
+                  action: SnackBarAction(
+                    label: 'VOIR',
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const CartScreen()),
+                    ),
+                  ),
+                ),
+              );
+            },
+            child: Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: UzaColors.primary,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Tooltip(
+                message: 'Ajouter à ma sélection',
+                child: Icon(
+                  Icons.playlist_add_rounded,
+                  color: Colors.white,
+                  size: 26,
+                ),
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -382,12 +457,55 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
+  Widget _buildCategoryMetadata() {
+    if (widget.product.metadata == null || widget.product.metadata!.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return FutureBuilder<Category?>(
+      future: _getProductCategory(),
+      builder: (context, snapshot) {
+        // Still waiting — keep blank to avoid layout jumps
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox.shrink();
+        }
+
+        // Category may be null (unknown/generic) — still show metadata
+        try {
+          final metadata =
+              jsonDecode(widget.product.metadata!) as Map<String, dynamic>;
+          // getFormType returns 'generic' when category is null
+          final formType = CategoryHelper.getFormType(snapshot.data);
+
+          return ProductMetadataDisplay(
+            metadata: metadata,
+            categoryType: formType,
+          );
+        } catch (e) {
+          debugPrint('Error parsing metadata: $e');
+          return const SizedBox.shrink();
+        }
+      },
+    );
+  }
+
+  Future<Category?> _getProductCategory() async {
+    try {
+      final db = context.read<UzaDatabase>();
+      final categories = await db.select(db.categories).get();
+      return categories.firstWhere(
+        (c) => c.id == widget.product.categoryId,
+        orElse: () => throw Exception('Category not found'),
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
   Widget _buildProductStats() {
     final hasViews = widget.product.viewsCount > 0;
     final hasShares = widget.product.sharesCount > 0;
     final hasRatings = widget.product.ratingsCount > 0;
-
-    if (!hasViews && !hasShares && !hasRatings) return const SizedBox.shrink();
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
@@ -406,6 +524,23 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
+          // Like count
+          StreamBuilder<int>(
+            stream: context.read<ProductRepository>().watchProductLikeCount(
+              widget.product.id,
+            ),
+            builder: (context, snapshot) {
+              final likeCount = snapshot.data ?? 0;
+              if (likeCount == 0 && !hasViews && !hasShares && !hasRatings) {
+                return const SizedBox.shrink();
+              }
+              return _buildStatItem(
+                Icons.favorite_outlined,
+                '$likeCount',
+                'LIKES',
+              );
+            },
+          ),
           if (hasViews)
             _buildStatItem(
               Icons.visibility_outlined,
@@ -535,6 +670,140 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
+  Widget _buildDescriptionCard() {
+    final desc = widget.product.description;
+    if (desc == null || desc.trim().isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section header with accent bar
+        Row(
+          children: [
+            Container(
+              width: 4,
+              height: 22,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [UzaColors.primary, UzaColors.secondary],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Description',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey[200]!),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.format_quote_rounded,
+                    color: UzaColors.primary.withValues(alpha: 0.4),
+                    size: 28,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      desc,
+                      style: const TextStyle(
+                        color: Color(0xFF3D3D3D),
+                        height: 1.75,
+                        fontSize: 15,
+                        letterSpacing: 0.15,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (widget.product.condition.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: widget.product.condition == 'new'
+                            ? Colors.green[50]
+                            : Colors.orange[50],
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: widget.product.condition == 'new'
+                              ? Colors.green[300]!
+                              : Colors.orange[300]!,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            widget.product.condition == 'new'
+                                ? Icons.new_releases_outlined
+                                : Icons.history_toggle_off,
+                            size: 13,
+                            color: widget.product.condition == 'new'
+                                ? Colors.green[700]
+                                : Colors.orange[700],
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            widget.product.condition == 'new'
+                                ? 'Neuf'
+                                : 'Occasion',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: widget.product.condition == 'new'
+                                  ? Colors.green[700]
+                                  : Colors.orange[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildDescription() {
     return Text(
       widget.product.description ?? 'Pas de description disponible.',
@@ -571,9 +840,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     CircleAvatar(
                       radius: 24,
                       backgroundColor: UzaColors.primary,
-                      backgroundImage: shop.logoUrl != null
-                          ? CachedNetworkImageProvider(shop.logoUrl!)
-                          : null,
+                      backgroundImage: () {
+                        if (shop.logoUrl == null || shop.logoUrl!.isEmpty)
+                          return null;
+                        final decrypted = CryptoUtils.decrypt(shop.logoUrl!);
+                        if (decrypted.isEmpty ||
+                            (!decrypted.startsWith('http://') &&
+                                !decrypted.startsWith('https://')))
+                          return null;
+                        return CachedNetworkImageProvider(decrypted)
+                            as ImageProvider;
+                      }(),
                       child: shop.logoUrl == null
                           ? Text(
                               shop.name[0].toUpperCase(),
@@ -611,74 +888,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 ),
               ),
             ),
-            // Location button if shop has coordinates
-            if (shop.latitude != null && shop.longitude != null) ...[
-              const SizedBox(height: 12),
-              InkWell(
-                onTap: () {
-                  LocationService.getDirections(
-                    latitude: shop.latitude!,
-                    longitude: shop.longitude!,
-                    destinationName: shop.name,
-                  );
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.teal.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.teal.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.teal.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.navigation,
-                          color: Colors.teal,
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Obtenir l\'itineraire',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                                color: Colors.teal,
-                              ),
-                            ),
-                            Text(
-                              'Ouvrir dans Google Maps',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(
-                        Icons.chevron_right,
-                        color: Colors.teal,
-                        size: 20,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+            // Location / directions — now promoted to the bottom action bar
           ],
         );
       },
@@ -885,108 +1095,187 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     return FutureBuilder<Shop?>(
       future: shopRepo.getShopById(widget.product.shopId),
       builder: (context, snapshot) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Partager ce produit',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                UzaColors.primary.withValues(alpha: 0.06),
+                UzaColors.secondary.withValues(alpha: 0.04),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            const SizedBox(height: 16),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: UzaColors.primary.withValues(alpha: 0.15),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  _buildShareIcon(
-                    icon: FontAwesomeIcons.whatsapp,
-                    color: const Color(0xFF25D366),
-                    onTap: () => context.read<SyncService>().reportInteraction(
-                      widget.product.id,
-                      'share',
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: UzaColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    label: 'WhatsApp',
-                    action: () => context.read<ContactService>().shareProduct(
-                      widget.product,
-                      snapshot.data,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  _buildShareIcon(
-                    icon: FontAwesomeIcons.facebook,
-                    color: const Color(0xFF1877F2),
-                    label: 'Facebook',
-                    action: () => context.read<ContactService>().launchSocial(
-                      urlString:
-                          "https://www.facebook.com/sharer/sharer.php?u=${Uri.encodeComponent('https://uzaapp.com/#/product/${widget.product.id}')}",
-                      entityType: 'product',
-                      entityId: widget.product.id,
+                    child: const Icon(
+                      Icons.share_rounded,
+                      color: UzaColors.primary,
+                      size: 18,
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  _buildShareIcon(
-                    icon: Icons.link,
-                    color: Colors.grey[700]!,
-                    label: 'Lien',
-                    action: () {
-                      Clipboard.setData(
-                        ClipboardData(
-                          text:
-                              'https://uzaapp.com/#/product/${widget.product.id}',
+                  const SizedBox(width: 10),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Partager ce produit',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.2,
                         ),
-                      );
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Lien copié dans le presse-papier'),
-                        ),
-                      );
-                    },
+                      ),
+                      Text(
+                        'Faites connaître ce produit à vos proches',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  _buildShareIcon(
-                    icon: Icons.more_horiz,
-                    color: Colors.grey[600]!,
-                    label: 'Plus',
-                    action: () => context.read<ContactService>().shareProduct(
-                      widget.product,
-                      snapshot.data,
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildShareButton(
+                      icon: FontAwesomeIcons.whatsapp,
+                      label: 'WhatsApp',
+                      color: const Color(0xFF25D366),
+                      onTap: () {
+                        context.read<SyncService>().reportInteraction(
+                          widget.product.id,
+                          'share',
+                        );
+                        context.read<ContactService>().shareProduct(
+                          widget.product,
+                          snapshot.data,
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildShareButton(
+                      icon: FontAwesomeIcons.facebook,
+                      label: 'Facebook',
+                      color: const Color(0xFF1877F2),
+                      onTap: () => context.read<ContactService>().launchSocial(
+                        urlString:
+                            'https://www.facebook.com/sharer/sharer.php?u=${Uri.encodeComponent('https://uzaapp.com/#/product/${widget.product.id}')}',
+                        entityType: 'product',
+                        entityId: widget.product.id,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildShareButton(
+                      icon: Icons.link_rounded,
+                      label: 'Copier lien',
+                      color: Colors.grey[700]!,
+                      onTap: () {
+                        Clipboard.setData(
+                          ClipboardData(
+                            text:
+                                'https://uzaapp.com/#/product/${widget.product.id}',
+                          ),
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Row(
+                              children: [
+                                Icon(
+                                  Icons.check_circle,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                SizedBox(width: 8),
+                                Text('Lien copié !'),
+                              ],
+                            ),
+                            backgroundColor: Colors.grey[800],
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildShareButton(
+                      icon: Icons.more_horiz_rounded,
+                      label: 'Plus',
+                      color: UzaColors.primary,
+                      onTap: () => context.read<ContactService>().shareProduct(
+                        widget.product,
+                        snapshot.data,
+                      ),
                     ),
                   ),
                 ],
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
   }
 
-  Widget _buildShareIcon({
+  Widget _buildShareButton({
     required IconData icon,
-    required Color color,
     required String label,
-    required VoidCallback action,
-    VoidCallback? onTap,
+    required Color color,
+    required VoidCallback onTap,
   }) {
-    return Column(
-      children: [
-        InkWell(
-          onTap: () {
-            action();
-            if (onTap != null) onTap();
-          },
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: FaIcon(icon, color: color, size: 24),
-          ),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
-        const SizedBox(height: 4),
-        Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-      ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            (icon == FontAwesomeIcons.whatsapp ||
+                    icon == FontAwesomeIcons.facebook)
+                ? FaIcon(icon, color: color, size: 22)
+                : Icon(icon, color: color, size: 22),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1115,38 +1404,46 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                flex: 1,
-                child: ElevatedButton(
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    context.read<CartRepository>().addToCart(widget.product.id);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Produit ajouté à votre sélection'),
-                        action: SnackBarAction(
-                          label: 'VOIR',
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const CartScreen(),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
+                flex: 2,
+                child: ElevatedButton.icon(
+                  onPressed: shop != null
+                      ? () {
+                          HapticFeedback.lightImpact();
+                          if (shop.latitude != null && shop.longitude != null) {
+                            LocationService.getDirections(
+                              latitude: shop.latitude!,
+                              longitude: shop.longitude!,
+                              destinationName: shop.name,
+                            );
+                          } else {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ShopProfileScreen(shop: shop),
+                              ),
+                            );
+                          }
+                        }
+                      : null,
+                  icon: const Icon(Icons.directions_outlined, size: 16),
+                  label: const Text(
+                    'Boutique',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: UzaColors.primary,
+                    backgroundColor: Colors.teal,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 16,
+                      horizontal: 8,
+                    ),
+                    iconSize: 16,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                     elevation: isDesktop ? 0 : 2,
-                  ),
-                  child: const Tooltip(
-                    message: 'Ajouter à ma sélection',
-                    child: Icon(Icons.playlist_add_rounded),
                   ),
                 ),
               ),

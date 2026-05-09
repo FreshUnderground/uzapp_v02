@@ -1,8 +1,14 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
 import 'package:drift/drift.dart' as drift;
 import '../../data/local/uza_database.dart';
+import '../utils/crypto_utils.dart';
+import '../utils/image_utils.dart';
 
 class ContactService {
   final UzaDatabase db;
@@ -151,18 +157,49 @@ class ContactService {
   Future<void> shareShop(Shop shop) async {
     final String url = "https://uzaapp.com/#/shop/${shop.id}";
     final String text =
-        "🛍️ Découvrez la boutique '${shop.name}' sur Uzaapp !\n\n"
-        "${shop.description ?? ''}\n"
-        "📍 Adresse : ${shop.address ?? 'Kinshasa'}\n"
-        "🔗 Voir la boutique : $url\n\n"
-        "${shop.logoUrl ?? ''}"; // Adding URL at the end helps social previews
+        "💼 Vous cherchez à développer votre clientèle ?\n\n"
+        "🛍️ Découvrez '${shop.name}' sur UzaApp - l'app qui révolutionne le commerce !\n\n"
+        "${shop.description ?? 'Une boutique de qualité vous attend'}\n\n"
+        "📍 ${shop.address ?? 'Kinshasa, RDC'}\n"
+        "⭐ Produits de qualité\n"
+        "📦 Nouveautés régulières\n"
+        "💬 Service client réactif\n\n"
+        "👉 Voir la boutique : $url\n\n"
+        "🚀 VOUS AUSSI, CRÉEZ VOTRE BOUTIQUE GRATUITE !\n"
+        "📱 Téléchargez UzaApp et touchez des milliers de clients potentiels\n"
+        "💰 Augmentez vos ventes dès maintenant !\n\n"
+        "#UzaApp #Commerce #BoutiqueEnLigne";
+
+    if (shop.logoUrl != null && shop.logoUrl!.isNotEmpty) {
+      try {
+        final logoUrl = CryptoUtils.decrypt(shop.logoUrl!);
+        if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) {
+          final response = await http.get(Uri.parse(logoUrl));
+          if (response.statusCode == 200) {
+            final xfile = await _buildXFile(
+              response.bodyBytes,
+              'shop_logo_${shop.id}.jpg',
+            );
+            await Share.shareXFiles(
+              [xfile.$1],
+              text: text,
+              subject: '🛍️ Découvrez ${shop.name} sur UzaApp',
+            );
+            await xfile.$2?.delete();
+            await _logInteraction('shop', shop.id, 'share');
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint('Shop image share failed: $e');
+      }
+    }
 
     await _shareText(text);
     await _logInteraction('shop', shop.id, 'share');
   }
 
   Future<void> shareProduct(Product product, Shop? shop) async {
-    // If shop is null, try to fetch it from DB
     Shop? actualShop = shop;
     if (actualShop == null) {
       actualShop = await (db.select(
@@ -170,18 +207,82 @@ class ContactService {
       )..where((t) => t.id.equals(product.shopId))).getSingleOrNull();
     }
 
-    final String url = "https://uzaapp.com/product/${product.id}";
+    final String productRef =
+        (product.remoteId != null && product.remoteId!.isNotEmpty)
+        ? product.remoteId!
+        : product.id.toString();
+    final String url = "https://uzaapp.com/product/$productRef";
+    final String condition = product.condition == 'new'
+        ? '🆕 État : Neuf'
+        : '✅ État : Occasion';
+    final String priceText = product.price != null && product.price! > 0
+        ? '💰 Prix : ${product.price!.toStringAsFixed(0)} \$'
+        : '💬 Prix : sur demande';
+    final String descLine =
+        (product.description != null && product.description!.isNotEmpty)
+        ? '📝 ${product.description!.length > 120 ? '${product.description!.substring(0, 120)}...' : product.description}\n'
+        : '';
+    final String shopLine = actualShop != null
+        ? '🏦 Boutique : ${actualShop.name}\n'
+        : '';
 
     final String text =
-        "*${product.name}*\n"
-        "${product.price != null && product.price! > 0 ? 'Prix: ${product.price} \$\n' : 'Prix sur demande\n'}"
-        "\n"
-        "Voir le produit: $url\n"
-        "\n"
-        "Envoyé depuis UzaApp";
+        '✨ *${product.name.toUpperCase()}* ✨\n\n'
+        '$descLine'
+        '$condition\n'
+        '$priceText\n'
+        '$shopLine'
+        '\n'
+        '👉 Voir le produit sur UzaApp :\n$url\n\n'
+        '📦 Des milliers de produits disponibles près de chez vous !\n'
+        '📲 Téléchargez UzaApp — Le marché en ligne N°1 en RDC\n\n'
+        '#UzaApp #Shopping #RDC #Kinshasa';
+
+    // Try to share with product image (works on mobile & web)
+    final images = ImageUtils.getDecryptedList(product.imageUrls);
+    if (images.isNotEmpty && images.first.isNotEmpty) {
+      try {
+        final response = await http.get(Uri.parse(images.first));
+        if (response.statusCode == 200) {
+          final xfile = await _buildXFile(
+            response.bodyBytes,
+            'product_share_${product.id}.jpg',
+          );
+          await Share.shareXFiles(
+            [xfile.$1],
+            text: text,
+            subject: '✨ ${product.name} | UzaApp',
+          );
+          await xfile.$2?.delete();
+          await _logInteraction('product', product.id, 'share');
+          return;
+        }
+      } catch (e) {
+        debugPrint('Product image share failed, using text fallback: $e');
+      }
+    }
 
     await _shareText(text);
     await _logInteraction('product', product.id, 'share');
+  }
+
+  /// Returns (XFile, File?) — File is non-null on mobile so caller can delete it.
+  Future<(XFile, File?)> _buildXFile(List<int> bytes, String filename) async {
+    if (kIsWeb) {
+      // Web: in-memory XFile (no temp file needed)
+      final xfile = XFile.fromData(
+        Uint8List.fromList(bytes),
+        mimeType: 'image/jpeg',
+        name: filename,
+      );
+      return (xfile, null);
+    } else {
+      // Mobile / Desktop: write to temp file
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/$filename');
+      await tempFile.writeAsBytes(bytes);
+      return (XFile(tempFile.path), tempFile);
+    }
   }
 
   Future<void> _shareText(String text) async {

@@ -144,16 +144,10 @@ try {
     $isSyncMode = $updatedSince || $createdAfter;
 
     if ($isSyncMode) {
-        $query = "SELECT s.*, sh.name AS shop_name FROM stories s LEFT JOIN shops sh ON s.shop_id = sh.id";
+        // For sync mode, ALWAYS return non-expired stories (ignore updated_since filter)
+        // Stories have short lifespans, so we need all active ones for proper sync
+        $query = "SELECT s.*, sh.name AS shop_name FROM stories s LEFT JOIN shops sh ON s.shop_id = sh.id WHERE s.expires_at > NOW() ORDER BY s.created_at DESC";
         $params = [];
-        if ($updatedSince) {
-            $query .= " WHERE s.created_at > ?";
-            $params[] = $updatedSince;
-        } elseif ($createdAfter) {
-            $query .= " WHERE s.created_at > ?";
-            $params[] = $createdAfter;
-        }
-        $query .= " ORDER BY s.created_at DESC";
         $stmt = $db->prepare($query);
         $stmt->execute($params);
         $stories = $stmt->fetchAll();
@@ -175,6 +169,9 @@ try {
     foreach ($stories as &$story) {
         $story['id'] = (int)$story['id'];
         $story['shop_id'] = (int)$story['shop_id'];
+        
+        // Include remote_id for sync (use id if remote_id is null)
+        $story['remote_id'] = $story['remote_id'] ?? $story['id'];
 
         // Attach story_media items if requested
         if ($includeMedia) {

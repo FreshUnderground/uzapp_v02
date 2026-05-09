@@ -160,7 +160,7 @@ class VehiculeFormState extends State<VehiculeForm> {
             .map((e) => DropdownMenuItem(value: e, child: Text(e)))
             .toList(),
         onChanged: onChanged,
-        validator: (v) => v == null || v.isEmpty ? 'Requis' : null,
+        // Optional field - no validator
       ),
     );
   }

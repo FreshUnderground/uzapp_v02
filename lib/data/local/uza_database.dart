@@ -200,6 +200,22 @@ class ProductReviews extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+class ProductLikes extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get productId => integer().references(Products, #id)();
+  TextColumn get userPhone => text()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+  IntColumn get synced => integer().withDefault(const Constant(0))();
+}
+
+class ShopFollows extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get shopId => integer().references(Shops, #id)();
+  TextColumn get userPhone => text()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+  IntColumn get synced => integer().withDefault(const Constant(0))();
+}
+
 class AppPreferences extends Table {
   IntColumn get id => integer().withDefault(const Constant(1))();
   BoolColumn get isDarkMode => boolean().withDefault(const Constant(false))();
@@ -234,13 +250,15 @@ class AppPreferences extends Table {
     FollowedShops,
     ProductReviews,
     StoryMedia,
+    ProductLikes,
+    ShopFollows,
   ],
 )
 class UzaDatabase extends _$UzaDatabase {
   UzaDatabase() : super(ensureConnection());
 
   @override
-  int get schemaVersion => 23;
+  int get schemaVersion => 24;
 
   @override
   MigrationStrategy get migration {
@@ -353,6 +371,10 @@ class UzaDatabase extends _$UzaDatabase {
         }
         if (from < 23) {
           await m.addColumn(userProfiles, userProfiles.passwordHash);
+        }
+        if (from < 24) {
+          await m.createTable(productLikes);
+          await m.createTable(shopFollows);
         }
       },
     );

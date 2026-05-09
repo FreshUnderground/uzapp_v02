@@ -154,7 +154,10 @@ class _ShopVerificationScreenState extends State<ShopVerificationScreen>
       // Queue for server sync
       final syncService = context.read<SyncService>();
       await syncService.addToQueue('UPDATE', 'shops', {
-        'id': widget.shop.id,
+        'local_id': widget.shop.id,
+        'id': (widget.shop.remoteId != null && widget.shop.remoteId!.isNotEmpty)
+            ? (int.tryParse(widget.shop.remoteId!) ?? widget.shop.id)
+            : widget.shop.id,
         'isVerified': true,
       });
       syncService.forcePush();

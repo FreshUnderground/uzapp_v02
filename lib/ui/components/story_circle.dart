@@ -56,21 +56,57 @@ class StoryCircle extends StatelessWidget {
                   color: Colors.white,
                   shape: BoxShape.circle,
                 ),
-                child: CircleAvatar(
-                  radius: 30,
-                  backgroundColor: Colors.grey[200],
-                  backgroundImage: story.mediaUrl.isNotEmpty
-                      ? CachedNetworkImageProvider(
-                          CryptoUtils.decrypt(story.mediaUrl),
-                        )
-                      : null,
-                  child: story.mediaUrl.isEmpty
-                      ? Icon(
-                          isVideo ? Icons.play_circle_outline : Icons.image,
-                          color: Colors.grey[400],
-                          size: 30,
-                        )
-                      : null,
+                child: ClipOval(
+                  child: SizedBox(
+                    width: 60,
+                    height: 60,
+                    child: story.mediaUrl.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: CryptoUtils.decrypt(story.mediaUrl),
+                            fit: BoxFit.cover,
+                            width: 60,
+                            height: 60,
+                            placeholder: (_, __) => Container(
+                              color: Colors.grey[200],
+                              child: Center(
+                                child: Icon(
+                                  isVideo
+                                      ? Icons.play_circle_outline
+                                      : Icons.image,
+                                  color: Colors.grey[400],
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                            errorWidget: (_, url, error) {
+                              debugPrint(
+                                'StoryCircle: image error for $url — $error',
+                              );
+                              return Container(
+                                color: Colors.grey[300],
+                                child: Center(
+                                  child: Icon(
+                                    Icons.broken_image_outlined,
+                                    color: Colors.grey[500],
+                                    size: 24,
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                        : Container(
+                            color: Colors.grey[200],
+                            child: Center(
+                              child: Icon(
+                                isVideo
+                                    ? Icons.play_circle_outline
+                                    : Icons.image,
+                                color: Colors.grey[400],
+                                size: 30,
+                              ),
+                            ),
+                          ),
+                  ),
                 ),
               ),
             ),

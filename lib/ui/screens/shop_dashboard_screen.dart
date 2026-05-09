@@ -7,7 +7,6 @@ import '../../data/local/uza_database.dart';
 import 'manage_products_screen.dart';
 import 'edit_shop_screen.dart';
 import '../../core/services/contact_service.dart';
-import '../../core/services/location_service.dart';
 import '../../data/services/sync_service.dart';
 import 'dart:async';
 import 'package:drift/drift.dart' as drift;
@@ -197,14 +196,29 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
         return LayoutBuilder(
           builder: (context, constraints) {
             final isDesktop = constraints.maxWidth > 800;
+            final crossAxisCount = isDesktop ? 4 : 2;
             return GridView.count(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: isDesktop ? 4 : 2,
+              crossAxisCount: crossAxisCount,
               childAspectRatio: isDesktop ? 1.8 : 1.3,
               crossAxisSpacing: 16,
               mainAxisSpacing: 16,
               children: [
+                _statCard(
+                  'Suivi',
+                  '${stats['totalFollowers'] ?? 0}',
+                  Icons.people_outlined,
+                  Colors.purple,
+                  !isDesktop,
+                ),
+                _statCard(
+                  'Likes',
+                  '${stats['totalLikes'] ?? 0}',
+                  Icons.favorite_outlined,
+                  Colors.red,
+                  !isDesktop,
+                ),
                 _statCard(
                   'Vues Boutique',
                   '${stats['view'] ?? 0}',
@@ -216,21 +230,28 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                   'Vues Produits',
                   '${stats['product_view_global'] ?? 0}',
                   Icons.visibility_outlined,
-                  Colors.purple,
+                  Colors.indigo,
                   !isDesktop,
                 ),
                 _statCard(
                   'Partages',
-                  '${stats['product_share_global'] ?? 0}',
+                  '${stats['totalShares'] ?? 0}',
                   Icons.share_outlined,
                   Colors.orange,
                   !isDesktop,
                 ),
                 _statCard(
                   'Contacts Client',
-                  '${(stats['contact_whatsapp'] ?? 0) + (stats['contact_call'] ?? 0)}',
+                  '${stats['totalContacts'] ?? 0}',
                   Icons.chat_outlined,
                   Colors.green,
+                  !isDesktop,
+                ),
+                _statCard(
+                  'Clients Uniques',
+                  '${stats['uniqueClients'] ?? 0}',
+                  Icons.person_outlined,
+                  Colors.deepPurple,
                   !isDesktop,
                 ),
               ],
@@ -593,7 +614,12 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
 
   Widget _buildLocationButton(BuildContext context, Shop shop) {
     return InkWell(
-      onTap: () => _showLocationOptions(context, shop),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => EditShopScreen(shop: shop)),
+        );
+      },
       borderRadius: BorderRadius.circular(12),
       child: Container(
         width: double.infinity,
@@ -616,7 +642,11 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                 color: Colors.teal.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.navigation, color: Colors.teal, size: 28),
+              child: const Icon(
+                Icons.edit_location,
+                color: Colors.teal,
+                size: 28,
+              ),
             ),
             const SizedBox(width: 20),
             const Expanded(
@@ -624,7 +654,7 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Obtenir l\'itineraire',
+                    'Modifier ma localisation',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
@@ -632,7 +662,7 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                     ),
                   ),
                   Text(
-                    'Ouvrir dans Google Maps',
+                    'Mettre a jour la position de la boutique',
                     style: TextStyle(fontSize: 13, color: Colors.grey),
                   ),
                 ],
@@ -642,74 +672,6 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  void _showLocationOptions(BuildContext context, Shop shop) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  'Options de localisation',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.map, color: Colors.blue),
-                ),
-                title: const Text('Voir sur la carte'),
-                subtitle: const Text('Ouvrir dans Google Maps'),
-                onTap: () {
-                  Navigator.pop(context);
-                  if (shop.latitude != null && shop.longitude != null) {
-                    LocationService.openInMaps(
-                      latitude: shop.latitude!,
-                      longitude: shop.longitude!,
-                      label: shop.name,
-                    );
-                  }
-                },
-              ),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.directions, color: Colors.green),
-                ),
-                title: const Text('Obtenir l\'itineraire'),
-                subtitle: const Text('Guidage pas à pas'),
-                onTap: () {
-                  Navigator.pop(context);
-                  if (shop.latitude != null && shop.longitude != null) {
-                    LocationService.getDirections(
-                      latitude: shop.latitude!,
-                      longitude: shop.longitude!,
-                      destinationName: shop.name,
-                    );
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        );
-      },
     );
   }
 }

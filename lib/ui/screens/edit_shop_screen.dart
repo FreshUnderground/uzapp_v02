@@ -216,7 +216,13 @@ class _EditShopScreenState extends State<EditShopScreen> {
         try {
           final syncService = context.read<SyncService>();
           await syncService.addToQueue('UPDATE', 'shops', {
-            'id': widget.shop.id,
+            'local_id':
+                widget.shop.id, // kept for local remoteId mapping after push
+            'id':
+                (widget.shop.remoteId != null &&
+                    widget.shop.remoteId!.isNotEmpty)
+                ? (int.tryParse(widget.shop.remoteId!) ?? widget.shop.id)
+                : widget.shop.id,
             'name': _nameController.text,
             'description': _descController.text,
             'address': _addressController.text,

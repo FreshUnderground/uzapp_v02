@@ -93,8 +93,8 @@ void main() async {
             create: (context) => AuthService(context.read<AuthRepository>()),
             update: (context, repo, current) => current ?? AuthService(repo),
           ),
-          ProxyProvider<UzaDatabase, ShopRepository>(
-            update: (_, db, __) => ShopRepository(db),
+          ProxyProvider2<UzaDatabase, SyncService, ShopRepository>(
+            update: (_, db, sync, __) => ShopRepository(db, syncService: sync),
           ),
           ProxyProvider2<UzaDatabase, SyncService, ProductRepository>(
             update: (_, db, sync, __) =>
@@ -296,7 +296,10 @@ class _UzaAppState extends State<UzaApp> {
         // Eager initial sync
         syncService
             .checkFirstSync(); // Initialise isFirstSync flag from local DB
-        syncService.syncNow();
+        // Repair shops that were created before the remoteId mapping fix
+        syncService.repairShopsWithoutRemoteId().then(
+          (_) => syncService.syncNow(),
+        );
       } catch (e, stack) {
         debugPrint('Error initializing sync: $e');
         debugPrint('Stack trace: $stack');

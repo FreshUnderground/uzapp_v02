@@ -102,6 +102,13 @@ try {
             ['name' => 'Fast Food', 'sort' => 2],
             ['name' => 'Livraison', 'sort' => 3],
         ],
+        'Style' => [
+            ['name' => 'Homme', 'sort' => 1],
+            ['name' => 'Femme', 'sort' => 2],
+            ['name' => 'Enfant', 'sort' => 3],
+            ['name' => 'Chaussures', 'sort' => 4],
+            ['name' => 'Accessoires Mode', 'sort' => 5],
+        ],
     ];
 
     $subIds = [];
@@ -135,6 +142,22 @@ try {
         ],
         'En Vente' => [
             'Voitures', 'Motos', 'Camions', 'Bus & Minibus',
+        ],
+        'Homme' => [
+            'Chemises', 'Pantalons', 'T-Shirts', 'Vestes',
+            'Costumes', 'Jeans', 'Shorts', 'Polos',
+        ],
+        'Femme' => [
+            'Robes', 'Jupes', 'Blouses', 'Pantalons',
+            'Racs', 'Tuniques', 'Jeans', 'Vestes',
+        ],
+        'Chaussures' => [
+            'Sneakers', 'Chaussures Homme', 'Chaussures Femme',
+            'Sandales', 'Bottes', 'Escarpins', 'Mocassins',
+        ],
+        'Accessoires Mode' => [
+            'Sacs & Bagages', 'Montres', 'Bijoux',
+            'Lunettes', 'Ceintures', 'Chapeaux & Casquettes',
         ],
     ];
 

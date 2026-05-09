@@ -133,7 +133,7 @@ class RestaurantFormState extends State<RestaurantForm> {
             .map((e) => DropdownMenuItem(value: e, child: Text(e)))
             .toList(),
         onChanged: onChanged,
-        validator: (v) => v == null || v.isEmpty ? 'Requis' : null,
+        // Optional field - no validator
       ),
     );
   }
@@ -159,8 +159,8 @@ class RestaurantFormState extends State<RestaurantForm> {
           ),
           _buildTextField(
             _prepTimeController,
-            'Temps de preparation *',
-            validator: (v) => v == null || v.trim().isEmpty ? 'Requis' : null,
+            'Temps de preparation',
+            // Optional field - no validator
           ),
           SwitchListTile(
             title: const Text('Livraison disponible'),

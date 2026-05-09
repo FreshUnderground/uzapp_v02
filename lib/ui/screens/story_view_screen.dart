@@ -546,9 +546,12 @@ class _StoryViewScreenState extends State<StoryViewScreen>
         CircleAvatar(
           radius: 18,
           backgroundColor: Colors.white24,
-          backgroundImage: shop?.logoUrl != null && shop!.logoUrl!.isNotEmpty
-              ? CachedNetworkImageProvider(shop.logoUrl!)
-              : null,
+          backgroundImage: () {
+            if (shop?.logoUrl == null || shop!.logoUrl!.isEmpty) return null;
+            final decrypted = CryptoUtils.decrypt(shop.logoUrl!);
+            if (decrypted.isEmpty || (!decrypted.startsWith('http://') && !decrypted.startsWith('https://'))) return null;
+            return CachedNetworkImageProvider(decrypted) as ImageProvider;
+          }(),
           child: shop?.logoUrl == null || shop!.logoUrl!.isEmpty
               ? const Icon(Icons.person, color: Colors.white)
               : null,

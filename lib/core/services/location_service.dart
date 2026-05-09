@@ -50,10 +50,10 @@ class LocationService {
     required double longitude,
     String? label,
   }) async {
-    final uri = Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude'
-      '${label != null ? '&query_place_id=$label' : ''}',
-    );
+    final uri = Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': '$latitude,$longitude',
+    });
 
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -68,10 +68,10 @@ class LocationService {
     required double longitude,
     String? destinationName,
   }) async {
-    final uri = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude'
-      '${destinationName != null ? '&destination_place_id=$destinationName' : ''}',
-    );
+    final uri = Uri.https('www.google.com', '/maps/dir/', {
+      'api': '1',
+      'destination': '$latitude,$longitude',
+    });
 
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

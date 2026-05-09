@@ -280,9 +280,7 @@ class SyncManager extends ChangeNotifier {
 
     // Shops
     try {
-      remoteShops = await apiService
-          .fetchShops(updatedSince: lastSyncTime)
-          .timeout(_requestTimeout);
+      remoteShops = await apiService.fetchShops().timeout(_requestTimeout);
     } catch (e) {
       debugPrint('SyncManager: failed to pull shops: $e');
     }
@@ -366,10 +364,14 @@ class SyncManager extends ChangeNotifier {
         final String sanitizedName = rawName.trim().isEmpty
             ? 'Boutique'
             : rawName;
+        final int? existingLocalId = shopIdMap[rId];
 
         batch.insert(
           db.shops,
           ShopsCompanion.insert(
+            id: existingLocalId != null
+                ? Value(existingLocalId)
+                : const Value.absent(),
             remoteId: Value(rId),
             name: sanitizedName,
             description: Value(s['description'] as String?),
@@ -388,10 +390,19 @@ class SyncManager extends ChangeNotifier {
             facebookUrl: Value(s['facebook_url'] as String?),
             youtubeUrl: Value(s['youtube_url'] as String?),
             bannerUrl: Value(s['banner_url'] as String?),
-            boostStatus: Value(s['boost_status'] as int? ?? 0),
-            bannerStatus: Value(s['banner_status'] as int? ?? 0),
+            boostStatus: Value(_toInt(s['boost_status']) ?? 0),
+            bannerStatus: Value(_toInt(s['banner_status']) ?? 0),
             bannerText: Value(s['banner_text'] as String?),
             videoUrl: Value(s['video_url'] as String?),
+            isBoosted: Value(_toBool(s['is_boosted'])),
+            isVerified: Value(_toBool(s['is_verified'])),
+            verifiedAt: Value(
+              DateTime.tryParse(s['verified_at']?.toString() ?? ''),
+            ),
+            city: Value(s['city'] as String?),
+            commune: Value(s['commune'] as String?),
+            latitude: Value(_toDouble(s['latitude'])),
+            longitude: Value(_toDouble(s['longitude'])),
           ),
           mode: InsertMode.insertOrReplace,
         );
@@ -580,6 +591,27 @@ class SyncManager extends ChangeNotifier {
     if (value is String) return int.tryParse(value);
     if (value is double) return value.toInt();
     return null;
+  }
+
+  static double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  static bool _toBool(dynamic value) {
+    if (value == null) return false;
+    if (value is bool) return value;
+    if (value is int) return value == 1;
+    if (value is num) return value != 0;
+    if (value is String) {
+      final normalized = value.toLowerCase().trim();
+      return normalized == '1' || normalized == 'true' || normalized == 'yes';
+    }
+    return false;
   }
 
   @override

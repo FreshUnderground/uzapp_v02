@@ -32,13 +32,14 @@ class AnalyticsTab extends StatelessWidget {
             ),
             const SizedBox(height: 32),
 
-            // Interaction Summary
+            // Engagement Summary Cards (top row)
             _buildSectionTitle('Engagement Total'),
             const SizedBox(height: 16),
-            _buildInteractionSummary(stats),
-
+            _buildEngagementSummary(stats),
             const SizedBox(height: 32),
-            _buildSectionTitle('Détails des Contacts'),
+
+            // Detailed Metrics
+            _buildSectionTitle('Détails des Statistiques'),
             const SizedBox(height: 16),
             _buildDetailedStats(stats),
           ],
@@ -54,29 +55,43 @@ class AnalyticsTab extends StatelessWidget {
     );
   }
 
-  Widget _buildInteractionSummary(Map<String, int> stats) {
-    final totalViews =
-        (stats['view'] ?? 0) + (stats['product_view_global'] ?? 0);
-    final totalContacts =
-        (stats['contact_whatsapp'] ?? 0) +
-        (stats['contact_call'] ?? 0) +
-        (stats['contact_sms'] ?? 0);
-
-    return Row(
+  Widget _buildEngagementSummary(Map<String, int> stats) {
+    return Wrap(
+      spacing: 16,
+      runSpacing: 16,
       children: [
-        Expanded(
+        SizedBox(
+          width: 160,
+          child: _summaryCard(
+            'Suivi',
+            '${stats['totalFollowers'] ?? 0}',
+            Icons.people,
+            Colors.purple,
+          ),
+        ),
+        SizedBox(
+          width: 160,
+          child: _summaryCard(
+            'Likes',
+            '${stats['totalLikes'] ?? 0}',
+            Icons.favorite,
+            Colors.red,
+          ),
+        ),
+        SizedBox(
+          width: 160,
           child: _summaryCard(
             'Total Vues',
-            '$totalViews',
+            '${stats['totalViews'] ?? 0}',
             Icons.remove_red_eye,
             Colors.blue,
           ),
         ),
-        const SizedBox(width: 16),
-        Expanded(
+        SizedBox(
+          width: 160,
           child: _summaryCard(
             'Total Contacts',
-            '$totalContacts',
+            '${stats['totalContacts'] ?? 0}',
             Icons.message,
             Colors.green,
           ),
@@ -111,6 +126,28 @@ class AnalyticsTab extends StatelessWidget {
   Widget _buildDetailedStats(Map<String, int> stats) {
     return Column(
       children: [
+        // Engagement section
+        _detailedRow(
+          'Suivi (Followers)',
+          stats['totalFollowers'] ?? 0,
+          Icons.people,
+          Colors.purple,
+        ),
+        _detailedRow(
+          'Likes (Produits)',
+          stats['totalLikes'] ?? 0,
+          Icons.favorite,
+          Colors.red,
+        ),
+        _detailedRow(
+          'Partages',
+          stats['totalShares'] ?? 0,
+          Icons.share,
+          Colors.orange,
+        ),
+        const Divider(height: 32),
+
+        // Views section
         _detailedRow(
           'Vues Boutique',
           stats['view'] ?? 0,
@@ -121,14 +158,11 @@ class AnalyticsTab extends StatelessWidget {
           'Vues Produits (Global)',
           stats['product_view_global'] ?? 0,
           Icons.visibility,
-          Colors.purple,
+          Colors.indigo,
         ),
-        _detailedRow(
-          'Partages Produits (Global)',
-          stats['product_share_global'] ?? 0,
-          Icons.share,
-          Colors.orange,
-        ),
+        const Divider(height: 32),
+
+        // Contacts section
         _detailedRow(
           'Contacts WhatsApp',
           stats['contact_whatsapp'] ?? 0,
@@ -146,6 +180,15 @@ class AnalyticsTab extends StatelessWidget {
           stats['contact_sms'] ?? 0,
           Icons.sms,
           Colors.teal,
+        ),
+        const Divider(height: 32),
+
+        // Client section
+        _detailedRow(
+          'Clients Uniques',
+          stats['uniqueClients'] ?? 0,
+          Icons.person,
+          Colors.deepPurple,
         ),
       ],
     );

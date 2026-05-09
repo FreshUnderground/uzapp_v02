@@ -2,11 +2,13 @@ import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
 import 'location_data.dart';
 import 'paginated_result.dart';
+import '../services/sync_service.dart';
 
 class ShopRepository {
   final UzaDatabase db;
+  final SyncService? syncService;
 
-  ShopRepository(this.db);
+  ShopRepository(this.db, {this.syncService});
 
   Stream<List<Shop>> watchAllShops() {
     return db.select(db.shops).watch();
@@ -42,16 +44,31 @@ class ShopRepository {
   }
 
   Stream<Shop?> watchUserShop(String userId) {
-    return (db.select(
-      db.shops,
-    )..where((t) => t.ownerId.equals(userId))).watchSingleOrNull();
+    if (userId.isEmpty) return Stream.value(null);
+    return watchAllShops().map((shops) {
+      for (final shop in shops) {
+        if (_shopBelongsToUser(shop, userId)) return shop;
+      }
+      return null;
+    });
+  }
+
+  Future<Shop?> getUserShop(String userId) async {
+    if (userId.isEmpty) return null;
+    final shops = await db.select(db.shops).get();
+    for (final shop in shops) {
+      if (_shopBelongsToUser(shop, userId)) return shop;
+    }
+    return null;
   }
 
   /// Watch all shops owned by a given user (by ownerId / phone number).
   Stream<List<Shop>> watchUserShops(String userId) {
-    return (db.select(
-      db.shops,
-    )..where((t) => t.ownerId.equals(userId))).watch();
+    if (userId.isEmpty) return Stream.value(const []);
+    return watchAllShops().map(
+      (shops) =>
+          shops.where((shop) => _shopBelongsToUser(shop, userId)).toList(),
+    );
   }
 
   /// Ensure that local shops owned by [userId] (phone number) are
@@ -71,22 +88,21 @@ class ShopRepository {
     )..where((t) => t.ownerId.equals(userId))).get();
     if (directMatch.isNotEmpty) return; // Already linked
 
-    // 2. Match by shop's phone field (owner might have used the same
-    //    number for both the shop contact and their login).
-    final phoneMatch = await (db.select(
-      db.shops,
-    )..where((t) => t.phone.equals(userId) | t.whatsapp.equals(userId))).get();
-    for (final shop in phoneMatch) {
-      if (shop.ownerId == null || shop.ownerId!.isEmpty) {
+    // 2. Match by shop contact fields (owner might have used the same
+    //    number for both the shop contact and their login), including
+    //    common DRC phone-number format differences.
+    final variations = _phoneVariations(userId);
+    final allShops = await db.select(db.shops).get();
+    for (final shop in allShops) {
+      if (!_shopBelongsToUser(shop, userId)) continue;
+      if (shop.ownerId != userId) {
         await (db.update(db.shops)..where((t) => t.id.equals(shop.id))).write(
           ShopsCompanion(ownerId: Value(userId)),
         );
       }
     }
 
-    // 3. Handle common DRC phone-number format differences.
-    //    e.g. "0823456789" vs "+243823456789" vs "243823456789"
-    final variations = _phoneVariations(userId);
+    // 3. Handle ownerId-only variations missed above.
     for (final variant in variations) {
       if (variant == userId) continue;
       final variantMatch = await (db.select(
@@ -101,24 +117,46 @@ class ShopRepository {
     }
   }
 
+  bool _shopBelongsToUser(Shop shop, String userId) {
+    final variations = _phoneVariations(userId);
+    return _matchesAnyPhone(shop.ownerId, variations) ||
+        _matchesAnyPhone(shop.phone, variations) ||
+        _matchesAnyPhone(shop.whatsapp, variations);
+  }
+
+  bool _matchesAnyPhone(String? value, List<String> variations) {
+    if (value == null || value.trim().isEmpty) return false;
+    final valueVariations = _phoneVariations(value);
+    return valueVariations.any(variations.contains);
+  }
+
   /// Generate common phone-number format variations for DRC numbers.
   /// e.g. "+243823456789" → ["0823456789", "243823456789", "+243823456789"]
   List<String> _phoneVariations(String phone) {
-    final variations = <String>[phone];
     final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final variations = <String>{phone.trim(), digits};
 
     if (digits.startsWith('243') && digits.length >= 12) {
-      // +243823456789 → 0823456789
-      variations.add('0${digits.substring(3)}');
+      // +243823456789 → 823456789 and 0823456789
+      final local = digits.substring(3);
+      variations.add(local);
+      variations.add('0$local');
       variations.add(digits);
+      variations.add('+$digits');
     } else if (digits.startsWith('0') && digits.length >= 10) {
-      // 0823456789 → +243823456789 and 243823456789
+      // 0823456789 → 823456789, +243823456789 and 243823456789
       final withoutLeading0 = digits.substring(1);
+      variations.add(withoutLeading0);
       variations.add('243$withoutLeading0');
       variations.add('+243$withoutLeading0');
+    } else if (digits.length == 9) {
+      variations.add('0$digits');
+      variations.add('243$digits');
+      variations.add('+243$digits');
     }
 
-    return variations.toSet().toList();
+    variations.removeWhere((value) => value.isEmpty);
+    return variations.toList();
   }
 
   Future<int> addShop(ShopsCompanion shop) {
@@ -188,19 +226,34 @@ class ShopRepository {
           )..where((t) => t.entityId.isIn(entityIds))).get()
         : <Analytic>[];
 
-    int totalViews = 0;
+    int shopViews = 0;
+    int productViews = 0;
     int totalContacts = 0;
     int totalShares = 0;
+    int whatsappContacts = 0;
+    int callContacts = 0;
+    int smsContacts = 0;
 
     for (final a in allAnalytics) {
       switch (a.interactionType) {
         case 'view':
-          totalViews++;
+          if (a.entityType == 'shop') {
+            shopViews++;
+          } else {
+            productViews++;
+          }
           break;
         case 'whatsapp':
+          totalContacts++;
+          whatsappContacts++;
+          break;
         case 'call':
+          totalContacts++;
+          callContacts++;
+          break;
         case 'sms':
           totalContacts++;
+          smsContacts++;
           break;
         case 'share':
           totalShares++;
@@ -210,14 +263,46 @@ class ShopRepository {
 
     // Also add global synced product views/shares from Products table
     for (final p in products) {
-      totalViews += p.viewsCount;
+      productViews += p.viewsCount;
       totalShares += p.sharesCount;
     }
 
-    // Followers count
+    // Followers count from ShopFollows table (user-tracked)
     final followersCount = await (db.select(
+      db.shopFollows,
+    )..where((t) => t.shopId.equals(shopId))).get().then((rows) => rows.length);
+
+    // Also count from legacy FollowedShops table
+    final legacyFollowersCount = await (db.select(
       db.followedShops,
     )..where((t) => t.shopId.equals(shopId))).get().then((rows) => rows.length);
+
+    final totalFollowers = followersCount + legacyFollowersCount;
+
+    // Likes count across all products of this shop
+    int totalLikes = 0;
+    if (productIds.isNotEmpty) {
+      final likeCountExpr = db.productLikes.id.count();
+      final likeResult =
+          await (db.selectOnly(db.productLikes)
+                ..addColumns([likeCountExpr])
+                ..where(db.productLikes.productId.isIn(productIds)))
+              .getSingle();
+      totalLikes = likeResult.read(likeCountExpr) ?? 0;
+    }
+
+    // Unique clients (unique phone numbers from contacts)
+    final uniqueClients =
+        await (db.selectOnly(db.userContacts)
+              ..addColumns([db.userContacts.userPhone.count()])
+              ..where(db.userContacts.shopId.equals(shopId)))
+            .get()
+            .then(
+              (rows) => rows
+                  .map((r) => r.read(db.userContacts.userPhone))
+                  .toSet()
+                  .length,
+            );
 
     // Active stories count
     final now = DateTime.now();
@@ -229,10 +314,21 @@ class ShopRepository {
             .length;
 
     return {
-      'totalViews': totalViews,
+      // Views
+      'view': shopViews,
+      'product_view_global': productViews,
+      'totalViews': shopViews + productViews,
+      // Contacts
+      'contact_whatsapp': whatsappContacts,
+      'contact_call': callContacts,
+      'contact_sms': smsContacts,
       'totalContacts': totalContacts,
+      // Engagement
+      'totalFollowers': totalFollowers,
+      'totalLikes': totalLikes,
       'totalShares': totalShares,
-      'totalFollowers': followersCount,
+      'uniqueClients': uniqueClients,
+      // Meta
       'productsCount': products.length,
       'storiesCount': storiesCount,
     };
@@ -365,24 +461,68 @@ class ShopRepository {
     }).toList();
   }
 
-  // Shop Following Methods
-  Future<void> toggleFollowShop(int shopId) async {
-    final entry = await (db.select(
-      db.followedShops,
-    )..where((t) => t.shopId.equals(shopId))).getSingleOrNull();
+  // Shop Following Methods (using ShopFollows table with user tracking)
+  Future<void> toggleFollowShop(int shopId, {String? userPhone}) async {
+    final phone = userPhone ?? '';
+    if (phone.isNotEmpty) {
+      // New path: use ShopFollows table with user tracking
+      final existing =
+          await (db.select(db.shopFollows)..where(
+                (t) => t.shopId.equals(shopId) & t.userPhone.equals(phone),
+              ))
+              .getSingleOrNull();
 
-    if (entry != null) {
-      await (db.delete(
-        db.followedShops,
-      )..where((t) => t.id.equals(entry.id))).go();
+      if (existing != null) {
+        await (db.delete(
+          db.shopFollows,
+        )..where((t) => t.id.equals(existing.id))).go();
+        if (syncService != null) {
+          await syncService!.addToQueue('DELETE', 'shop_follows', {
+            'shop_id': shopId,
+            'user_phone': phone,
+          });
+        }
+      } else {
+        await db
+            .into(db.shopFollows)
+            .insert(
+              ShopFollowsCompanion.insert(shopId: shopId, userPhone: phone),
+            );
+        if (syncService != null) {
+          await syncService!.addToQueue('CREATE', 'shop_follows', {
+            'shop_id': shopId,
+            'user_phone': phone,
+          });
+        }
+      }
     } else {
-      await db
-          .into(db.followedShops)
-          .insert(FollowedShopsCompanion.insert(shopId: shopId));
+      // Legacy path: use FollowedShops table (no user tracking)
+      final entry = await (db.select(
+        db.followedShops,
+      )..where((t) => t.shopId.equals(shopId))).getSingleOrNull();
+
+      if (entry != null) {
+        await (db.delete(
+          db.followedShops,
+        )..where((t) => t.id.equals(entry.id))).go();
+      } else {
+        await db
+            .into(db.followedShops)
+            .insert(FollowedShopsCompanion.insert(shopId: shopId));
+      }
     }
   }
 
-  Stream<bool> watchIsFollowingShop(int shopId) {
+  Stream<bool> watchIsFollowingShop(int shopId, {String? userPhone}) {
+    final phone = userPhone ?? '';
+    if (phone.isNotEmpty) {
+      // New path: check ShopFollows table
+      return (db.select(db.shopFollows)
+            ..where((t) => t.shopId.equals(shopId) & t.userPhone.equals(phone)))
+          .watch()
+          .map((list) => list.isNotEmpty);
+    }
+    // Legacy path: check FollowedShops table
     return (db.select(db.followedShops)..where((t) => t.shopId.equals(shopId)))
         .watch()
         .map((list) => list.isNotEmpty);
@@ -398,6 +538,38 @@ class ShopRepository {
     return query.watch().map(
       (rows) => rows.map((row) => row.readTable(db.shops)).toList(),
     );
+  }
+
+  /// Get the follower count for a shop (from both ShopFollows and FollowedShops)
+  Future<int> getFollowerCount(int shopId) async {
+    final shopFollowsCount = await (db.select(
+      db.shopFollows,
+    )..where((t) => t.shopId.equals(shopId))).get().then((rows) => rows.length);
+    final legacyFollowsCount = await (db.select(
+      db.followedShops,
+    )..where((t) => t.shopId.equals(shopId))).get().then((rows) => rows.length);
+    return shopFollowsCount + legacyFollowsCount;
+  }
+
+  /// Watch follower count for a shop (reactive).
+  Stream<int> watchFollowerCount(int shopId) {
+    return (db.select(db.shopFollows)..where((t) => t.shopId.equals(shopId)))
+        .watch()
+        .map((rows) => rows.length);
+  }
+
+  /// Get unsynced shop follows for batch sync.
+  Future<List<ShopFollow>> getUnsyncedFollows() {
+    return (db.select(db.shopFollows)..where((t) => t.synced.equals(0))).get();
+  }
+
+  /// Mark follows as synced by their IDs.
+  Future<void> markFollowsSynced(List<int> followIds) async {
+    for (final id in followIds) {
+      await (db.update(db.shopFollows)..where((t) => t.id.equals(id))).write(
+        const ShopFollowsCompanion(synced: Value(1)),
+      );
+    }
   }
 
   /// Get shops in a specific commune

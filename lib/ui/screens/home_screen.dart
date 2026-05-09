@@ -20,6 +20,7 @@ import 'arrivages_screen.dart';
 import 'category_products_screen.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/utils/crypto_utils.dart';
+import '../../core/utils/image_utils.dart';
 import 'create_shop_screen.dart';
 import '../components/responsive_layout.dart';
 import 'create_story_screen.dart';
@@ -34,6 +35,8 @@ import '../components/tap_animator.dart';
 import '../components/custom_refresh_indicator.dart';
 import '../utils/page_transitions.dart';
 import '../../core/l10n/tr.dart';
+import '../../core/l10n/app_translations.dart';
+import '../../core/services/settings_service.dart';
 
 class HomeScreen extends StatefulWidget {
   final int initialIndex;
@@ -141,8 +144,57 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
+    // Language selector dropdown
+    actions.add(_buildLanguageSelector());
+
     actions.add(const SizedBox(width: 8));
     return actions;
+  }
+
+  Widget _buildLanguageSelector() {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.language, size: 22),
+      tooltip: 'Change language',
+      itemBuilder: (context) {
+        return AppTranslations.supportedLocales.map((String code) {
+          final languageName = AppTranslations.languageNames[code] ?? code;
+          final flag = _getLanguageFlag(code);
+          final isSelected =
+              context.read<SettingsService>().currentLanguage == code;
+          return PopupMenuItem<String>(
+            value: code,
+            child: Row(
+              children: [
+                Text(flag, style: const TextStyle(fontSize: 18)),
+                const SizedBox(width: 10),
+                Text(languageName),
+                const Spacer(),
+                if (isSelected)
+                  const Icon(Icons.check, color: Colors.green, size: 20),
+              ],
+            ),
+          );
+        }).toList();
+      },
+      onSelected: (String languageCode) {
+        context.read<SettingsService>().setLanguage(languageCode);
+      },
+    );
+  }
+
+  String _getLanguageFlag(String code) {
+    switch (code) {
+      case 'fr':
+        return '🇫🇷';
+      case 'en':
+        return '🇬🇧';
+      case 'ln':
+        return '🇨🇩';
+      case 'sw':
+        return '🇰🇪';
+      default:
+        return '🌍';
+    }
   }
 
   @override
@@ -241,7 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 NavigationRailDestination(
                   icon: Icon(Icons.storefront_outlined),
                   selectedIcon: Icon(Icons.storefront),
-                  label: const Text('Boutiques'),
+                  label: Text(tr(context, 'boutiques')),
                 ),
                 NavigationRailDestination(
                   icon: Icon(Icons.person_outline),
@@ -334,8 +386,8 @@ class _HomeScreenState extends State<HomeScreen> {
     // Hide FAB when story overlay is active
     if (_overlayStories != null) return null;
 
-    // Show FAB only on Accueil (0) and Explorer (1) tabs
-    if (_selectedIndex != 0 && _selectedIndex != 1) return null;
+    // Show FAB only on Accueil (0) tab
+    if (_selectedIndex != 0) return null;
 
     final authService = context.watch<AuthService>();
     final shopRepo = context.read<ShopRepository>();
@@ -368,28 +420,7 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        // Explorer Tab (1)
-        if (!hasShop) {
-          return FloatingActionButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                SlideUpRoute(page: const CreateShopScreen()),
-              );
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(tr(context, 'create_shop_for_stories'))),
-              );
-            },
-            backgroundColor: UzaColors.secondary,
-            child: const Icon(Icons.storefront),
-          );
-        }
-
-        return FloatingActionButton(
-          onPressed: () => _showCreateBottomSheet(context, snapshot.data!),
-          backgroundColor: UzaColors.primary,
-          child: const Icon(Icons.add),
-        );
+        return const SizedBox.shrink();
       },
     );
   }
@@ -602,9 +633,44 @@ class _HomeContentState extends State<_HomeContent> {
   Future<void> _handleRefresh() async {
     try {
       final syncService = context.read<SyncService>();
+      // First ensure categories are synced
+      await syncService.ensureCategoriesSynced();
+      // Then do a full sync
       await syncService.syncNow();
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Sync completed - Categories updated'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('Error during refresh sync: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.error, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Sync failed: $e'),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -627,12 +693,12 @@ class _HomeContentState extends State<_HomeContent> {
             children: [
               const Icon(Icons.error_outline, size: 64, color: Colors.red),
               const SizedBox(height: 16),
-              const Text('Erreur de chargement'),
+              Text(tr(context, 'loading_error')),
               const SizedBox(height: 8),
               TextButton.icon(
                 onPressed: () => setState(() {}),
                 icon: const Icon(Icons.refresh),
-                label: const Text('Réessayer'),
+                label: Text(tr(context, 'retry')),
               ),
             ],
           ),
@@ -736,7 +802,10 @@ class _HomeContentState extends State<_HomeContent> {
 
                 // 3. Stories
                 SliverToBoxAdapter(
-                  child: _buildSectionHeader('Stories', topPadding: 12),
+                  child: _buildSectionHeader(
+                    tr(context, 'my_stories'),
+                    topPadding: 12,
+                  ),
                 ),
                 SliverToBoxAdapter(
                   child: SizedBox(
@@ -774,7 +843,7 @@ class _HomeContentState extends State<_HomeContent> {
                 // 4. Nouveaux Arrivages
                 SliverToBoxAdapter(
                   child: _buildSectionHeader(
-                    'Nouveaux Arrivages',
+                    tr(context, 'new_arrivals_header'),
                     onAction: () => Navigator.push(
                       context,
                       SlideUpRoute(page: const ArrivagesScreen()),
@@ -791,6 +860,19 @@ class _HomeContentState extends State<_HomeContent> {
                         'Arrivages grouped: ${grouped.length} shops, connectionState=${snapshot.connectionState}',
                       );
                       if (grouped.isEmpty) {
+                        // Show shimmer skeletons while first sync is loading
+                        if (syncService.isSyncing || syncService.isFirstSync) {
+                          return SizedBox(
+                            height: 160,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              padding: EdgeInsets.symmetric(horizontal: hPad),
+                              itemCount: 4,
+                              itemBuilder: (_, __) =>
+                                  Skeletons.arrivageCard(context),
+                            ),
+                          );
+                        }
                         return const SizedBox.shrink();
                       }
                       final shopIds = grouped.keys.toList();
@@ -830,23 +912,13 @@ class _HomeContentState extends State<_HomeContent> {
                                   child: Stack(
                                     fit: StackFit.expand,
                                     children: [
-                                      Image.network(
+                                      ImageUtils.buildCachedImage(
                                         firstStory.mediaUrl.isNotEmpty
                                             ? CryptoUtils.decrypt(
                                                 firstStory.mediaUrl,
                                               )
                                             : '',
                                         fit: BoxFit.cover,
-                                        errorBuilder:
-                                            (context, error, stackTrace) {
-                                              return Container(
-                                                color: Colors.grey[200],
-                                                child: Icon(
-                                                  Icons.image_not_supported,
-                                                  color: Colors.grey[400],
-                                                ),
-                                              );
-                                            },
                                       ),
                                       Container(
                                         decoration: BoxDecoration(
@@ -1089,43 +1161,93 @@ class _HomeContentState extends State<_HomeContent> {
           debugPrint(
             'Root categories: ${categories.length}, connectionState=${snapshot.connectionState}',
           );
-          // Show up to 5 root categories
-          final displayCategories = categories.take(5).toList();
+          // Show up to 6 root categories to include all categories
+          final displayCategories = categories.take(6).toList();
 
           if (displayCategories.isEmpty) {
-            // Fallback: show skeleton placeholders while loading
-            return Padding(
-              padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: List.generate(5, (_) {
-                  return Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[200],
-                            shape: BoxShape.circle,
+            // Check if still loading or truly empty
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              // Show skeleton placeholders while loading
+              return Padding(
+                padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: List.generate(5, (_) {
+                    return Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              shape: BoxShape.circle,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 6),
-                        Container(
-                          width: 40,
-                          height: 10,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[200],
-                            borderRadius: BorderRadius.circular(4),
+                          const SizedBox(height: 6),
+                          Container(
+                            width: 40,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+              );
+            } else {
+              // Categories are empty - show sync button
+              return Padding(
+                padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
+                child: Column(
+                  children: [
+                    Text(
+                      'No categories loaded',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
                     ),
-                  );
-                }),
-              ),
-            );
+                    SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        try {
+                          final syncService = context.read<SyncService>();
+                          await syncService.ensureCategoriesSynced();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Categories synced successfully'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Failed to sync: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      icon: Icon(Icons.sync, size: 16),
+                      label: Text('Sync Categories'),
+                      style: ElevatedButton.styleFrom(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
           }
 
           return Padding(

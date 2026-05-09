@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,6 +20,7 @@ import '../../data/repositories/shop_repository.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../data/services/sync_service.dart';
 import '../../core/services/location_service.dart';
+import 'shop_profile_screen.dart';
 
 const Map<String, List<String>> cities = {
   'Butembo': ['Butembo', 'Vulamba', 'Kimemi', 'Mususa', 'vulengera'],
@@ -162,6 +164,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
     'Vérification',
     'Détails',
     'Mot de passe',
+    'Localisation',
   ];
 
   @override
@@ -269,6 +272,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
           return false;
         }
         return true;
+      case 5:
+        // Location is optional, always valid
+        return true;
       default:
         return false;
     }
@@ -279,7 +285,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
       _shakeCurrentStep();
       return;
     }
-    if (_currentStep < 4) {
+    if (_currentStep < 5) {
       setState(() {
         _isGoingForward = true;
         _currentStep++;
@@ -292,7 +298,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         _sendOtp();
       }
     } else {
-      _submit();
+      // Step 5 is location, user will manually submit from there
     }
   }
 
@@ -325,6 +331,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         break;
       case 4:
         message = 'Veuillez créer un mot de passe (min. 6 caractères)';
+        break;
+      case 5:
+        message = 'Veuillez capturer la localisation ou passer';
         break;
       default:
         message = 'Veuillez remplir tous les champs';
@@ -486,7 +495,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
 
   // ─── Submit ──────────────────────────────────────────────────────
 
-  Future<void> _submit() async {
+  Future<void> _submitShop() async {
     _showLoadingDialog();
 
     try {
@@ -591,7 +600,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
           ? '$_selectedCity, $_selectedCommune'
           : '';
 
-      // 4. Create local shop
+      // 5. Create local shop
       final companion = ShopsCompanion.insert(
         name: _nameController.text.trim(),
         description: drift.Value(_descriptionController.text.trim()),
@@ -613,11 +622,13 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             : const drift.Value.absent(),
         city: drift.Value(_selectedCity),
         commune: drift.Value(_selectedCommune),
+        latitude: drift.Value(_latitude),
+        longitude: drift.Value(_longitude),
       );
 
       final shopId = await shopRepo.addShop(companion);
 
-      // 5. Queue user for remote sync
+      // 6. Queue user for remote sync
       await syncService.addToQueue('CREATE', 'users', {
         'remote_id': userId,
         'phone': phone,
@@ -625,8 +636,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         'is_phone_verified': _otpVerified ? 1 : 0,
       });
 
-      // 6. Queue shop for remote sync
+      // 7. Queue shop for remote sync
       await syncService.addToQueue('CREATE', 'shops', {
+        'local_id': shopId, // kept for local remoteId mapping after push
         'id': shopId,
         'name': _nameController.text.trim(),
         'description': _descriptionController.text.trim(),
@@ -644,87 +656,39 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         'verified_at': _otpVerified ? DateTime.now().toIso8601String() : null,
         'city': _selectedCity,
         'commune': _selectedCommune,
+        'latitude': _latitude,
+        'longitude': _longitude,
       });
 
-      // 7. Trigger immediate push
-      syncService.forcePush();
+      debugPrint('SHOP SYNC QUEUED: Shop ID=$shopId, Owner ID=$userId');
+      debugPrint(
+        'SHOP SYNC DATA: ${jsonEncode({'id': shopId, 'name': _nameController.text.trim(), 'type': _selectedType.name, 'owner_id': userId, 'phone': phone})}',
+      );
 
-      // 8. Ask for location capture
+      // 8. Trigger immediate push
+      await syncService.forcePush();
+
+      // 9. Get the created shop and navigate to profile
       if (!mounted) return;
       Navigator.of(context).pop(); // Close loading dialog
 
-      final captureLocation = await LocationService.showCaptureLocationDialog(
-        context,
-      );
-      if (captureLocation) {
-        LocationService.showSecurityNotice(context);
-        await Future.delayed(const Duration(milliseconds: 500));
+      final createdShop = await shopRepo.getShopById(shopId);
+      if (createdShop == null) {
+        throw Exception('Boutique créée, mais impossible de la charger.');
+      }
 
-        if (!mounted) return;
-        LocationService.showLocationLoading(context);
-
-        final location = await LocationService.getCurrentLocation();
-        if (!mounted) return;
-        Navigator.of(context).pop(); // Close loading dialog
-
-        if (location != null) {
-          final lat = location['latitude']!;
-          final lng = location['longitude']!;
-
-          // Update shop with location
-          await shopRepo.updateShop(
-            ShopsCompanion(
-              id: drift.Value(shopId),
-              latitude: drift.Value(lat),
-              longitude: drift.Value(lng),
-            ),
-          );
-
-          // Also queue for server sync
-          await syncService.addToQueue('UPDATE', 'shops', {
-            'id': shopId,
-            'latitude': lat,
-            'longitude': lng,
-          });
-
-          syncService.forcePush();
-
-          LocationService.showLocationSuccess(
-            context,
-            latitude: lat,
-            longitude: lng,
-          );
-
-          if (!mounted) return;
-          final navigator = Navigator.of(context);
-          final scaffoldMessenger = ScaffoldMessenger.of(context);
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(content: Text('Boutique créée avec succès')),
-          );
-          navigator.pop(); // Close create shop screen
-        } else {
-          // Location failed, still show success
-          if (!mounted) return;
-          final navigator = Navigator.of(context);
-          final scaffoldMessenger = ScaffoldMessenger.of(context);
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Boutique créée! Vous pourrez ajouter la localisation plus tard.',
-              ),
-            ),
-          );
-          navigator.pop(); // Close create shop screen
-        }
-      } else {
-        // User chose to skip location
-        if (!mounted) return;
+      if (mounted) {
         final navigator = Navigator.of(context);
         final scaffoldMessenger = ScaffoldMessenger.of(context);
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('Boutique créée avec succès')),
         );
-        navigator.pop(); // Close create shop screen
+        // Navigate to shop profile
+        navigator.pushReplacement(
+          MaterialPageRoute(
+            builder: (context) => ShopProfileScreen(shop: createdShop),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -733,6 +697,41 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         navigator.pop(); // Close loading dialog
         scaffoldMessenger.showSnackBar(
           SnackBar(content: Text('Erreur: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  Future<void> _captureLocation() async {
+    LocationService.showSecurityNotice(context);
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    if (!mounted) return;
+    LocationService.showLocationLoading(context);
+
+    final location = await LocationService.getCurrentLocation();
+    if (!mounted) return;
+    Navigator.of(context).pop(); // Close loading dialog
+
+    if (location != null) {
+      setState(() {
+        _latitude = location['latitude']!;
+        _longitude = location['longitude']!;
+        _locationCaptured = true;
+      });
+
+      LocationService.showLocationSuccess(
+        context,
+        latitude: _latitude!,
+        longitude: _longitude!,
+      );
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible de capturer la localisation. Réessayez.'),
+            backgroundColor: Colors.orange,
+          ),
         );
       }
     }
@@ -803,7 +802,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
               Padding(
                 padding: const EdgeInsets.only(top: 12, bottom: 4),
                 child: Text(
-                  'Étape ${_currentStep + 1} sur 5',
+                  'Étape ${_currentStep + 1} sur 6',
                   style: TextStyle(
                     color: Colors.grey[500],
                     fontSize: 13,
@@ -853,7 +852,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Text(
-                          _currentStep == 4 ? 'Publier ma boutique' : 'Suivant',
+                          _currentStep == 5 ? 'Publier ma boutique' : 'Suivant',
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -900,6 +899,8 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         return _buildStepDetails();
       case 4:
         return _buildStepPassword();
+      case 5:
+        return _buildStepLocation();
       default:
         return const SizedBox.shrink();
     }
@@ -1144,15 +1145,15 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             },
           ),
           const SizedBox(height: 24),
-          TextFormField(
-            controller: _whatsappController,
-            keyboardType: TextInputType.phone,
+          IntlPhoneField(
             decoration: InputDecoration(
-              labelText: 'WhatsApp',
-              hintText: 'Optionnel',
-              prefixIcon: const Icon(FontAwesomeIcons.whatsapp, size: 20),
+              labelText: 'Numéro WhatsApp',
+              hintText: 'XX XXX XX XX',
+              labelStyle: const TextStyle(fontSize: 16),
+              hintStyle: TextStyle(fontSize: 18, color: Colors.grey[400]),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: UzaColors.divider),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -1169,10 +1170,19 @@ class _CreateShopScreenState extends State<CreateShopScreen>
               fillColor: Colors.white,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
-                vertical: 20,
+                vertical: 22,
               ),
             ),
-            style: const TextStyle(fontSize: 18),
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
+            ),
+            initialCountryCode: 'CD',
+            disableLengthCheck: false,
+            invalidNumberMessage: 'Numéro invalide',
+            controller: _whatsappController,
+            onChanged: (phone) {},
           ),
         ],
       ),
@@ -1723,6 +1733,140 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Step 6: Location ────────────────────────────────────────────
+
+  Widget _buildStepLocation() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Localisez votre boutique',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: UzaColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Aidez vos clients à vous trouver facilement avec GPS',
+            style: TextStyle(color: Colors.grey[600], fontSize: 15),
+          ),
+          const SizedBox(height: 40),
+          Center(
+            child: Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                color: UzaColors.primary.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _locationCaptured ? Icons.check_circle : Icons.location_on,
+                size: 60,
+                color: _locationCaptured ? Colors.green : UzaColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+          if (_locationCaptured && _latitude != null && _longitude != null)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Localisation capturée avec succès',
+                          style: TextStyle(
+                            color: Colors.green[800],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Lat: ${_latitude!.toStringAsFixed(6)}, Lng: ${_longitude!.toStringAsFixed(6)}',
+                    style: TextStyle(
+                      color: Colors.green[700],
+                      fontSize: 13,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.orange[800], size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Appuyez sur le bouton ci-dessous pour capturer votre position actuelle',
+                      style: TextStyle(color: Colors.orange[800], fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: _captureLocation,
+            icon: Icon(
+              _locationCaptured ? Icons.refresh : Icons.my_location,
+              size: 20,
+            ),
+            label: Text(
+              _locationCaptured
+                  ? 'Recapturer la localisation'
+                  : 'Capturer ma position',
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: UzaColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: () {
+              // Skip location and submit
+              _submitShop();
+            },
+            child: Text(
+              'Passer cette étape (peut être fait plus tard)',
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
             ),
           ),
         ],

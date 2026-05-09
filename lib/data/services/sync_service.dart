@@ -48,6 +48,65 @@ class SyncService extends ChangeNotifier {
     }
   }
 
+  /// Queue any shops that have no remoteId for a fresh sync push.
+  /// This repairs shops created before the remoteId mapping fix was deployed.
+  Future<void> repairShopsWithoutRemoteId() async {
+    try {
+      final shops = await db.select(db.shops).get();
+      final shopsWithoutRemoteId = shops
+          .where((s) => s.remoteId == null || s.remoteId!.isEmpty)
+          .toList();
+
+      if (shopsWithoutRemoteId.isEmpty) return;
+
+      debugPrint(
+        'REPAIR: Found ${shopsWithoutRemoteId.length} shop(s) with no remoteId — re-queuing for sync',
+      );
+
+      // Check which shops are already in the sync queue to avoid duplicates
+      final queue = await db.select(db.syncQueue).get();
+      final queuedShopLocalIds = queue
+          .where((item) => item.entityType == 'shops')
+          .map((item) {
+            try {
+              final data = jsonDecode(item.entityData) as Map<String, dynamic>;
+              return data['local_id'] as int?;
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<int>()
+          .toSet();
+
+      for (final shop in shopsWithoutRemoteId) {
+        if (queuedShopLocalIds.contains(shop.id)) continue; // already queued
+        await addToQueue('CREATE', 'shops', {
+          'local_id': shop.id,
+          'id': shop.id,
+          'name': shop.name,
+          'description': shop.description,
+          'address': shop.address,
+          'logo_url': shop.logoUrl,
+          'type': shop.type.name,
+          'owner_id': shop.ownerId,
+          'phone': shop.phone,
+          'whatsapp': shop.whatsapp,
+          'facebook_url': shop.facebookUrl,
+          'instagram_url': shop.instagramUrl,
+          'tiktok_url': shop.tiktokUrl,
+          'youtube_url': shop.youtubeUrl,
+          'city': shop.city,
+          'commune': shop.commune,
+          if (shop.latitude != null) 'latitude': shop.latitude,
+          if (shop.longitude != null) 'longitude': shop.longitude,
+        });
+        debugPrint('REPAIR: Re-queued shop id=${shop.id} name=${shop.name}');
+      }
+    } catch (e) {
+      debugPrint('REPAIR shops error: $e');
+    }
+  }
+
   /// Number of pending changes in the SyncQueue.
   int _pendingChangesCount = 0;
   int get pendingChangesCount => _pendingChangesCount;
@@ -169,6 +228,12 @@ class SyncService extends ChangeNotifier {
             final serverId = responseData['id'];
             if (serverId != null && item.entityType == 'stories') {
               await _mapServerIdToLocalStory(item, serverId.toString());
+            }
+            if (serverId != null && item.entityType == 'products') {
+              await _mapServerIdToLocalProduct(item, serverId.toString());
+            }
+            if (serverId != null && item.entityType == 'shops') {
+              await _mapServerIdToLocalShop(item, serverId.toString());
             }
 
             await (db.delete(
@@ -348,6 +413,16 @@ class SyncService extends ChangeNotifier {
         for (var s in allShops) s.remoteId ?? '': s.id,
       };
 
+      // Build owner_id -> localId map for shops that have no remoteId yet,
+      // so the pull phase can update them in-place instead of creating duplicates.
+      final Map<String, int> ownerIdToLocalShopId = {
+        for (var s in allShops)
+          if (s.ownerId != null &&
+              s.ownerId!.isNotEmpty &&
+              (s.remoteId == null || s.remoteId!.isEmpty))
+            s.ownerId!: s.id,
+      };
+
       // Build a comprehensive map of remoteId -> localId from ALL existing
       // products to prevent any duplication during pull sync.
       final allProducts = await db.select(db.products).get();
@@ -452,6 +527,7 @@ class SyncService extends ChangeNotifier {
                 sharesCount: Value(p['shares_count'] as int? ?? 0),
                 ratingsCount: Value(p['ratings_count'] as int? ?? 0),
                 ratingAvg: Value((p['rating_avg'] as num? ?? 0.0).toDouble()),
+                metadata: Value(p['metadata'] as String?),
               ),
               mode: InsertMode.insertOrReplace,
             );
@@ -476,9 +552,7 @@ class SyncService extends ChangeNotifier {
       List<Map<String, dynamic>> remoteStories = [];
 
       try {
-        remoteShops = await api
-            .fetchShops(updatedSince: lastSyncTime)
-            .timeout(_requestTimeout);
+        remoteShops = await api.fetchShops().timeout(_requestTimeout);
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: shops');
       } catch (e) {
@@ -522,7 +596,8 @@ class SyncService extends ChangeNotifier {
         }
       }
 
-      if (remoteShops.isNotEmpty || remoteStories.isNotEmpty) {
+      // ── PHASE 2a: sync shops first so shopIdMap can be refreshed before stories ──
+      if (remoteShops.isNotEmpty) {
         await db.batch((batch) {
           for (var s in remoteShops) {
             // Use remote_id if available, otherwise use id as fallback
@@ -535,10 +610,18 @@ class SyncService extends ChangeNotifier {
             final String sanitizedName = rawName.trim().isEmpty
                 ? 'Boutique'
                 : rawName;
+            final int? existingLocalId =
+                shopIdMap[rId] ??
+                // Fall back to owner_id match for shops with null remoteId
+                // (prevents duplicate creation and saves correct remoteId)
+                ownerIdToLocalShopId[s['owner_id']?.toString() ?? ''];
 
             batch.insert(
               db.shops,
               ShopsCompanion.insert(
+                id: existingLocalId != null
+                    ? Value(existingLocalId)
+                    : const Value.absent(),
                 remoteId: Value(rId),
                 name: sanitizedName,
                 description: Value(s['description'] as String?),
@@ -557,15 +640,40 @@ class SyncService extends ChangeNotifier {
                 facebookUrl: Value(s['facebook_url'] as String?),
                 youtubeUrl: Value(s['youtube_url'] as String?),
                 bannerUrl: Value(s['banner_url'] as String?),
-                boostStatus: Value(s['boost_status'] as int? ?? 0),
-                bannerStatus: Value(s['banner_status'] as int? ?? 0),
+                boostStatus: Value(_toInt(s['boost_status']) ?? 0),
+                bannerStatus: Value(_toInt(s['banner_status']) ?? 0),
                 bannerText: Value(s['banner_text'] as String?),
                 videoUrl: Value(s['video_url'] as String?),
+                isBoosted: Value(_toBool(s['is_boosted'])),
+                isVerified: Value(_toBool(s['is_verified'])),
+                verifiedAt: Value(
+                  DateTime.tryParse(s['verified_at']?.toString() ?? ''),
+                ),
+                city: Value(s['city'] as String?),
+                commune: Value(s['commune'] as String?),
+                latitude: Value(_toDouble(s['latitude'])),
+                longitude: Value(_toDouble(s['longitude'])),
               ),
               mode: InsertMode.insertOrReplace,
             );
           }
+        });
+      }
 
+      // Refresh shopIdMap after shops are committed so stories can resolve shop IDs
+      // (critical for first-sync where new shops were not in the original map)
+      {
+        final freshShops = await db.select(db.shops).get();
+        for (var s in freshShops) {
+          if (s.remoteId != null && s.remoteId!.isNotEmpty) {
+            shopIdMap[s.remoteId!] = s.id;
+          }
+        }
+      }
+
+      // ── PHASE 2b: sync stories using the refreshed shopIdMap ────────────
+      if (remoteStories.isNotEmpty) {
+        await db.batch((batch) {
           for (var st in remoteStories) {
             // Use remote_id if available, otherwise use id as fallback
             final dynamic rawRemoteId = st['remote_id'];
@@ -586,6 +694,7 @@ class SyncService extends ChangeNotifier {
             final DateTime? serverUpdatedAt = DateTime.tryParse(
               st['updated_at'] as String? ?? st['created_at'] as String? ?? '',
             );
+            final serverTimestamp = serverUpdatedAt ?? serverCreatedAt;
 
             // Map server shop_id to local shop id
             // Server returns server-side shop ID, we need to find local shop by remoteId
@@ -604,11 +713,11 @@ class SyncService extends ChangeNotifier {
               final localCreatedAt = storyTimestamps[rId]!;
 
               // Skip if local version is newer
-              if (serverCreatedAt != null &&
-                  localCreatedAt.isAfter(serverCreatedAt)) {
+              if (serverTimestamp != null &&
+                  localCreatedAt.isAfter(serverTimestamp)) {
                 debugPrint(
                   'Story sync: skipping update for story $rId - local version is newer '
-                  '(local: $localCreatedAt, remote: $serverCreatedAt)',
+                  '(local: $localCreatedAt, remote: $serverTimestamp)',
                 );
                 continue;
               }
@@ -659,14 +768,25 @@ class SyncService extends ChangeNotifier {
             )..where((t) => t.remoteId.equals(rId))).getSingleOrNull();
             if (localStory == null) continue;
 
+            // Delete existing story_media rows before re-inserting to prevent
+            // duplicates (storyMedia has no unique constraint on (storyId, sortOrder),
+            // so insertOnConflictUpdate always inserts a new row with a new auto-id).
+            await (db.delete(
+              db.storyMedia,
+            )..where((t) => t.storyId.equals(localStory.id))).go();
+
             for (var mi in st['media_items'] as List) {
               final mediaItem = mi as Map<String, dynamic>;
+              final rawMediaUrl = mediaItem['media_url'] as String? ?? '';
+              final encryptedMediaUrl = rawMediaUrl.isNotEmpty
+                  ? CryptoUtils.encrypt(rawMediaUrl)
+                  : '';
               await db
                   .into(db.storyMedia)
-                  .insertOnConflictUpdate(
+                  .insert(
                     StoryMediaCompanion.insert(
                       storyId: localStory.id,
-                      mediaUrl: mediaItem['media_url'] as String? ?? '',
+                      mediaUrl: encryptedMediaUrl,
                       mediaType: Value(
                         mediaItem['media_type'] as String? ?? 'image',
                       ),
@@ -724,6 +844,27 @@ class SyncService extends ChangeNotifier {
     return null;
   }
 
+  static double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  static bool _toBool(dynamic value) {
+    if (value == null) return false;
+    if (value is bool) return value;
+    if (value is int) return value == 1;
+    if (value is num) return value != 0;
+    if (value is String) {
+      final normalized = value.toLowerCase().trim();
+      return normalized == '1' || normalized == 'true' || normalized == 'yes';
+    }
+    return false;
+  }
+
   void _prefetchBoostedImages(List<Map<String, dynamic>> products) {
     // Basic pre-fetching logic (will trigger CachedNetworkImage pre-caching)
     final boosted = products.where((p) => p['boostStatus'] == 2);
@@ -759,6 +900,11 @@ class SyncService extends ChangeNotifier {
     double? rating,
   }) async {
     try {
+      final data = <String, dynamic>{'id': entityId, 'type': type};
+      if (rating != null) {
+        data['rating'] = rating;
+      }
+
       final response = await http
           .post(
             Uri.parse("${api.baseUrl}/sync.php"),
@@ -769,11 +915,7 @@ class SyncService extends ChangeNotifier {
             body: jsonEncode({
               'entityType': 'products',
               'action': 'INCREMENT_STAT',
-              'data': {
-                'id': entityId,
-                'type': type,
-                if (rating != null) 'rating': rating,
-              },
+              'data': data,
             }),
           )
           .timeout(_requestTimeout);
@@ -887,6 +1029,60 @@ class SyncService extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Error updating pending count: $e');
+    }
+  }
+
+  /// Map server-returned product ID back to local product record.
+  /// Uses the local_id stored in the queue data to find the correct product.
+  Future<void> _mapServerIdToLocalProduct(
+    SyncQueueData item,
+    String serverId,
+  ) async {
+    try {
+      final data = jsonDecode(item.entityData) as Map<String, dynamic>;
+      final localId = data['local_id'] as int?;
+
+      if (localId == null) {
+        debugPrint(
+          '_mapServerIdToLocalProduct: missing local_id in queue item',
+        );
+        return;
+      }
+
+      await (db.update(db.products)..where((t) => t.id.equals(localId))).write(
+        ProductsCompanion(remoteId: Value(serverId)),
+      );
+      debugPrint(
+        '_mapServerIdToLocalProduct: mapped local product $localId → server ID $serverId',
+      );
+    } catch (e) {
+      debugPrint('_mapServerIdToLocalProduct error: $e');
+    }
+  }
+
+  /// Map server-returned shop ID back to local shop record.
+  /// This ensures shop.remoteId is set so products can reference the correct server shop.
+  Future<void> _mapServerIdToLocalShop(
+    SyncQueueData item,
+    String serverId,
+  ) async {
+    try {
+      final data = jsonDecode(item.entityData) as Map<String, dynamic>;
+      final localId = data['local_id'] as int?;
+
+      if (localId == null) {
+        debugPrint('_mapServerIdToLocalShop: missing local_id in queue item');
+        return;
+      }
+
+      await (db.update(db.shops)..where((t) => t.id.equals(localId))).write(
+        ShopsCompanion(remoteId: Value(serverId)),
+      );
+      debugPrint(
+        '_mapServerIdToLocalShop: mapped local shop $localId → server ID $serverId',
+      );
+    } catch (e) {
+      debugPrint('_mapServerIdToLocalShop error: $e');
     }
   }
 

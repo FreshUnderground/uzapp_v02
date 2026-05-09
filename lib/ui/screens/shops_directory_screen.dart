@@ -7,6 +7,7 @@ import '../../core/res/uza_colors.dart';
 import '../../core/utils/image_utils.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/services/location_service.dart';
+import '../../core/l10n/tr.dart';
 import '../components/verification_badge.dart';
 import '../utils/page_transitions.dart';
 import 'shop_profile_screen.dart';
@@ -31,7 +32,7 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Boutiques'),
+        title: Text(tr(context, 'boutiques')),
         backgroundColor: Colors.white,
         foregroundColor: UzaColors.textPrimary,
         elevation: 0,
@@ -60,11 +61,23 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               child: Row(
                 children: [
-                  _buildFilterChip('Toutes', _ShopFilter.all),
+                  _buildFilterChip(
+                    context,
+                    tr(context, 'all_shops'),
+                    _ShopFilter.all,
+                  ),
                   const SizedBox(width: 8),
-                  _buildFilterChip('Certifiées', _ShopFilter.verified),
+                  _buildFilterChip(
+                    context,
+                    tr(context, 'verified_shops'),
+                    _ShopFilter.verified,
+                  ),
                   const SizedBox(width: 8),
-                  _buildFilterChip('Non certifiées', _ShopFilter.unverified),
+                  _buildFilterChip(
+                    context,
+                    tr(context, 'unverified_shops'),
+                    _ShopFilter.unverified,
+                  ),
                 ],
               ),
             ),
@@ -109,7 +122,11 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
     );
   }
 
-  Widget _buildFilterChip(String label, _ShopFilter filter) {
+  Widget _buildFilterChip(
+    BuildContext context,
+    String label,
+    _ShopFilter filter,
+  ) {
     final isSelected = _filter == filter;
     return Expanded(
       child: GestureDetector(
@@ -166,8 +183,8 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                     const SizedBox(height: 16),
                     Text(
                       trulyEmpty
-                          ? 'Aucune boutique disponible'
-                          : 'Aucune boutique ne correspond à ce filtre',
+                          ? tr(context, 'no_shops_directory')
+                          : tr(context, 'no_shops_filter'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 16,
@@ -178,8 +195,8 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                     const SizedBox(height: 8),
                     Text(
                       trulyEmpty
-                          ? 'Tirez vers le bas pour synchroniser les boutiques'
-                          : 'Essayez un autre filtre',
+                          ? tr(context, 'sync_shops_hint')
+                          : tr(context, 'try_other_filter'),
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 13, color: Colors.grey[500]),
                     ),
@@ -202,6 +219,7 @@ class _ShopDirectoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final location = _formatLocation();
+    final hasCoordinates = shop.latitude != null && shop.longitude != null;
 
     return InkWell(
       onTap: () {
@@ -262,8 +280,8 @@ class _ShopDirectoryCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  // Itinerary button (if location exists)
-                  if (shop.latitude != null && shop.longitude != null)
+                  // Itinerary button (if coordinates exist)
+                  if (hasCoordinates)
                     Positioned(
                       top: 8,
                       right: 8,

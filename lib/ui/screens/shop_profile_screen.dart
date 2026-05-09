@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/product_repository.dart';
+import '../../data/repositories/story_repository.dart';
 import '../../core/services/contact_service.dart';
 import '../../core/services/location_service.dart';
 import '../../data/repositories/shop_repository.dart';
@@ -26,8 +27,21 @@ class ShopProfileScreen extends StatefulWidget {
   State<ShopProfileScreen> createState() => _ShopProfileScreenState();
 }
 
-class _ShopProfileScreenState extends State<ShopProfileScreen> {
-  bool _showStats = false; // Hidden by default
+class _ShopProfileScreenState extends State<ShopProfileScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
   bool _isShopVerified(BuildContext context) {
     return widget.shop.isVerified;
@@ -50,6 +64,8 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
               StreamBuilder<bool>(
                 stream: context.read<ShopRepository>().watchIsFollowingShop(
                   shop.id,
+                  userPhone:
+                      context.read<AuthService>().user?.phoneNumber ?? '',
                 ),
                 builder: (context, snapshot) {
                   final isFollowing = snapshot.data ?? false;
@@ -60,9 +76,13 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                           : Icons.notifications_none,
                       color: isFollowing ? UzaColors.primary : null,
                     ),
-                    onPressed: () => context
-                        .read<ShopRepository>()
-                        .toggleFollowShop(shop.id),
+                    onPressed: () =>
+                        context.read<ShopRepository>().toggleFollowShop(
+                          shop.id,
+                          userPhone:
+                              context.read<AuthService>().user?.phoneNumber ??
+                              '',
+                        ),
                   );
                 },
               ),
@@ -75,10 +95,12 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
           ),
           body: _buildBody(productRepo, contactService),
           bottomNavigationBar: UzaBottomNav(
-            currentIndex:
-                0, // Profile always seen as part of home flow or a secondary level
+            currentIndex: 2, // Boutiques tab (index 2)
             onTap: (index) {
-              if (index == 0) {
+              if (index == 2) {
+                // Already on shop profile, do nothing
+                return;
+              } else if (index == 0) {
                 Navigator.of(context).popUntil((route) => route.isFirst);
               } else {
                 Navigator.of(context).pushAndRemoveUntil(
@@ -98,6 +120,8 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
               StreamBuilder<bool>(
                 stream: context.read<ShopRepository>().watchIsFollowingShop(
                   shop.id,
+                  userPhone:
+                      context.read<AuthService>().user?.phoneNumber ?? '',
                 ),
                 builder: (context, snapshot) {
                   final isFollowing = snapshot.data ?? false;
@@ -108,9 +132,13 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                           : Icons.notifications_none,
                       color: isFollowing ? UzaColors.primary : null,
                     ),
-                    onPressed: () => context
-                        .read<ShopRepository>()
-                        .toggleFollowShop(shop.id),
+                    onPressed: () =>
+                        context.read<ShopRepository>().toggleFollowShop(
+                          shop.id,
+                          userPhone:
+                              context.read<AuthService>().user?.phoneNumber ??
+                              '',
+                        ),
                   );
                 },
               ),
@@ -183,7 +211,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                                             size: 18,
                                             color: Colors.grey,
                                           ),
-                                          const SizedBox(width: 4),
+                                          const SizedBox(width: 3),
                                           Expanded(
                                             child: Text(
                                               shop.address!,
@@ -196,28 +224,63 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                                         ],
                                       ),
                                     ],
-                                    // Itinerary button - opens GPS directly
+                                    // Itinerary button - compact single line
                                     _buildUpdateLocationButton(context, shop),
-                                    const SizedBox(height: 16),
+                                    const SizedBox(height: 12),
                                     Text(
                                       shop.description ?? 'Aucune description',
                                       style: TextStyle(
-                                        fontSize: 16,
+                                        fontSize: 14,
                                         color: Colors.grey[800],
                                       ),
                                     ),
-                                    const SizedBox(height: 24),
-                                    Row(
+                                    const SizedBox(height: 16),
+                                    // Centered row with Follow and Social buttons
+                                    Wrap(
+                                      alignment: WrapAlignment.center,
+                                      spacing: 8,
+                                      runSpacing: 8,
                                       children: [
-                                        Flexible(
-                                          child: _buildFollowButton(context),
-                                        ),
-                                        const SizedBox(width: 16),
-                                        Flexible(
-                                          child: _buildSocialActions(
-                                            contactService,
+                                        _buildFollowButton(context),
+                                        if (shop.whatsapp != null ||
+                                            shop.phone != null)
+                                          _buildSocialButton(
+                                            icon: FontAwesomeIcons.whatsapp,
+                                            color: Colors.green,
+                                            onTap: () =>
+                                                contactService.launchWhatsApp(
+                                                  phone:
+                                                      shop.whatsapp ??
+                                                      shop.phone!,
+                                                  entityType: 'shop',
+                                                  entityId: shop.id,
+                                                  name: shop.name,
+                                                  productUrl:
+                                                      'https://uzaapp.com/shop/${shop.id}',
+                                                ),
                                           ),
-                                        ),
+                                        if (shop.facebookUrl != null)
+                                          _buildSocialButton(
+                                            icon: FontAwesomeIcons.facebook,
+                                            color: const Color(0xFF1877F2),
+                                            onTap: () =>
+                                                contactService.launchSocial(
+                                                  urlString: shop.facebookUrl!,
+                                                  entityType: 'shop',
+                                                  entityId: shop.id,
+                                                ),
+                                          ),
+                                        if (shop.tiktokUrl != null)
+                                          _buildSocialButton(
+                                            icon: FontAwesomeIcons.tiktok,
+                                            color: Colors.black,
+                                            onTap: () =>
+                                                contactService.launchSocial(
+                                                  urlString: shop.tiktokUrl!,
+                                                  entityType: 'shop',
+                                                  entityId: shop.id,
+                                                ),
+                                          ),
                                       ],
                                     ),
                                   ],
@@ -228,7 +291,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                         : Column(
                             children: [
                               ImageUtils.getLogoWidget(shop.logoUrl, size: 100),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 10),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -259,7 +322,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                                       size: 16,
                                       color: Colors.grey,
                                     ),
-                                    const SizedBox(width: 4),
+                                    const SizedBox(width: 3),
                                     Text(
                                       shop.address!,
                                       style: const TextStyle(
@@ -269,23 +332,65 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                                   ],
                                 ),
                               ],
-                              // Itinerary button - opens GPS directly
+                              // Itinerary button - compact single line
                               _buildUpdateLocationButton(context, shop),
-                              const SizedBox(height: 12),
+                              const SizedBox(height: 8),
                               Text(
                                 shop.description ?? 'Aucune description',
                                 textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.grey[800]),
+                                style: TextStyle(
+                                  color: Colors.grey[800],
+                                  fontSize: 14,
+                                ),
                               ),
-                              const SizedBox(height: 24),
-                              _buildFollowButton(context),
-                              const SizedBox(height: 24),
-                              _buildSocialActions(contactService),
+                              const SizedBox(height: 16),
+                              // Centered row with Follow and Social buttons
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _buildFollowButton(context),
+                                  if (shop.whatsapp != null ||
+                                      shop.phone != null)
+                                    _buildSocialButton(
+                                      icon: FontAwesomeIcons.whatsapp,
+                                      color: Colors.green,
+                                      onTap: () => contactService.launchWhatsApp(
+                                        phone: shop.whatsapp ?? shop.phone!,
+                                        entityType: 'shop',
+                                        entityId: shop.id,
+                                        name: shop.name,
+                                        productUrl:
+                                            'https://uzaapp.com/shop/${shop.id}',
+                                      ),
+                                    ),
+                                  if (shop.facebookUrl != null)
+                                    _buildSocialButton(
+                                      icon: FontAwesomeIcons.facebook,
+                                      color: const Color(0xFF1877F2),
+                                      onTap: () => contactService.launchSocial(
+                                        urlString: shop.facebookUrl!,
+                                        entityType: 'shop',
+                                        entityId: shop.id,
+                                      ),
+                                    ),
+                                  if (shop.tiktokUrl != null)
+                                    _buildSocialButton(
+                                      icon: FontAwesomeIcons.tiktok,
+                                      color: Colors.black,
+                                      onTap: () => contactService.launchSocial(
+                                        urlString: shop.tiktokUrl!,
+                                        entityType: 'shop',
+                                        entityId: shop.id,
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ],
                           ),
                   ),
                 ),
-                _buildStatsSection(context),
 
                 _buildVideo(context),
                 _buildBanner(),
@@ -296,82 +401,87 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                   ),
                 ),
 
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    child: Text(
-                      'Catalogue',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                // Tab Bar
+                SliverToBoxAdapter(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 15),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: TabBar(
+                      controller: _tabController,
+                      indicator: BoxDecoration(
+                        color: UzaColors.primary,
+                        borderRadius: BorderRadius.circular(5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: UzaColors.primary.withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      dividerColor: Colors.transparent,
+                      labelColor: Colors.white,
+                      unselectedLabelColor: Colors.grey[700],
+                      labelStyle: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        height: 1.0,
+                      ),
+                      unselectedLabelStyle: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        height: 1.0,
+                      ),
+                      tabs: const [
+                        Tab(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.shopping_bag, size: 14),
+                              SizedBox(width: 4),
+                              Text('Produits'),
+                            ],
+                          ),
+                        ),
+                        Tab(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.new_releases, size: 14),
+                              SizedBox(width: 4),
+                              Text('Arrivages'),
+                            ],
+                          ),
+                        ),
+                      ],
+                      tabAlignment: TabAlignment.fill,
+                      padding: EdgeInsets.zero,
+                      indicatorPadding: const EdgeInsets.all(3),
+                      labelPadding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 2,
                       ),
                     ),
                   ),
                 ),
 
-                StreamBuilder<List<Product>>(
-                  stream: productRepo.watchProductsByShop(shop.id),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const SliverFillRemaining(
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    }
-                    if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                      return SliverFillRemaining(
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.inventory_2_outlined,
-                                size: 64,
-                                color: Colors.grey[400],
-                              ),
-                              const SizedBox(height: 16),
-                              const Text('Aucun produit disponible.'),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
-
-                    int crossAxisCount = 2;
-                    if (constraints.maxWidth > 1200) {
-                      crossAxisCount = 5;
-                    } else if (constraints.maxWidth > 900) {
-                      crossAxisCount = 4;
-                    } else if (constraints.maxWidth > 600) {
-                      crossAxisCount = 3;
-                    }
-
-                    return SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      sliver: SliverGrid(
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: crossAxisCount,
-                          childAspectRatio: constraints.maxWidth > 700
-                              ? 0.75
-                              : 0.86,
-                          crossAxisSpacing: 16,
-                          mainAxisSpacing: 16,
-                        ),
-                        delegate: SliverChildBuilderDelegate((context, index) {
-                          final product = snapshot.data![index];
-                          return ProductCard(
-                            product: product,
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    ProductDetailScreen(product: product),
-                              ),
-                            ),
-                          );
-                        }, childCount: snapshot.data!.length),
-                      ),
-                    );
-                  },
+                // Tab Content
+                SliverFillRemaining(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      // Produits Tab
+                      _buildProductsTab(context, productRepo, constraints),
+                      // Arrivages Tab
+                      _buildArrivagesTab(context),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -379,6 +489,267 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
         );
       },
     );
+  }
+
+  Widget _buildProductsTab(
+    BuildContext context,
+    ProductRepository productRepo,
+    BoxConstraints constraints,
+  ) {
+    final shop = widget.shop;
+    return StreamBuilder<List<Product>>(
+      stream: productRepo.watchProductsByShop(shop.id),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.shopping_bag_outlined,
+                  size: 60,
+                  color: Colors.grey[300],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Aucun produit',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Les produits de cette boutique\napparaîtront ici',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                ),
+              ],
+            ),
+          );
+        }
+
+        int crossAxisCount = 2;
+        if (constraints.maxWidth > 1200) {
+          crossAxisCount = 5;
+        } else if (constraints.maxWidth > 900) {
+          crossAxisCount = 4;
+        } else if (constraints.maxWidth > 600) {
+          crossAxisCount = 3;
+        }
+
+        return GridView.builder(
+          padding: const EdgeInsets.all(12),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: constraints.maxWidth > 700 ? 0.75 : 0.86,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+          ),
+          itemCount: snapshot.data!.length,
+          itemBuilder: (context, index) {
+            final product = snapshot.data![index];
+            return ProductCard(
+              product: product,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ProductDetailScreen(product: product),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildArrivagesTab(BuildContext context) {
+    final shop = widget.shop;
+    return StreamBuilder<List<Story>>(
+      stream: context.read<StoryRepository>().watchArrivagesByShop(shop.id),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.new_releases, size: 60, color: Colors.grey[300]),
+                const SizedBox(height: 16),
+                Text(
+                  'Aucun arrivage',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Les nouveaux arrivages de cette boutique\napparaîtront ici',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final arrivages = snapshot.data!;
+        return GridView.builder(
+          padding: const EdgeInsets.all(12),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 0.65,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+          ),
+          itemCount: arrivages.length,
+          itemBuilder: (context, index) {
+            final story = arrivages[index];
+            final decryptedUrl = CryptoUtils.decrypt(story.mediaUrl);
+            return GestureDetector(
+              onTap: () {
+                // Navigate to story view
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // Media content
+                      story.mediaType == 'video'
+                          ? Container(
+                              color: Colors.black,
+                              child: const Icon(
+                                Icons.videocam,
+                                color: Colors.white,
+                                size: 48,
+                              ),
+                            )
+                          : ImageUtils.buildCachedImage(
+                              decryptedUrl,
+                              fit: BoxFit.cover,
+                            ),
+                      // Gradient overlay
+                      Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.7),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // Badge
+                      Positioned(
+                        top: 6,
+                        left: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: UzaColors.primary,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.fiber_new,
+                                color: Colors.white,
+                                size: 10,
+                              ),
+                              SizedBox(width: 3),
+                              Text(
+                                'Nouveau',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // Timestamp
+                      Positioned(
+                        bottom: 6,
+                        left: 6,
+                        right: 6,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              story.mediaType == 'video'
+                                  ? '🎥 Vidéo'
+                                  : '📷 Photo',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _formatTimeAgo(story.createdAt),
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.8),
+                                fontSize: 9,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _formatTimeAgo(DateTime createdAt) {
+    final now = DateTime.now();
+    final difference = now.difference(createdAt);
+
+    if (difference.inDays > 0) {
+      return 'Il y a ${difference.inDays} jour${difference.inDays > 1 ? 's' : ''}';
+    } else if (difference.inHours > 0) {
+      return 'Il y a ${difference.inHours}h';
+    } else if (difference.inMinutes > 0) {
+      return 'Il y a ${difference.inMinutes}min';
+    } else {
+      return 'À l\'instant';
+    }
   }
 
   Widget _buildVideo(BuildContext context) {
@@ -429,25 +800,96 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
 
   Widget _buildFollowButton(BuildContext context) {
     final shop = widget.shop;
+    final userPhone = context.read<AuthService>().user?.phoneNumber ?? '';
     return StreamBuilder<bool>(
-      stream: context.read<ShopRepository>().watchIsFollowingShop(shop.id),
+      stream: context.read<ShopRepository>().watchIsFollowingShop(
+        shop.id,
+        userPhone: userPhone,
+      ),
       builder: (context, snapshot) {
         final isFollowing = snapshot.data ?? false;
-        return ElevatedButton.icon(
-          onPressed: () =>
-              context.read<ShopRepository>().toggleFollowShop(shop.id),
-          icon: Icon(isFollowing ? Icons.check : Icons.add, size: 18),
-          label: Text(isFollowing ? 'SUIVI' : 'SUIVRE LA BOUTIQUE'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: isFollowing ? Colors.grey[200] : UzaColors.primary,
-            foregroundColor: isFollowing ? Colors.black87 : Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(30),
-            ),
-          ),
+        return StreamBuilder<int>(
+          stream: context.read<ShopRepository>().watchFollowerCount(shop.id),
+          builder: (context, countSnapshot) {
+            final followerCount = countSnapshot.data ?? 0;
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () => context
+                      .read<ShopRepository>()
+                      .toggleFollowShop(shop.id, userPhone: userPhone),
+                  icon: Icon(isFollowing ? Icons.check : Icons.add, size: 14),
+                  label: Text(
+                    isFollowing ? 'Suivi' : 'Suivre',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isFollowing
+                        ? Colors.grey[200]
+                        : UzaColors.primary,
+                    foregroundColor: isFollowing
+                        ? Colors.black87
+                        : Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    minimumSize: Size.zero,
+                  ),
+                ),
+                if (followerCount > 0) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$followerCount',
+                      style: TextStyle(
+                        color: Colors.purple[700],
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildSocialButton({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return ElevatedButton(
+      onPressed: onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color.withValues(alpha: 0.1),
+        foregroundColor: color,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        minimumSize: Size.zero,
+      ),
+      child: FaIcon(icon, size: 14),
     );
   }
 
@@ -458,17 +900,6 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          if (shop.phone != null)
-            _SocialIcon(
-              icon: Icons.phone,
-              color: UzaColors.primary,
-              onTap: () => contactService.makeCall(
-                phone: shop.phone!,
-                entityType: 'shop',
-                entityId: shop.id,
-              ),
-            ),
-          const SizedBox(width: 8),
           if (shop.whatsapp != null || shop.phone != null)
             _SocialIcon(
               icon: FontAwesomeIcons.whatsapp,
@@ -481,7 +912,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                 productUrl: 'https://uzaapp.com/shop/${shop.id}',
               ),
             ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 3),
           if (shop.facebookUrl != null)
             _SocialIcon(
               icon: FontAwesomeIcons.facebook,
@@ -492,18 +923,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                 entityId: shop.id,
               ),
             ),
-          const SizedBox(width: 8),
-          if (shop.instagramUrl != null)
-            _SocialIcon(
-              icon: FontAwesomeIcons.instagram,
-              color: const Color(0xFFE4405F),
-              onTap: () => contactService.launchSocial(
-                urlString: shop.instagramUrl!,
-                entityType: 'shop',
-                entityId: shop.id,
-              ),
-            ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 3),
           if (shop.tiktokUrl != null)
             _SocialIcon(
               icon: FontAwesomeIcons.tiktok,
@@ -514,175 +934,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                 entityId: shop.id,
               ),
             ),
-          const SizedBox(width: 8),
-          if (shop.youtubeUrl != null)
-            _SocialIcon(
-              icon: FontAwesomeIcons.youtube,
-              color: const Color(0xFFFF0000),
-              onTap: () => contactService.launchSocial(
-                urlString: shop.youtubeUrl!,
-                entityType: 'shop',
-                entityId: shop.id,
-              ),
-            ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildStatsSection(BuildContext context) {
-    final shop = widget.shop;
-    final isOwner = context.read<AuthService>().user?.uid == shop.ownerId;
-    if (!isOwner) return const SliverToBoxAdapter(child: SizedBox.shrink());
-
-    if (!_showStats) {
-      // Show a small toggle button to reveal stats
-      return SliverToBoxAdapter(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-          child: InkWell(
-            onTap: () {
-              setState(() {
-                _showStats = true;
-              });
-            },
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey[300]!),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.analytics_outlined,
-                    color: UzaColors.primary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Voir les statistiques',
-                    style: TextStyle(
-                      color: UzaColors.primary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(
-                    Icons.expand_more,
-                    color: UzaColors.primary,
-                    size: 20,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    final db = context.read<UzaDatabase>();
-
-    return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-        child: StreamBuilder<List<Product>>(
-          stream: context.read<ProductRepository>().watchProductsByShop(
-            shop.id,
-          ),
-          builder: (context, productSnapshot) {
-            final products = productSnapshot.data ?? [];
-            final totalViews = products.fold<int>(
-              0,
-              (sum, p) => sum + p.viewsCount,
-            );
-            final totalProducts = products.length;
-
-            return StreamBuilder(
-              stream: (db.select(
-                db.userContacts,
-              )..where((t) => t.shopId.equals(shop.id))).watch(),
-              builder: (context, contactSnapshot) {
-                final totalContacts = contactSnapshot.data?.length ?? 0;
-
-                return Container(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.06),
-                        blurRadius: 10,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          _buildStatItem(
-                            icon: Icons.remove_red_eye_outlined,
-                            value: totalViews,
-                            label: 'Vues',
-                          ),
-                          _buildStatItem(
-                            icon: Icons.phone_outlined,
-                            value: totalContacts,
-                            label: 'Contacts',
-                          ),
-                          _buildStatItem(
-                            icon: Icons.shopping_bag_outlined,
-                            value: totalProducts,
-                            label: 'Produits',
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      InkWell(
-                        onTap: () {
-                          setState(() {
-                            _showStats = false;
-                          });
-                        },
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.expand_less,
-                                size: 18,
-                                color: Colors.grey,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Masquer les statistiques',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-        ),
       ),
     );
   }
@@ -717,7 +969,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
         onTap: () {
           LocationService.getDirections(
@@ -726,10 +978,10 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
             destinationName: shop.name,
           );
         },
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
@@ -737,47 +989,25 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                 Colors.teal.withValues(alpha: 0.05),
               ],
             ),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: Colors.teal.withValues(alpha: 0.3),
-              width: 1.5,
+              width: 1,
             ),
           ),
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.teal.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.navigation,
+              const Icon(Icons.navigation, color: Colors.teal, size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'Voir le chemin',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
                   color: Colors.teal,
-                  size: 24,
                 ),
               ),
-              const SizedBox(width: 16),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Obtenir l\'itineraire',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: Colors.teal,
-                      ),
-                    ),
-                    Text(
-                      'Ouvrir dans Google Maps',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Colors.teal, size: 24),
             ],
           ),
         ),
@@ -805,9 +1035,9 @@ class _SocialIcon extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       child: IconButton(
-        icon: FaIcon(icon, color: color, size: 20),
+        icon: FaIcon(icon, color: color, size: 14),
         onPressed: onTap,
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(6),
         constraints: const BoxConstraints(),
       ),
     );

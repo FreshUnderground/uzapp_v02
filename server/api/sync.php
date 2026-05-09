@@ -10,10 +10,10 @@ $ALLOWED_COLUMNS = [
     'shops'    => ['id', 'name', 'description', 'logo_url', 'type', 'owner_id', 'address', 'whatsapp', 'phone', 'email',
                    'instagram_url', 'tiktok_url', 'facebook_url', 'youtube_url', 'banner_url', 'boost_status',
                    'banner_status', 'banner_text', 'video_url', 'is_boosted', 'is_verified', 'verified_at',
-                   'created_at', 'updated_at'],
+                   'created_at', 'updated_at', 'latitude', 'longitude', 'city', 'commune'],
     'products' => ['id', 'shop_id', 'category_id', 'name', 'description', 'price', 'image_urls',
                    'is_arrival', 'is_promotion', 'boost_status', 'hide_price', 'show_stock', 'stock_count',
-                   'views_count', 'shares_count', 'ratings_count', 'rating_avg', 'created_at', 'updated_at'],
+                   'views_count', 'shares_count', 'ratings_count', 'rating_avg', 'metadata', 'updated_at'],
     'stories'  => ['id', 'shop_id', 'media_url', 'media_type', 'is_arrivage', 'expires_at', 'created_at'],
 ];
 
@@ -200,9 +200,6 @@ try {
                  echo json_encode(['success' => true, 'id' => $id, 'action' => 'UPDATE']);
                  exit;
              } else {
-                 if (!isset($data['created_at'])) {
-                     $data['created_at'] = date('Y-m-d H:i:s');
-                 }
                  $keys = array_keys($data);
                  $values = array_values($data);
                  $placeholders = array_fill(0, count($keys), '?');
@@ -305,6 +302,11 @@ try {
                 $stmt = $db->prepare("INSERT INTO stories (" . implode(', ', $keys) . ") VALUES (" . implode(', ', $placeholders) . ")");
                 $stmt->execute($values);
                 $newId = $db->lastInsertId();
+                
+                // Set remote_id to match the new story id for sync consistency
+                $stmt = $db->prepare("UPDATE stories SET remote_id = ? WHERE id = ?");
+                $stmt->execute([$newId, $newId]);
+                
                 error_log("Sync stories INSERT success: newId=$newId");
                 echo json_encode(['success' => true, 'id' => (int)$newId, 'action' => 'CREATE']);
                 exit;

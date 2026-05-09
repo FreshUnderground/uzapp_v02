@@ -8406,6 +8406,702 @@ class StoryMediaCompanion extends UpdateCompanion<StoryMediaData> {
   }
 }
 
+class $ProductLikesTable extends ProductLikes
+    with TableInfo<$ProductLikesTable, ProductLike> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ProductLikesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _productIdMeta = const VerificationMeta(
+    'productId',
+  );
+  @override
+  late final GeneratedColumn<int> productId = GeneratedColumn<int>(
+    'product_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES products (id)',
+    ),
+  );
+  static const VerificationMeta _userPhoneMeta = const VerificationMeta(
+    'userPhone',
+  );
+  @override
+  late final GeneratedColumn<String> userPhone = GeneratedColumn<String>(
+    'user_phone',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _syncedMeta = const VerificationMeta('synced');
+  @override
+  late final GeneratedColumn<int> synced = GeneratedColumn<int>(
+    'synced',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    productId,
+    userPhone,
+    createdAt,
+    synced,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'product_likes';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ProductLike> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('product_id')) {
+      context.handle(
+        _productIdMeta,
+        productId.isAcceptableOrUnknown(data['product_id']!, _productIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_productIdMeta);
+    }
+    if (data.containsKey('user_phone')) {
+      context.handle(
+        _userPhoneMeta,
+        userPhone.isAcceptableOrUnknown(data['user_phone']!, _userPhoneMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userPhoneMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('synced')) {
+      context.handle(
+        _syncedMeta,
+        synced.isAcceptableOrUnknown(data['synced']!, _syncedMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ProductLike map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ProductLike(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      productId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}product_id'],
+      )!,
+      userPhone: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_phone'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      synced: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}synced'],
+      )!,
+    );
+  }
+
+  @override
+  $ProductLikesTable createAlias(String alias) {
+    return $ProductLikesTable(attachedDatabase, alias);
+  }
+}
+
+class ProductLike extends DataClass implements Insertable<ProductLike> {
+  final int id;
+  final int productId;
+  final String userPhone;
+  final DateTime createdAt;
+  final int synced;
+  const ProductLike({
+    required this.id,
+    required this.productId,
+    required this.userPhone,
+    required this.createdAt,
+    required this.synced,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['product_id'] = Variable<int>(productId);
+    map['user_phone'] = Variable<String>(userPhone);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['synced'] = Variable<int>(synced);
+    return map;
+  }
+
+  ProductLikesCompanion toCompanion(bool nullToAbsent) {
+    return ProductLikesCompanion(
+      id: Value(id),
+      productId: Value(productId),
+      userPhone: Value(userPhone),
+      createdAt: Value(createdAt),
+      synced: Value(synced),
+    );
+  }
+
+  factory ProductLike.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ProductLike(
+      id: serializer.fromJson<int>(json['id']),
+      productId: serializer.fromJson<int>(json['productId']),
+      userPhone: serializer.fromJson<String>(json['userPhone']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      synced: serializer.fromJson<int>(json['synced']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'productId': serializer.toJson<int>(productId),
+      'userPhone': serializer.toJson<String>(userPhone),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'synced': serializer.toJson<int>(synced),
+    };
+  }
+
+  ProductLike copyWith({
+    int? id,
+    int? productId,
+    String? userPhone,
+    DateTime? createdAt,
+    int? synced,
+  }) => ProductLike(
+    id: id ?? this.id,
+    productId: productId ?? this.productId,
+    userPhone: userPhone ?? this.userPhone,
+    createdAt: createdAt ?? this.createdAt,
+    synced: synced ?? this.synced,
+  );
+  ProductLike copyWithCompanion(ProductLikesCompanion data) {
+    return ProductLike(
+      id: data.id.present ? data.id.value : this.id,
+      productId: data.productId.present ? data.productId.value : this.productId,
+      userPhone: data.userPhone.present ? data.userPhone.value : this.userPhone,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      synced: data.synced.present ? data.synced.value : this.synced,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProductLike(')
+          ..write('id: $id, ')
+          ..write('productId: $productId, ')
+          ..write('userPhone: $userPhone, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('synced: $synced')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, productId, userPhone, createdAt, synced);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ProductLike &&
+          other.id == this.id &&
+          other.productId == this.productId &&
+          other.userPhone == this.userPhone &&
+          other.createdAt == this.createdAt &&
+          other.synced == this.synced);
+}
+
+class ProductLikesCompanion extends UpdateCompanion<ProductLike> {
+  final Value<int> id;
+  final Value<int> productId;
+  final Value<String> userPhone;
+  final Value<DateTime> createdAt;
+  final Value<int> synced;
+  const ProductLikesCompanion({
+    this.id = const Value.absent(),
+    this.productId = const Value.absent(),
+    this.userPhone = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.synced = const Value.absent(),
+  });
+  ProductLikesCompanion.insert({
+    this.id = const Value.absent(),
+    required int productId,
+    required String userPhone,
+    this.createdAt = const Value.absent(),
+    this.synced = const Value.absent(),
+  }) : productId = Value(productId),
+       userPhone = Value(userPhone);
+  static Insertable<ProductLike> custom({
+    Expression<int>? id,
+    Expression<int>? productId,
+    Expression<String>? userPhone,
+    Expression<DateTime>? createdAt,
+    Expression<int>? synced,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (productId != null) 'product_id': productId,
+      if (userPhone != null) 'user_phone': userPhone,
+      if (createdAt != null) 'created_at': createdAt,
+      if (synced != null) 'synced': synced,
+    });
+  }
+
+  ProductLikesCompanion copyWith({
+    Value<int>? id,
+    Value<int>? productId,
+    Value<String>? userPhone,
+    Value<DateTime>? createdAt,
+    Value<int>? synced,
+  }) {
+    return ProductLikesCompanion(
+      id: id ?? this.id,
+      productId: productId ?? this.productId,
+      userPhone: userPhone ?? this.userPhone,
+      createdAt: createdAt ?? this.createdAt,
+      synced: synced ?? this.synced,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (productId.present) {
+      map['product_id'] = Variable<int>(productId.value);
+    }
+    if (userPhone.present) {
+      map['user_phone'] = Variable<String>(userPhone.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (synced.present) {
+      map['synced'] = Variable<int>(synced.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProductLikesCompanion(')
+          ..write('id: $id, ')
+          ..write('productId: $productId, ')
+          ..write('userPhone: $userPhone, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('synced: $synced')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ShopFollowsTable extends ShopFollows
+    with TableInfo<$ShopFollowsTable, ShopFollow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ShopFollowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _shopIdMeta = const VerificationMeta('shopId');
+  @override
+  late final GeneratedColumn<int> shopId = GeneratedColumn<int>(
+    'shop_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES shops (id)',
+    ),
+  );
+  static const VerificationMeta _userPhoneMeta = const VerificationMeta(
+    'userPhone',
+  );
+  @override
+  late final GeneratedColumn<String> userPhone = GeneratedColumn<String>(
+    'user_phone',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _syncedMeta = const VerificationMeta('synced');
+  @override
+  late final GeneratedColumn<int> synced = GeneratedColumn<int>(
+    'synced',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    shopId,
+    userPhone,
+    createdAt,
+    synced,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'shop_follows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ShopFollow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('shop_id')) {
+      context.handle(
+        _shopIdMeta,
+        shopId.isAcceptableOrUnknown(data['shop_id']!, _shopIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_shopIdMeta);
+    }
+    if (data.containsKey('user_phone')) {
+      context.handle(
+        _userPhoneMeta,
+        userPhone.isAcceptableOrUnknown(data['user_phone']!, _userPhoneMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userPhoneMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('synced')) {
+      context.handle(
+        _syncedMeta,
+        synced.isAcceptableOrUnknown(data['synced']!, _syncedMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ShopFollow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ShopFollow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      shopId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}shop_id'],
+      )!,
+      userPhone: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_phone'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      synced: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}synced'],
+      )!,
+    );
+  }
+
+  @override
+  $ShopFollowsTable createAlias(String alias) {
+    return $ShopFollowsTable(attachedDatabase, alias);
+  }
+}
+
+class ShopFollow extends DataClass implements Insertable<ShopFollow> {
+  final int id;
+  final int shopId;
+  final String userPhone;
+  final DateTime createdAt;
+  final int synced;
+  const ShopFollow({
+    required this.id,
+    required this.shopId,
+    required this.userPhone,
+    required this.createdAt,
+    required this.synced,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['shop_id'] = Variable<int>(shopId);
+    map['user_phone'] = Variable<String>(userPhone);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['synced'] = Variable<int>(synced);
+    return map;
+  }
+
+  ShopFollowsCompanion toCompanion(bool nullToAbsent) {
+    return ShopFollowsCompanion(
+      id: Value(id),
+      shopId: Value(shopId),
+      userPhone: Value(userPhone),
+      createdAt: Value(createdAt),
+      synced: Value(synced),
+    );
+  }
+
+  factory ShopFollow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ShopFollow(
+      id: serializer.fromJson<int>(json['id']),
+      shopId: serializer.fromJson<int>(json['shopId']),
+      userPhone: serializer.fromJson<String>(json['userPhone']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      synced: serializer.fromJson<int>(json['synced']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'shopId': serializer.toJson<int>(shopId),
+      'userPhone': serializer.toJson<String>(userPhone),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'synced': serializer.toJson<int>(synced),
+    };
+  }
+
+  ShopFollow copyWith({
+    int? id,
+    int? shopId,
+    String? userPhone,
+    DateTime? createdAt,
+    int? synced,
+  }) => ShopFollow(
+    id: id ?? this.id,
+    shopId: shopId ?? this.shopId,
+    userPhone: userPhone ?? this.userPhone,
+    createdAt: createdAt ?? this.createdAt,
+    synced: synced ?? this.synced,
+  );
+  ShopFollow copyWithCompanion(ShopFollowsCompanion data) {
+    return ShopFollow(
+      id: data.id.present ? data.id.value : this.id,
+      shopId: data.shopId.present ? data.shopId.value : this.shopId,
+      userPhone: data.userPhone.present ? data.userPhone.value : this.userPhone,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      synced: data.synced.present ? data.synced.value : this.synced,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ShopFollow(')
+          ..write('id: $id, ')
+          ..write('shopId: $shopId, ')
+          ..write('userPhone: $userPhone, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('synced: $synced')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, shopId, userPhone, createdAt, synced);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ShopFollow &&
+          other.id == this.id &&
+          other.shopId == this.shopId &&
+          other.userPhone == this.userPhone &&
+          other.createdAt == this.createdAt &&
+          other.synced == this.synced);
+}
+
+class ShopFollowsCompanion extends UpdateCompanion<ShopFollow> {
+  final Value<int> id;
+  final Value<int> shopId;
+  final Value<String> userPhone;
+  final Value<DateTime> createdAt;
+  final Value<int> synced;
+  const ShopFollowsCompanion({
+    this.id = const Value.absent(),
+    this.shopId = const Value.absent(),
+    this.userPhone = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.synced = const Value.absent(),
+  });
+  ShopFollowsCompanion.insert({
+    this.id = const Value.absent(),
+    required int shopId,
+    required String userPhone,
+    this.createdAt = const Value.absent(),
+    this.synced = const Value.absent(),
+  }) : shopId = Value(shopId),
+       userPhone = Value(userPhone);
+  static Insertable<ShopFollow> custom({
+    Expression<int>? id,
+    Expression<int>? shopId,
+    Expression<String>? userPhone,
+    Expression<DateTime>? createdAt,
+    Expression<int>? synced,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (shopId != null) 'shop_id': shopId,
+      if (userPhone != null) 'user_phone': userPhone,
+      if (createdAt != null) 'created_at': createdAt,
+      if (synced != null) 'synced': synced,
+    });
+  }
+
+  ShopFollowsCompanion copyWith({
+    Value<int>? id,
+    Value<int>? shopId,
+    Value<String>? userPhone,
+    Value<DateTime>? createdAt,
+    Value<int>? synced,
+  }) {
+    return ShopFollowsCompanion(
+      id: id ?? this.id,
+      shopId: shopId ?? this.shopId,
+      userPhone: userPhone ?? this.userPhone,
+      createdAt: createdAt ?? this.createdAt,
+      synced: synced ?? this.synced,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (shopId.present) {
+      map['shop_id'] = Variable<int>(shopId.value);
+    }
+    if (userPhone.present) {
+      map['user_phone'] = Variable<String>(userPhone.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (synced.present) {
+      map['synced'] = Variable<int>(synced.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ShopFollowsCompanion(')
+          ..write('id: $id, ')
+          ..write('shopId: $shopId, ')
+          ..write('userPhone: $userPhone, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('synced: $synced')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$UzaDatabase extends GeneratedDatabase {
   _$UzaDatabase(QueryExecutor e) : super(e);
   $UzaDatabaseManager get managers => $UzaDatabaseManager(this);
@@ -8426,6 +9122,8 @@ abstract class _$UzaDatabase extends GeneratedDatabase {
   late final $FollowedShopsTable followedShops = $FollowedShopsTable(this);
   late final $ProductReviewsTable productReviews = $ProductReviewsTable(this);
   late final $StoryMediaTable storyMedia = $StoryMediaTable(this);
+  late final $ProductLikesTable productLikes = $ProductLikesTable(this);
+  late final $ShopFollowsTable shopFollows = $ShopFollowsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -8446,6 +9144,8 @@ abstract class _$UzaDatabase extends GeneratedDatabase {
     followedShops,
     productReviews,
     storyMedia,
+    productLikes,
+    shopFollows,
   ];
 }
 
@@ -8587,6 +9287,24 @@ final class $$ShopsTableReferences
     ).filter((f) => f.shopId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_followedShopsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$ShopFollowsTable, List<ShopFollow>>
+  _shopFollowsRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
+    db.shopFollows,
+    aliasName: $_aliasNameGenerator(db.shops.id, db.shopFollows.shopId),
+  );
+
+  $$ShopFollowsTableProcessedTableManager get shopFollowsRefs {
+    final manager = $$ShopFollowsTableTableManager(
+      $_db,
+      $_db.shopFollows,
+    ).filter((f) => f.shopId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_shopFollowsRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -8838,6 +9556,31 @@ class $$ShopsTableFilterComposer extends Composer<_$UzaDatabase, $ShopsTable> {
           }) => $$FollowedShopsTableFilterComposer(
             $db: $db,
             $table: $db.followedShops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> shopFollowsRefs(
+    Expression<bool> Function($$ShopFollowsTableFilterComposer f) f,
+  ) {
+    final $$ShopFollowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.shopFollows,
+      getReferencedColumn: (t) => t.shopId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopFollowsTableFilterComposer(
+            $db: $db,
+            $table: $db.shopFollows,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -9218,6 +9961,31 @@ class $$ShopsTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> shopFollowsRefs<T extends Object>(
+    Expression<T> Function($$ShopFollowsTableAnnotationComposer a) f,
+  ) {
+    final $$ShopFollowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.shopFollows,
+      getReferencedColumn: (t) => t.shopId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopFollowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.shopFollows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$ShopsTableTableManager
@@ -9238,6 +10006,7 @@ class $$ShopsTableTableManager
             bool storiesRefs,
             bool userContactsRefs,
             bool followedShopsRefs,
+            bool shopFollowsRefs,
           })
         > {
   $$ShopsTableTableManager(_$UzaDatabase db, $ShopsTable table)
@@ -9387,6 +10156,7 @@ class $$ShopsTableTableManager
                 storiesRefs = false,
                 userContactsRefs = false,
                 followedShopsRefs = false,
+                shopFollowsRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -9395,6 +10165,7 @@ class $$ShopsTableTableManager
                     if (storiesRefs) db.stories,
                     if (userContactsRefs) db.userContacts,
                     if (followedShopsRefs) db.followedShops,
+                    if (shopFollowsRefs) db.shopFollows,
                   ],
                   addJoins: null,
                   getPrefetchedDataCallback: (items) async {
@@ -9471,6 +10242,27 @@ class $$ShopsTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (shopFollowsRefs)
+                        await $_getPrefetchedData<
+                          Shop,
+                          $ShopsTable,
+                          ShopFollow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ShopsTableReferences
+                              ._shopFollowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ShopsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).shopFollowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.shopId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -9496,6 +10288,7 @@ typedef $$ShopsTableProcessedTableManager =
         bool storiesRefs,
         bool userContactsRefs,
         bool followedShopsRefs,
+        bool shopFollowsRefs,
       })
     >;
 typedef $$CategoriesTableCreateCompanionBuilder =
@@ -10030,6 +10823,24 @@ final class $$ProductsTableReferences
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
+
+  static MultiTypedResultKey<$ProductLikesTable, List<ProductLike>>
+  _productLikesRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
+    db.productLikes,
+    aliasName: $_aliasNameGenerator(db.products.id, db.productLikes.productId),
+  );
+
+  $$ProductLikesTableProcessedTableManager get productLikesRefs {
+    final manager = $$ProductLikesTableTableManager(
+      $_db,
+      $_db.productLikes,
+    ).filter((f) => f.productId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_productLikesRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
 }
 
 class $$ProductsTableFilterComposer
@@ -10298,6 +11109,31 @@ class $$ProductsTableFilterComposer
           }) => $$ProductReviewsTableFilterComposer(
             $db: $db,
             $table: $db.productReviews,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> productLikesRefs(
+    Expression<bool> Function($$ProductLikesTableFilterComposer f) f,
+  ) {
+    final $$ProductLikesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.productLikes,
+      getReferencedColumn: (t) => t.productId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductLikesTableFilterComposer(
+            $db: $db,
+            $table: $db.productLikes,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -10728,6 +11564,31 @@ class $$ProductsTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> productLikesRefs<T extends Object>(
+    Expression<T> Function($$ProductLikesTableAnnotationComposer a) f,
+  ) {
+    final $$ProductLikesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.productLikes,
+      getReferencedColumn: (t) => t.productId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductLikesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.productLikes,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$ProductsTableTableManager
@@ -10750,6 +11611,7 @@ class $$ProductsTableTableManager
             bool userContactsRefs,
             bool wishlistProductsRefs,
             bool productReviewsRefs,
+            bool productLikesRefs,
           })
         > {
   $$ProductsTableTableManager(_$UzaDatabase db, $ProductsTable table)
@@ -10891,6 +11753,7 @@ class $$ProductsTableTableManager
                 userContactsRefs = false,
                 wishlistProductsRefs = false,
                 productReviewsRefs = false,
+                productLikesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -10899,6 +11762,7 @@ class $$ProductsTableTableManager
                     if (userContactsRefs) db.userContacts,
                     if (wishlistProductsRefs) db.wishlistProducts,
                     if (productReviewsRefs) db.productReviews,
+                    if (productLikesRefs) db.productLikes,
                   ],
                   addJoins:
                       <
@@ -11031,6 +11895,27 @@ class $$ProductsTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (productLikesRefs)
+                        await $_getPrefetchedData<
+                          Product,
+                          $ProductsTable,
+                          ProductLike
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ProductsTableReferences
+                              ._productLikesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ProductsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).productLikesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.productId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -11058,6 +11943,7 @@ typedef $$ProductsTableProcessedTableManager =
         bool userContactsRefs,
         bool wishlistProductsRefs,
         bool productReviewsRefs,
+        bool productLikesRefs,
       })
     >;
 typedef $$StoriesTableCreateCompanionBuilder =
@@ -14694,6 +15580,631 @@ typedef $$StoryMediaTableProcessedTableManager =
       StoryMediaData,
       PrefetchHooks Function({bool storyId})
     >;
+typedef $$ProductLikesTableCreateCompanionBuilder =
+    ProductLikesCompanion Function({
+      Value<int> id,
+      required int productId,
+      required String userPhone,
+      Value<DateTime> createdAt,
+      Value<int> synced,
+    });
+typedef $$ProductLikesTableUpdateCompanionBuilder =
+    ProductLikesCompanion Function({
+      Value<int> id,
+      Value<int> productId,
+      Value<String> userPhone,
+      Value<DateTime> createdAt,
+      Value<int> synced,
+    });
+
+final class $$ProductLikesTableReferences
+    extends BaseReferences<_$UzaDatabase, $ProductLikesTable, ProductLike> {
+  $$ProductLikesTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $ProductsTable _productIdTable(_$UzaDatabase db) =>
+      db.products.createAlias(
+        $_aliasNameGenerator(db.productLikes.productId, db.products.id),
+      );
+
+  $$ProductsTableProcessedTableManager get productId {
+    final $_column = $_itemColumn<int>('product_id')!;
+
+    final manager = $$ProductsTableTableManager(
+      $_db,
+      $_db.products,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_productIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$ProductLikesTableFilterComposer
+    extends Composer<_$UzaDatabase, $ProductLikesTable> {
+  $$ProductLikesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userPhone => $composableBuilder(
+    column: $table.userPhone,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get synced => $composableBuilder(
+    column: $table.synced,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$ProductsTableFilterComposer get productId {
+    final $$ProductsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableFilterComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ProductLikesTableOrderingComposer
+    extends Composer<_$UzaDatabase, $ProductLikesTable> {
+  $$ProductLikesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get userPhone => $composableBuilder(
+    column: $table.userPhone,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get synced => $composableBuilder(
+    column: $table.synced,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$ProductsTableOrderingComposer get productId {
+    final $$ProductsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableOrderingComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ProductLikesTableAnnotationComposer
+    extends Composer<_$UzaDatabase, $ProductLikesTable> {
+  $$ProductLikesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userPhone =>
+      $composableBuilder(column: $table.userPhone, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get synced =>
+      $composableBuilder(column: $table.synced, builder: (column) => column);
+
+  $$ProductsTableAnnotationComposer get productId {
+    final $$ProductsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ProductLikesTableTableManager
+    extends
+        RootTableManager<
+          _$UzaDatabase,
+          $ProductLikesTable,
+          ProductLike,
+          $$ProductLikesTableFilterComposer,
+          $$ProductLikesTableOrderingComposer,
+          $$ProductLikesTableAnnotationComposer,
+          $$ProductLikesTableCreateCompanionBuilder,
+          $$ProductLikesTableUpdateCompanionBuilder,
+          (ProductLike, $$ProductLikesTableReferences),
+          ProductLike,
+          PrefetchHooks Function({bool productId})
+        > {
+  $$ProductLikesTableTableManager(_$UzaDatabase db, $ProductLikesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ProductLikesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ProductLikesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ProductLikesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> productId = const Value.absent(),
+                Value<String> userPhone = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> synced = const Value.absent(),
+              }) => ProductLikesCompanion(
+                id: id,
+                productId: productId,
+                userPhone: userPhone,
+                createdAt: createdAt,
+                synced: synced,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int productId,
+                required String userPhone,
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> synced = const Value.absent(),
+              }) => ProductLikesCompanion.insert(
+                id: id,
+                productId: productId,
+                userPhone: userPhone,
+                createdAt: createdAt,
+                synced: synced,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$ProductLikesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({productId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (productId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.productId,
+                                referencedTable: $$ProductLikesTableReferences
+                                    ._productIdTable(db),
+                                referencedColumn: $$ProductLikesTableReferences
+                                    ._productIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$ProductLikesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$UzaDatabase,
+      $ProductLikesTable,
+      ProductLike,
+      $$ProductLikesTableFilterComposer,
+      $$ProductLikesTableOrderingComposer,
+      $$ProductLikesTableAnnotationComposer,
+      $$ProductLikesTableCreateCompanionBuilder,
+      $$ProductLikesTableUpdateCompanionBuilder,
+      (ProductLike, $$ProductLikesTableReferences),
+      ProductLike,
+      PrefetchHooks Function({bool productId})
+    >;
+typedef $$ShopFollowsTableCreateCompanionBuilder =
+    ShopFollowsCompanion Function({
+      Value<int> id,
+      required int shopId,
+      required String userPhone,
+      Value<DateTime> createdAt,
+      Value<int> synced,
+    });
+typedef $$ShopFollowsTableUpdateCompanionBuilder =
+    ShopFollowsCompanion Function({
+      Value<int> id,
+      Value<int> shopId,
+      Value<String> userPhone,
+      Value<DateTime> createdAt,
+      Value<int> synced,
+    });
+
+final class $$ShopFollowsTableReferences
+    extends BaseReferences<_$UzaDatabase, $ShopFollowsTable, ShopFollow> {
+  $$ShopFollowsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $ShopsTable _shopIdTable(_$UzaDatabase db) => db.shops.createAlias(
+    $_aliasNameGenerator(db.shopFollows.shopId, db.shops.id),
+  );
+
+  $$ShopsTableProcessedTableManager get shopId {
+    final $_column = $_itemColumn<int>('shop_id')!;
+
+    final manager = $$ShopsTableTableManager(
+      $_db,
+      $_db.shops,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_shopIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$ShopFollowsTableFilterComposer
+    extends Composer<_$UzaDatabase, $ShopFollowsTable> {
+  $$ShopFollowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userPhone => $composableBuilder(
+    column: $table.userPhone,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get synced => $composableBuilder(
+    column: $table.synced,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$ShopsTableFilterComposer get shopId {
+    final $$ShopsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableFilterComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ShopFollowsTableOrderingComposer
+    extends Composer<_$UzaDatabase, $ShopFollowsTable> {
+  $$ShopFollowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get userPhone => $composableBuilder(
+    column: $table.userPhone,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get synced => $composableBuilder(
+    column: $table.synced,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$ShopsTableOrderingComposer get shopId {
+    final $$ShopsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableOrderingComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ShopFollowsTableAnnotationComposer
+    extends Composer<_$UzaDatabase, $ShopFollowsTable> {
+  $$ShopFollowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userPhone =>
+      $composableBuilder(column: $table.userPhone, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get synced =>
+      $composableBuilder(column: $table.synced, builder: (column) => column);
+
+  $$ShopsTableAnnotationComposer get shopId {
+    final $$ShopsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ShopFollowsTableTableManager
+    extends
+        RootTableManager<
+          _$UzaDatabase,
+          $ShopFollowsTable,
+          ShopFollow,
+          $$ShopFollowsTableFilterComposer,
+          $$ShopFollowsTableOrderingComposer,
+          $$ShopFollowsTableAnnotationComposer,
+          $$ShopFollowsTableCreateCompanionBuilder,
+          $$ShopFollowsTableUpdateCompanionBuilder,
+          (ShopFollow, $$ShopFollowsTableReferences),
+          ShopFollow,
+          PrefetchHooks Function({bool shopId})
+        > {
+  $$ShopFollowsTableTableManager(_$UzaDatabase db, $ShopFollowsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ShopFollowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ShopFollowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ShopFollowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> shopId = const Value.absent(),
+                Value<String> userPhone = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> synced = const Value.absent(),
+              }) => ShopFollowsCompanion(
+                id: id,
+                shopId: shopId,
+                userPhone: userPhone,
+                createdAt: createdAt,
+                synced: synced,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int shopId,
+                required String userPhone,
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> synced = const Value.absent(),
+              }) => ShopFollowsCompanion.insert(
+                id: id,
+                shopId: shopId,
+                userPhone: userPhone,
+                createdAt: createdAt,
+                synced: synced,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$ShopFollowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({shopId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (shopId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.shopId,
+                                referencedTable: $$ShopFollowsTableReferences
+                                    ._shopIdTable(db),
+                                referencedColumn: $$ShopFollowsTableReferences
+                                    ._shopIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$ShopFollowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$UzaDatabase,
+      $ShopFollowsTable,
+      ShopFollow,
+      $$ShopFollowsTableFilterComposer,
+      $$ShopFollowsTableOrderingComposer,
+      $$ShopFollowsTableAnnotationComposer,
+      $$ShopFollowsTableCreateCompanionBuilder,
+      $$ShopFollowsTableUpdateCompanionBuilder,
+      (ShopFollow, $$ShopFollowsTableReferences),
+      ShopFollow,
+      PrefetchHooks Function({bool shopId})
+    >;
 
 class $UzaDatabaseManager {
   final _$UzaDatabase _db;
@@ -14728,4 +16239,8 @@ class $UzaDatabaseManager {
       $$ProductReviewsTableTableManager(_db, _db.productReviews);
   $$StoryMediaTableTableManager get storyMedia =>
       $$StoryMediaTableTableManager(_db, _db.storyMedia);
+  $$ProductLikesTableTableManager get productLikes =>
+      $$ProductLikesTableTableManager(_db, _db.productLikes);
+  $$ShopFollowsTableTableManager get shopFollows =>
+      $$ShopFollowsTableTableManager(_db, _db.shopFollows);
 }

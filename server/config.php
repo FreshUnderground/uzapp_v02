@@ -7,7 +7,8 @@ define('DB_PASS', '31nzzasdnh');
 
 // API Key Authentication
 // In production, this should come from environment variables instead of hardcoded.
-define('API_KEY', 'uza_sk_' . md5('uzaapp_secure_2024'));
+// Hardcoded key for consistency across all clients
+define('API_KEY', 'uza_sk_305f0f1ab9c86b0259c876595f74fdf4');
 
 // Optional: Enable error reporting for development
 error_reporting(E_ALL);

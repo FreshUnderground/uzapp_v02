@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
+import '../../data/repositories/shop_repository.dart';
 import '../../data/local/uza_database.dart';
 import 'package:drift/drift.dart' as drift;
 import 'dart:typed_data';
@@ -19,6 +20,8 @@ import '../components/category_forms/restaurant_form.dart';
 import '../components/category_forms/phone_tablet_form.dart';
 import '../components/category_forms/informatique_form.dart';
 import '../components/category_forms/gadget_form.dart';
+import '../components/category_forms/style_form.dart';
+import '../../core/utils/category_helper.dart';
 
 class ProductImage {
   final Uint8List? bytes;
@@ -73,6 +76,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
       GlobalKey<InformatiqueFormState>();
   final GlobalKey<GadgetFormState> _gadgetFormKey =
       GlobalKey<GadgetFormState>();
+  final GlobalKey<StyleFormState> _styleFormKey = GlobalKey<StyleFormState>();
 
   Map<String, dynamic>? _existingMetadata;
 
@@ -204,10 +208,12 @@ class _EditProductScreenState extends State<EditProductScreen> {
         for (var sub in _subCategories) {
           debugPrint('  - Subcategory: ${sub.name} (id=${sub.id})');
         }
-        // Reset subcategory selection
-        _selectedCategoryId = null;
+        // If no subcategories exist, use root category as the final selection.
+        // Otherwise reset so user must pick a subcategory (or keep root via dropdown).
+        _selectedCategoryId = _subCategories.isEmpty ? rootCategoryId : null;
       } else {
         _subCategories = [];
+        _selectedCategoryId = null;
       }
     });
   }
@@ -227,16 +233,27 @@ class _EditProductScreenState extends State<EditProductScreen> {
     }
   }
 
+  /// Get the root category for form type detection
+  Category? get _selectedRootCategory {
+    if (_selectedRootCategoryId == null) return null;
+    try {
+      return _categories.firstWhere((c) => c.id == _selectedRootCategoryId);
+    } catch (_) {
+      return null;
+    }
+  }
+
   String? _getFormType(Category? category) {
-    if (category == null) return null;
-    final name = category.name.toLowerCase();
-    if (name.contains('phone') || name.contains('tablet')) return 'phone';
-    if (name.contains('vehicul') || name.contains('auto')) return 'vehicule';
-    if (name.contains('restaurant') || name.contains('restau'))
-      return 'restaurant';
-    if (name.contains('informatique') || name.contains('ordi'))
-      return 'informatique';
-    if (name.contains('gadget')) return 'gadget';
+    // First try to get form type from selected category
+    final formType = CategoryHelper.getFormType(category);
+    if (formType != 'generic') return formType;
+
+    // If generic, try the root category (parent)
+    if (_selectedRootCategory != null) {
+      final rootFormType = CategoryHelper.getFormType(_selectedRootCategory);
+      if (rootFormType != 'generic') return rootFormType;
+    }
+
     return null;
   }
 
@@ -277,6 +294,8 @@ class _EditProductScreenState extends State<EditProductScreen> {
         );
       case 'gadget':
         return GadgetForm(key: _gadgetFormKey, initialData: initialData);
+      case 'style':
+        return StyleForm(key: _styleFormKey, initialData: initialData);
       default:
         return const SizedBox.shrink();
     }
@@ -297,34 +316,59 @@ class _EditProductScreenState extends State<EditProductScreen> {
         return _informatiqueFormKey.currentState?.getData();
       case 'gadget':
         return _gadgetFormKey.currentState?.getData();
+      case 'style':
+        return _styleFormKey.currentState?.getData();
       default:
         return null;
     }
   }
 
   bool _validateCategoryForm() {
-    final category = _selectedCategory;
-    final formType = _getFormType(category);
-
-    switch (formType) {
-      case 'vehicule':
-        return _vehiculeFormKey.currentState?.validate() ?? true;
-      case 'restaurant':
-        return _restaurantFormKey.currentState?.validate() ?? true;
-      case 'phone':
-        return _phoneTabletFormKey.currentState?.validate() ?? true;
-      case 'informatique':
-        return _informatiqueFormKey.currentState?.validate() ?? true;
-      case 'gadget':
-        return _gadgetFormKey.currentState?.validate() ?? true;
-      default:
-        return true;
-    }
+    // Category form fields are OPTIONAL - not required
+    // Users can create products without filling in category-specific details
+    return true;
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (!_validateCategoryForm()) return;
+
+    // Soft warning: recommend at least 1 image but don't block
+    final hasAnyImage = _productImages.any((img) => !img.isEmpty);
+    if (!hasAnyImage && mounted) {
+      final shouldContinue = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber, color: Colors.orange[600]),
+              SizedBox(width: 8),
+              Text('Aucune photo'),
+            ],
+          ),
+          content: Text(
+            'Les produits avec photos se vendent beaucoup mieux. Voulez-vous quand même continuer sans photo?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+              ),
+              child: Text('Continuer sans photo'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldContinue != true) return;
+    }
+
     if (_isSaving) return;
     setState(() {
       _isUploading = true;
@@ -355,8 +399,15 @@ class _EditProductScreenState extends State<EditProductScreen> {
 
       final encryptedImages = CryptoUtils.encrypt(finalUrls.join(','));
 
-      final selectedCategory = _selectedCategoryId != null
-          ? _categories.firstWhere((c) => c.id == _selectedCategoryId)
+      // Use subcategory if selected, otherwise fall back to root category
+      final effectiveCategoryId =
+          _selectedCategoryId ?? _selectedRootCategoryId;
+
+      final selectedCategory = effectiveCategoryId != null
+          ? _categories.firstWhere(
+              (c) => c.id == effectiveCategoryId,
+              orElse: () => _categories.first,
+            )
           : null;
 
       final categoryFormData = _collectCategoryFormData();
@@ -397,6 +448,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
       if (!mounted) return;
       final productRepo = context.read<ProductRepository>();
       final syncService = context.read<SyncService>();
+      final shopRepo = context.read<ShopRepository>();
       final navigator = Navigator.of(context);
 
       int productId;
@@ -410,10 +462,24 @@ class _EditProductScreenState extends State<EditProductScreen> {
         action = 'CREATE';
       }
 
+      // Resolve the shop's server-side (remote) ID so the server can find the shop
+      final shop = await shopRepo.getShopById(widget.shopId);
+      final remoteShopId =
+          (shop?.remoteId != null && shop!.remoteId!.isNotEmpty)
+          ? (int.tryParse(shop.remoteId!) ?? widget.shopId)
+          : widget.shopId;
+
+      // For UPDATE, use the product's remote ID; for CREATE let the server assign one
+      final remoteProductId =
+          action == 'UPDATE' && widget.product?.remoteId != null
+          ? int.tryParse(widget.product!.remoteId!)
+          : null;
+
       // Queue for background sync
       await syncService.addToQueue(action, 'products', {
-        'id': productId,
-        'shop_id': widget.shopId,
+        if (remoteProductId != null) 'id': remoteProductId,
+        'local_id': productId, // kept for local remoteId mapping after push
+        'shop_id': remoteShopId,
         'name': _nameController.text.trim(),
         'description': _descController.text.trim(),
         'price': double.tryParse(_priceController.text) ?? 0.0,
@@ -471,7 +537,9 @@ class _EditProductScreenState extends State<EditProductScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.product == null ? 'Ajouter un Produit' : 'Modifier le Produit',
+          widget.product == null
+              ? '➕ Ajouter un Produit'
+              : '✏️ Modifier le Produit',
         ),
         actions: [
           if (_isUploading)
@@ -485,9 +553,15 @@ class _EditProductScreenState extends State<EditProductScreen> {
                 ),
               ),
             ),
+          // Save button in appbar for quick access
           IconButton(
-            icon: const Icon(Icons.check),
+            icon: Icon(
+              Icons.check_circle,
+              size: 28,
+              color: _isSaving ? Colors.grey : Colors.green,
+            ),
             onPressed: _isSaving ? null : _save,
+            tooltip: 'Enregistrer le produit',
           ),
         ],
       ),
@@ -539,22 +613,38 @@ class _EditProductScreenState extends State<EditProductScreen> {
             _buildRightFields(),
           ],
           const SizedBox(height: 32),
-          if (isDesktop)
-            SizedBox(
-              width: 300,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _isSaving ? null : _save,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: UzaColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+          // Large, visible save button for all users
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton.icon(
+              onPressed: _isSaving ? null : _save,
+              icon: _isSaving
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : Icon(Icons.check_circle, size: 24),
+              label: Text(
+                _isSaving ? 'Enregistrement...' : 'Créer le produit',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: UzaColors.primary,
+                foregroundColor: Colors.white,
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Text('Enregistrer le produit'),
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               ),
             ),
+          ),
+          if (!isDesktop) SizedBox(height: 20),
         ],
       ),
     );
@@ -566,7 +656,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
         TextFormField(
           controller: _nameController,
           decoration: const InputDecoration(
-            labelText: 'Nom du produit',
+            labelText: 'Nom du produit *',
             border: OutlineInputBorder(),
           ),
           validator: (v) => v!.isEmpty ? 'Requis' : null,
@@ -576,7 +666,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
           controller: _priceController,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
-            labelText: 'Prix (\$)',
+            labelText: 'Prix (USD) *',
             border: OutlineInputBorder(),
           ),
           validator: (v) => v!.isEmpty ? 'Requis' : null,
@@ -592,7 +682,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                   DropdownButtonFormField<int>(
                     value: _selectedRootCategoryId,
                     decoration: const InputDecoration(
-                      labelText: 'Catégorie principale',
+                      labelText: 'Catégorie *',
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 12,
@@ -618,7 +708,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                     DropdownButtonFormField<int>(
                       value: _selectedCategoryId,
                       decoration: const InputDecoration(
-                        labelText: 'Sous-catégorie',
+                        labelText: 'Sous-catégorie (optionnel)',
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(
                           horizontal: 12,
@@ -816,9 +906,46 @@ class _EditProductScreenState extends State<EditProductScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Images du produit (Max 3)',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        // Image section header with recommendation
+        Row(
+          children: [
+            const Text(
+              'Images du produit',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.recommend, size: 14, color: Colors.orange[700]),
+                  const SizedBox(width: 4),
+                  Text(
+                    '1 image min.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.orange[700],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Ajoutez au moins une photo pour de meilleures ventes (max 3)',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+            fontStyle: FontStyle.italic,
+          ),
         ),
         const SizedBox(height: 12),
         Row(
@@ -854,15 +981,37 @@ class _EditProductScreenState extends State<EditProductScreen> {
         decoration: BoxDecoration(
           color: Colors.grey[100],
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[300]!),
+          border: Border.all(
+            color: index == 0
+                ? Colors.orange.withValues(alpha: 0.5)
+                : Colors.grey[300]!,
+            width: index == 0 ? 2 : 1,
+          ),
         ),
         child: Stack(
           children: [
             if (img.isEmpty)
               InkWell(
                 onTap: () => _pickImage(index),
-                child: const Center(
-                  child: Icon(Icons.add_a_photo, color: Colors.grey),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.add_a_photo,
+                      color: index == 0 ? Colors.orange[600] : Colors.grey,
+                      size: index == 0 ? 32 : 28,
+                    ),
+                    const SizedBox(height: 4),
+                    if (index == 0)
+                      Text(
+                        'Recommandé',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.orange[600],
+                        ),
+                      ),
+                  ],
                 ),
               )
             else

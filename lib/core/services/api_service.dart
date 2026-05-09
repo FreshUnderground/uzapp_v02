@@ -23,6 +23,34 @@ class ApiService {
     'Accept': 'application/json',
   };
 
+  List<String> _phoneVariations(String phone) {
+    final cleaned = phone.trim().replaceAll(RegExp(r'\s+'), '');
+    final digits = cleaned.replaceAll(RegExp(r'[^0-9]'), '');
+    final variations = <String>{cleaned, digits};
+
+    if (digits.startsWith('243') && digits.length >= 12) {
+      final local = digits.substring(3);
+      variations.add(local);
+      variations.add('0$local');
+      variations.add(digits);
+      variations.add('+$digits');
+    } else if (digits.startsWith('0') && digits.length >= 10) {
+      final local = digits.substring(1);
+      variations.add(local);
+      variations.add('0$local');
+      variations.add('243$local');
+      variations.add('+243$local');
+    } else if (digits.length == 9) {
+      variations.add(digits);
+      variations.add('0$digits');
+      variations.add('243$digits');
+      variations.add('+243$digits');
+    }
+
+    variations.removeWhere((value) => value.isEmpty);
+    return variations.toList();
+  }
+
   /// Format DateTime for MySQL (YYYY-MM-DD HH:MM:SS)
   String _formatDateForApi(DateTime date) {
     return '${date.year.toString().padLeft(4, '0')}-'
@@ -251,19 +279,23 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>?> fetchUserByPhone(String phone) async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/users.php?phone=${Uri.encodeComponent(phone)}'),
-        headers: {'X-API-Key': _apiKey},
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data != null && data['error'] == null) {
-          return data as Map<String, dynamic>;
+    for (final phoneVariant in _phoneVariations(phone)) {
+      try {
+        final response = await http.get(
+          Uri.parse(
+            '$baseUrl/users.php?phone=${Uri.encodeComponent(phoneVariant)}',
+          ),
+          headers: {'X-API-Key': _apiKey},
+        );
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data != null && data['error'] == null) {
+            return data as Map<String, dynamic>;
+          }
         }
+      } catch (e) {
+        debugPrint("API ERROR (fetchUserByPhone: $phoneVariant): $e");
       }
-    } catch (e) {
-      debugPrint("API ERROR (fetchUserByPhone): $e");
     }
     return null;
   }
@@ -273,31 +305,39 @@ class ApiService {
     required String phone,
     required String passwordHash,
   }) async {
-    try {
-      final uri = Uri.parse('$baseUrl/login.php');
-      final response = await http.post(
-        uri,
-        headers: {..._commonHeaders, 'Content-Type': 'application/json'},
-        body: jsonEncode({'phone': phone, 'password_hash': passwordHash}),
-      );
+    Map<String, dynamic>? lastNotFound;
 
-      debugPrint('Login response status: ${response.statusCode}');
-      debugPrint('Login response body: ${response.body}');
+    for (final phoneVariant in _phoneVariations(phone)) {
+      try {
+        final uri = Uri.parse('$baseUrl/login.php');
+        final response = await http.post(
+          uri,
+          headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'phone': phoneVariant,
+            'password_hash': passwordHash,
+          }),
+        );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data != null && data['success'] == true) {
-          return data;
+        debugPrint('Login response status: ${response.statusCode}');
+        debugPrint('Login response body: ${response.body}');
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data != null && data['success'] == true) {
+            return data;
+          }
+        } else if (response.statusCode == 401) {
+          return jsonDecode(response.body) as Map<String, dynamic>;
+        } else if (response.statusCode == 404) {
+          lastNotFound = jsonDecode(response.body) as Map<String, dynamic>;
         }
-      } else if (response.statusCode == 404 || response.statusCode == 401) {
-        // User not found or wrong password - return error details
-        final data = jsonDecode(response.body);
-        return data;
+      } catch (e) {
+        debugPrint("API ERROR (loginWithPassword: $phoneVariant): $e");
       }
-    } catch (e) {
-      debugPrint("API ERROR (loginWithPassword): $e");
     }
-    return null;
+
+    return lastNotFound;
   }
 
   // POST /sync or entity-specific endpoints
@@ -321,6 +361,7 @@ class ApiService {
 
       // Route shops and products through sync.php for better server-side
       // validation and upsert logic.
+      // Route product_likes and shop_follows through stats.php.
       if (entityType == 'shops' || entityType == 'products') {
         final uri = Uri.parse('$baseUrl/sync.php?api_key=$_apiKey');
         final payload = jsonEncode({
@@ -329,6 +370,28 @@ class ApiService {
           'data': data,
         });
         debugPrint('PUSH → sync.php  uri=$uri  body_length=${payload.length}');
+        response = await http.post(
+          uri,
+          headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+          body: payload,
+        );
+      } else if (entityType == 'product_likes') {
+        // Route product likes to stats.php
+        final uri = Uri.parse('$baseUrl/stats.php?api_key=$_apiKey');
+        final actionMap = action == 'CREATE' ? 'like' : 'unlike';
+        final payload = jsonEncode({'action': actionMap, ...data});
+        debugPrint('PUSH → stats.php (like)  uri=$uri');
+        response = await http.post(
+          uri,
+          headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+          body: payload,
+        );
+      } else if (entityType == 'shop_follows') {
+        // Route shop follows to stats.php
+        final uri = Uri.parse('$baseUrl/stats.php?api_key=$_apiKey');
+        final actionMap = action == 'CREATE' ? 'follow' : 'unfollow';
+        final payload = jsonEncode({'action': actionMap, ...data});
+        debugPrint('PUSH → stats.php (follow)  uri=$uri');
         response = await http.post(
           uri,
           headers: {..._commonHeaders, 'Content-Type': 'application/json'},

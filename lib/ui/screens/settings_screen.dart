@@ -5,16 +5,25 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/l10n/tr.dart';
+import '../../core/l10n/app_translations.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  static const Map<String, String> _languages = {
-    'fr': 'Français',
-    'en': 'English',
-    'ln': 'Lingala',
-    'sw': 'Swahili',
-  };
+  static String _getLanguageFlag(String code) {
+    switch (code) {
+      case 'fr':
+        return '🇫🇷';
+      case 'en':
+        return '🇬🇧';
+      case 'ln':
+        return '🇨🇩';
+      case 'sw':
+        return '🇰🇪';
+      default:
+        return '🌍';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,49 +43,51 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         children: [
-          // Language Section
+          // Language Section with Dropdown
           _buildSectionHeader(Icons.language, tr(context, 'language')),
           _buildCard(
-            child: Column(
-              children: _languages.entries.map((entry) {
-                final isSelected = settings.currentLanguage == entry.key;
-                return ListTile(
-                  dense: true,
-                  leading: Text(
-                    entry.key.toUpperCase(),
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: isSelected
-                          ? UzaColors.primary
-                          : UzaColors.textSecondary,
-                      fontSize: 13,
-                    ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: settings.currentLanguage,
+                  isExpanded: true,
+                  icon: const Icon(
+                    Icons.arrow_drop_down,
+                    color: UzaColors.primary,
+                    size: 24,
                   ),
-                  title: Text(
-                    entry.value,
-                    style: TextStyle(
-                      fontWeight: isSelected
-                          ? FontWeight.w600
-                          : FontWeight.normal,
-                      color: isSelected
-                          ? UzaColors.primary
-                          : UzaColors.textPrimary,
-                    ),
+                  iconSize: 24,
+                  elevation: 8,
+                  style: const TextStyle(
+                    color: UzaColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
                   ),
-                  trailing: isSelected
-                      ? const Icon(
-                          Icons.check_circle,
-                          color: UzaColors.primary,
-                          size: 22,
-                        )
-                      : const Icon(
-                          Icons.circle_outlined,
-                          color: UzaColors.divider,
-                          size: 22,
-                        ),
-                  onTap: () => settings.setLanguage(entry.key),
-                );
-              }).toList(),
+                  dropdownColor: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  items: AppTranslations.supportedLocales.map((String code) {
+                    final languageName =
+                        AppTranslations.languageNames[code] ?? code;
+                    final flag = _getLanguageFlag(code);
+                    return DropdownMenuItem<String>(
+                      value: code,
+                      child: Row(
+                        children: [
+                          Text(flag, style: const TextStyle(fontSize: 20)),
+                          const SizedBox(width: 12),
+                          Text(languageName),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (String? newValue) {
+                    if (newValue != null) {
+                      settings.setLanguage(newValue);
+                    }
+                  },
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 24),

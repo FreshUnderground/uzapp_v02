@@ -4,6 +4,7 @@ import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/services/sync_service.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/utils/image_utils.dart';
 
 import 'edit_product_screen.dart';
 import 'seller_dashboard_screen.dart';
@@ -100,15 +101,13 @@ class _ProductManagementCard extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  image: DecorationImage(
-                    image: NetworkImage(product.imageUrls.split(',').first),
-                    fit: BoxFit.cover,
-                  ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: ImageUtils.buildCachedImage(
+                  product.imageUrls.split(',').first,
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.cover,
                 ),
               ),
               const SizedBox(width: 16),

@@ -2,6 +2,22 @@ import 'dart:developer' as developer;
 import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
 
+/// One feed entry = one media item of an active arrivage.
+/// Stories with no StoryMedia row fall back to their own mediaUrl.
+class ArrivageMediaItem {
+  final int storyId;
+  final int shopId;
+  final String mediaUrl; // encrypted (as stored in DB)
+  final String mediaType; // 'image' or 'video'
+
+  const ArrivageMediaItem({
+    required this.storyId,
+    required this.shopId,
+    required this.mediaUrl,
+    required this.mediaType,
+  });
+}
+
 class StoryRepository {
   final UzaDatabase db;
 
@@ -278,5 +294,66 @@ class StoryRepository {
           );
           return grouped;
         });
+  }
+
+  /// JOIN stream: one entry per StoryMedia row, fallback to story.mediaUrl.
+  /// Re-emits whenever stories OR storyMedia changes — no race condition.
+  Stream<List<ArrivageMediaItem>> watchArrivageMediaFeed() {
+    final now = DateTime.now();
+
+    // Apply where/orderBy on SimpleSelectStatement first, then join
+    final baseSelect = db.select(db.stories)
+      ..where(
+        (t) => t.isArrivage.equals(true) & t.expiresAt.isBiggerThanValue(now),
+      )
+      ..orderBy([
+        (t) => OrderingTerm.asc(t.shopId),
+        (t) => OrderingTerm.asc(t.createdAt),
+      ]);
+
+    final joinQuery = baseSelect.join([
+      leftOuterJoin(
+        db.storyMedia,
+        db.storyMedia.storyId.equalsExp(db.stories.id),
+      ),
+    ]);
+
+    return joinQuery.watch().map((rows) {
+      final items = <ArrivageMediaItem>[];
+      final storiesWithMedia = <int>{};
+
+      for (final row in rows) {
+        final story = row.readTable(db.stories);
+        final media = row.readTableOrNull(db.storyMedia);
+
+        if (media != null) {
+          storiesWithMedia.add(story.id);
+          items.add(
+            ArrivageMediaItem(
+              storyId: story.id,
+              shopId: story.shopId,
+              mediaUrl: media.mediaUrl,
+              mediaType: media.mediaType,
+            ),
+          );
+        } else if (!storiesWithMedia.contains(story.id)) {
+          // No StoryMedia rows: use story’s own mediaUrl
+          items.add(
+            ArrivageMediaItem(
+              storyId: story.id,
+              shopId: story.shopId,
+              mediaUrl: story.mediaUrl,
+              mediaType: story.mediaType,
+            ),
+          );
+        }
+      }
+
+      developer.log(
+        'watchArrivageMediaFeed: ${items.length} media entries',
+        name: 'StoryRepo',
+      );
+      return items;
+    });
   }
 }

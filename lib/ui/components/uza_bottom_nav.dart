@@ -69,13 +69,13 @@ class UzaBottomNav extends StatelessWidget {
               BottomNavigationBarItem(
                 icon: Padding(
                   padding: EdgeInsets.only(bottom: 4),
-                  child: Icon(Icons.shopping_bag_outlined, size: 24),
+                  child: Icon(Icons.store_outlined, size: 24),
                 ),
                 activeIcon: Padding(
                   padding: EdgeInsets.only(bottom: 4),
-                  child: Icon(Icons.shopping_bag_rounded, size: 24),
+                  child: Icon(Icons.store_rounded, size: 24),
                 ),
-                label: 'Panier',
+                label: 'Boutiques',
               ),
               BottomNavigationBarItem(
                 icon: Padding(
