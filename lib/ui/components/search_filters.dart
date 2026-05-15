@@ -77,7 +77,7 @@ class SearchFilters extends StatefulWidget {
 class _SearchFiltersState extends State<SearchFilters> {
   late SearchFilterState _state;
   List<Category> _subcategories = [];
-  bool _loadingSubcategories = false;
+  final bool _loadingSubcategories = false;
 
   @override
   void initState() {
@@ -347,7 +347,6 @@ class _SearchFiltersState extends State<SearchFilters> {
 
   @override
   Widget build(BuildContext context) {
-    final isPriceActive = _state.minPrice != null || _state.maxPrice != null;
     final isCategoryActive =
         _state.category != null || _state.subcategory != null;
     final isSortActive = _state.sortBy != SortBy.relevance;
@@ -361,13 +360,26 @@ class _SearchFiltersState extends State<SearchFilters> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _buildFilterChip('Prix', isPriceActive, _showPriceSheet),
                   _buildFilterChip(
                     'Catégorie',
                     isCategoryActive,
                     _showCategorySheet,
                   ),
                   _buildFilterChip('Trier', isSortActive, _showSortSheet),
+                  _buildFilterChip(
+                    'Près de Moi',
+                    _state.sortBy == SortBy.nearest,
+                    () {
+                      setState(() {
+                        _state = _state.copyWith(
+                          sortBy: _state.sortBy == SortBy.nearest
+                              ? SortBy.relevance
+                              : SortBy.nearest,
+                        );
+                      });
+                      _apply();
+                    },
+                  ),
                 ],
               ),
             ),

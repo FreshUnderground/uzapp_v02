@@ -212,7 +212,7 @@ class AuthService extends ChangeNotifier {
 
     try {
       // Normalize phone numbers for comparison (remove all non-digit chars except +)
-      final normalizePhone = (String phone) =>
+      String normalizePhone(String phone) =>
           phone.replaceAll(RegExp(r'[^\d+]'), '');
       final enteredPhone = normalizePhone(verificationId);
       final storedPhone = _lastOtpPhone != null

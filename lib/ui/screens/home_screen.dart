@@ -17,7 +17,6 @@ import 'profile_screen.dart';
 import 'story_feed_screen.dart';
 import 'discover_feed_screen.dart';
 import 'arrivages_screen.dart';
-import 'category_products_screen.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
@@ -30,7 +29,6 @@ import '../../data/repositories/story_repository.dart';
 import '../components/animated_bottom_nav.dart';
 import '../../data/services/sync_service.dart';
 import '../components/skeletons.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../components/tap_animator.dart';
 import '../components/custom_refresh_indicator.dart';
 import '../utils/page_transitions.dart';
@@ -152,8 +150,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildLanguageSelector() {
+    final settings = context.watch<SettingsService>();
+    final currentFlag = _getLanguageFlag(settings.currentLanguage);
+
     return PopupMenuButton<String>(
-      icon: const Icon(Icons.language, size: 22),
+      icon: Text(currentFlag, style: const TextStyle(fontSize: 22)),
       tooltip: 'Change language',
       itemBuilder: (context) {
         return AppTranslations.supportedLocales.map((String code) {
@@ -918,7 +919,7 @@ class _HomeContentState extends State<_HomeContent> {
                                                 firstStory.mediaUrl,
                                               )
                                             : '',
-                                        fit: BoxFit.cover,
+                                        fit: BoxFit.contain,
                                       ),
                                       Container(
                                         decoration: BoxDecoration(
@@ -1161,6 +1162,14 @@ class _HomeContentState extends State<_HomeContent> {
           debugPrint(
             'Root categories: ${categories.length}, connectionState=${snapshot.connectionState}',
           );
+          // Debug: print category details
+          if (categories.isNotEmpty) {
+            for (var i = 0; i < categories.length && i < 3; i++) {
+              debugPrint(
+                '  Category[$i]: id=${categories[i].id}, name=${categories[i].name}, level=${categories[i].level}',
+              );
+            }
+          }
           // Show up to 6 root categories to include all categories
           final displayCategories = categories.take(6).toList();
 
@@ -1261,10 +1270,11 @@ class _HomeContentState extends State<_HomeContent> {
                     onTap: () {
                       Navigator.push(
                         context,
-                        SlideUpRoute(
-                          page: CategoryProductsScreen(
-                            categoryId: category.id,
-                            categoryName: category.name,
+                        FadeThroughRoute(
+                          page: SearchScreen(
+                            showAppBar: true,
+                            initialCategoryId: category.id,
+                            initialCategoryName: category.name,
                           ),
                         ),
                       );

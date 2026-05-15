@@ -55,7 +55,7 @@ class SmsService {
     // Normalisation et sécurisation du message
     String messageSecurise = _normalizeText(message);
     if (messageSecurise.length > 160) {
-      messageSecurise = messageSecurise.substring(0, 157) + '...';
+      messageSecurise = '${messageSecurise.substring(0, 157)}...';
     }
 
     // On web, route through server-side proxy to avoid CORS

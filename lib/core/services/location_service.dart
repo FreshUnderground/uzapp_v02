@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:io' show Platform;
 
 /// Service for handling location-related operations
 class LocationService {
@@ -44,16 +45,60 @@ class LocationService {
     }
   }
 
-  /// Open location in Google Maps
+  /// Open location in Google Maps (native app or fallback to web)
   static Future<void> openInMaps({
     required double latitude,
     required double longitude,
     String? label,
   }) async {
-    final uri = Uri.https('www.google.com', '/maps/search/', {
-      'api': '1',
-      'query': '$latitude,$longitude',
-    });
+    Uri uri;
+
+    if (Platform.isAndroid) {
+      // Try Google Maps app first
+      uri = Uri.parse(
+        'geo:$latitude,$longitude?q=$latitude,$longitude${label != null ? '(${Uri.encodeComponent(label)})' : ''}',
+      );
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+      // Fallback to web URL
+      uri = Uri.https('www.google.com', '/maps/search/', {
+        'api': '1',
+        'query':
+            '${label != null ? '${Uri.encodeComponent(label)} ' : ''}$latitude,$longitude',
+      });
+    } else if (Platform.isIOS) {
+      // Try Apple Maps first (native)
+      uri = Uri.parse(
+        'http://maps.apple.com/?ll=$latitude,$longitude&q=${label != null ? Uri.encodeComponent(label) : ''}',
+      );
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+      // Try Google Maps app if installed
+      uri = Uri.parse(
+        'comgooglemaps://?center=$latitude,$longitude&q=${label != null ? Uri.encodeComponent(label) : ''}',
+      );
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+      // Fallback to web URL
+      uri = Uri.https('www.google.com', '/maps/search/', {
+        'api': '1',
+        'query':
+            '${label != null ? '${Uri.encodeComponent(label)} ' : ''}$latitude,$longitude',
+      });
+    } else {
+      // Web/other platforms
+      uri = Uri.https('www.google.com', '/maps/search/', {
+        'api': '1',
+        'query':
+            '${label != null ? '${Uri.encodeComponent(label)} ' : ''}$latitude,$longitude',
+      });
+    }
 
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -62,16 +107,65 @@ class LocationService {
     }
   }
 
-  /// Open directions to location in Google Maps
+  /// Open directions to location in Google Maps (native app or fallback to web)
   static Future<void> getDirections({
     required double latitude,
     required double longitude,
     String? destinationName,
   }) async {
-    final uri = Uri.https('www.google.com', '/maps/dir/', {
-      'api': '1',
-      'destination': '$latitude,$longitude',
-    });
+    Uri uri;
+
+    if (Platform.isAndroid) {
+      // Try Google Maps navigation first
+      uri = Uri.parse(
+        'google.navigation:q=$latitude,$longitude${destinationName != null ? '&daddr=${Uri.encodeComponent(destinationName)}' : ''}',
+      );
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+      // Fallback to geo URI
+      uri = Uri.parse(
+        'geo:$latitude,$longitude?q=$latitude,$longitude${destinationName != null ? '(${Uri.encodeComponent(destinationName)})' : ''}',
+      );
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+      // Fallback to web URL
+      uri = Uri.https('www.google.com', '/maps/dir/', {
+        'api': '1',
+        'destination': '$latitude,$longitude',
+      });
+    } else if (Platform.isIOS) {
+      // Try Apple Maps directions first (native)
+      uri = Uri.parse(
+        'http://maps.apple.com/?daddr=$latitude,$longitude&saddr=&dirflg=d',
+      );
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+      // Try Google Maps app if installed
+      uri = Uri.parse(
+        'comgooglemaps://?daddr=$latitude,$longitude&directionsmode=driving',
+      );
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+      // Fallback to web URL
+      uri = Uri.https('www.google.com', '/maps/dir/', {
+        'api': '1',
+        'destination': '$latitude,$longitude',
+      });
+    } else {
+      // Web/other platforms
+      uri = Uri.https('www.google.com', '/maps/dir/', {
+        'api': '1',
+        'destination': '$latitude,$longitude',
+      });
+    }
 
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

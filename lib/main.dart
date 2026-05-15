@@ -13,6 +13,7 @@ import 'core/services/notification_service.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/services/settings_service.dart';
 import 'core/theme/uza_theme.dart';
+import 'core/l10n/tr.dart';
 import 'data/local/uza_database.dart';
 import 'data/repositories/auth_repository.dart';
 import 'data/repositories/cart_repository.dart';
@@ -37,88 +38,19 @@ void main() async {
   // Allow fetching fonts from the internet if AssetManifest.json is missing on web
   GoogleFonts.config.allowRuntimeFetching = true;
 
-  // Track last app open time for inactivity reminders
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('last_app_open', DateTime.now().toIso8601String());
-  } catch (e) {
-    debugPrint('SharedPreferences error: $e');
-  }
-
-  // Initialize background tasks (Workmanager)
+  // Initialize background tasks (Workmanager) - non-blocking
   if (!kIsWeb) {
     try {
+      // Don't await - let it initialize in background
       BackgroundService.initialize();
     } catch (e) {
       debugPrint('BackgroundService initialization error: $e');
     }
   }
 
-  try {
-    final database = UzaDatabase();
-
-    // Data is now fetched via SyncService from the production API
-
-    // Use local URL for development if production is not reachable
-    const String baseUrl = 'https://uzaapp.com/api';
-    // const String baseUrl = 'http://localhost/uzaapp/server/api';
-
-    runApp(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(create: (_) => NotificationService()),
-          Provider<UzaDatabase>.value(value: database),
-          Provider<ApiService>(create: (_) => ApiService(baseUrl: baseUrl)),
-          ProxyProvider<UzaDatabase, StoryRepository>(
-            update: (_, db, __) => StoryRepository(db),
-          ),
-          ChangeNotifierProxyProvider4<
-            UzaDatabase,
-            ApiService,
-            NotificationService,
-            StoryRepository,
-            SyncService
-          >(
-            create: (context) => SyncService(
-              context.read<UzaDatabase>(),
-              context.read<ApiService>(),
-              notificationService: context.read<NotificationService>(),
-              storyRepository: context.read<StoryRepository>(),
-            ),
-            update: (_, db, api, notification, storyRepo, current) => current!,
-          ),
-          Provider<AuthRepository>(create: (_) => AuthRepository(database)),
-          Provider<CartRepository>(create: (_) => CartRepository(database)),
-          ChangeNotifierProxyProvider<AuthRepository, AuthService>(
-            create: (context) => AuthService(context.read<AuthRepository>()),
-            update: (context, repo, current) => current ?? AuthService(repo),
-          ),
-          ProxyProvider2<UzaDatabase, SyncService, ShopRepository>(
-            update: (_, db, sync, __) => ShopRepository(db, syncService: sync),
-          ),
-          ProxyProvider2<UzaDatabase, SyncService, ProductRepository>(
-            update: (_, db, sync, __) =>
-                ProductRepository(db, syncService: sync),
-          ),
-          ProxyProvider<UzaDatabase, ContactService>(
-            update: (_, db, __) => ContactService(db),
-          ),
-          ChangeNotifierProvider<SettingsService>(
-            create: (context) => SettingsService(context.read<UzaDatabase>()),
-          ),
-        ],
-        child: const UzaApp(),
-      ),
-    );
-  } catch (e, stack) {
-    debugPrint("BOOTSTRAP ERROR: $e");
-    debugPrint("STACK TRACE: $stack");
-    runApp(
-      MaterialApp(
-        home: Scaffold(body: Center(child: Text("Erreur au démarrage: $e"))),
-      ),
-    );
-  }
+  // Run app immediately with splash screen
+  // Database and services will initialize asynchronously
+  runApp(const UzaApp());
 }
 
 class BiometricGuard extends StatefulWidget {
@@ -206,9 +138,9 @@ class _BiometricGuardState extends State<BiometricGuard> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'L\'app est verrouillée',
-                  style: TextStyle(
+                Text(
+                  tr(context, 'app_locked'),
+                  style: const TextStyle(
                     fontSize: 16,
                     color: UzaColors.textSecondary,
                   ),
@@ -230,7 +162,9 @@ class _BiometricGuardState extends State<BiometricGuard> {
                           )
                         : const Icon(Icons.fingerprint, size: 24),
                     label: Text(
-                      _isChecking ? 'Vérification...' : 'Déverrouiller',
+                      _isChecking
+                          ? tr(context, 'verifying')
+                          : tr(context, 'unlock'),
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -251,9 +185,9 @@ class _BiometricGuardState extends State<BiometricGuard> {
                   onPressed: _isChecking
                       ? null
                       : () => setState(() => _isAuthenticated = true),
-                  child: const Text(
-                    'Passer (mode invité)',
-                    style: TextStyle(color: UzaColors.textSecondary),
+                  child: Text(
+                    tr(context, 'skip_guest'),
+                    style: const TextStyle(color: UzaColors.textSecondary),
                   ),
                 ),
               ],
@@ -275,62 +209,115 @@ class UzaApp extends StatefulWidget {
 }
 
 class _UzaAppState extends State<UzaApp> {
+  late Future<void> _initializationFuture;
+
   @override
   void initState() {
     super.initState();
-    // Start background sync after build completes to ensure providers are ready
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+    // Initialize services asynchronously without blocking UI
+    _initializationFuture = _initializeServices();
+  }
+
+  Future<void> _initializeServices() async {
+    try {
+      // Track last app open time - non-critical, can fail silently
       try {
-        final syncService = context.read<SyncService>();
-        final authService = context.read<AuthService>();
-        final shopRepository = context.read<ShopRepository>();
-
-        authService.syncService = syncService;
-        authService.shopRepository = shopRepository;
-
-        syncService.startAutoSync(
-          interval: const Duration(minutes: 1),
-        ); // Faster for demo
-
-        // Eager initial sync
-        syncService
-            .checkFirstSync(); // Initialise isFirstSync flag from local DB
-        // Repair shops that were created before the remoteId mapping fix
-        syncService.repairShopsWithoutRemoteId().then(
-          (_) => syncService.syncNow(),
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(
+          'last_app_open',
+          DateTime.now().toIso8601String(),
         );
-      } catch (e, stack) {
-        debugPrint('Error initializing sync: $e');
-        debugPrint('Stack trace: $stack');
+      } catch (e) {
+        debugPrint('SharedPreferences error: $e');
       }
-    });
 
-    // Initialize local notifications after providers are ready
-    if (!kIsWeb) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+      // Initialize database
+      final database = UzaDatabase();
+
+      const String baseUrl = 'https://uzaapp.com/api';
+
+      // Set up providers
+      if (!mounted) return;
+
+      final notificationService = NotificationService();
+      final apiService = ApiService(baseUrl: baseUrl);
+      final syncService = SyncService(
+        database,
+        apiService,
+        notificationService: notificationService,
+      );
+      final storyRepository = StoryRepository(
+        database,
+        syncService: syncService,
+      );
+      final authRepository = AuthRepository(database);
+      final authService = AuthService(authRepository);
+      final shopRepository = ShopRepository(database, syncService: syncService);
+      final productRepository = ProductRepository(
+        database,
+        syncService: syncService,
+      );
+      final cartRepository = CartRepository(database);
+      final contactService = ContactService(database);
+      final settingsService = SettingsService(database);
+
+      // Connect cross-references
+      authService.syncService = syncService;
+      authService.shopRepository = shopRepository;
+
+      // Store in context for child widgets
+      _services = _UzaServices(
+        database: database,
+        notificationService: notificationService,
+        apiService: apiService,
+        storyRepository: storyRepository,
+        syncService: syncService,
+        authRepository: authRepository,
+        authService: authService,
+        shopRepository: shopRepository,
+        productRepository: productRepository,
+        cartRepository: cartRepository,
+        contactService: contactService,
+        settingsService: settingsService,
+      );
+
+      // Start sync AFTER a short delay to prioritize UI rendering
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+
+      // REALTIME SYNC: 30-second interval for near-instant updates
+      // Users will see new content within 30 seconds without UI disruption
+      syncService.startAutoSync(interval: const Duration(seconds: 30));
+
+      // Eager initial sync
+      syncService.checkFirstSync();
+      syncService.repairShopsWithoutRemoteId().then(
+        (_) => syncService.syncNow(),
+      );
+
+      // Initialize local notifications
+      if (!kIsWeb) {
         try {
-          final notifService = context.read<NotificationService>();
           final pushService = PushNotificationService(
-            notificationService: notifService,
+            notificationService: notificationService,
           );
-          final shopRepo = context.read<ShopRepository>();
-          final productRepo = context.read<ProductRepository>();
-          pushService.initialize().then((_) {
-            // Listen for notification deep links
-            _listenForNotificationDeepLinks(
-              notifService,
-              shopRepo,
-              productRepo,
-            );
-          });
+          await pushService.initialize();
+          _listenForNotificationDeepLinks(
+            notificationService,
+            shopRepository,
+            productRepository,
+          );
         } catch (e) {
           debugPrint('Error initializing notifications: $e');
         }
-      });
+      }
+    } catch (e, stack) {
+      debugPrint('Service initialization error: $e');
+      debugPrint('Stack trace: $stack');
     }
   }
+
+  _UzaServices? _services;
 
   void _listenForNotificationDeepLinks(
     NotificationService notifService,
@@ -375,8 +362,8 @@ class _UzaAppState extends State<UzaApp> {
               );
             }
             if (!snapshot.hasData || snapshot.data == null) {
-              return const Scaffold(
-                body: Center(child: Text('Boutique introuvable')),
+              return Scaffold(
+                body: Center(child: Text(tr(context, 'shop_not_found'))),
               );
             }
             return ShopProfileScreen(shop: snapshot.data!);
@@ -402,8 +389,8 @@ class _UzaAppState extends State<UzaApp> {
               );
             }
             if (!snapshot.hasData || snapshot.data == null) {
-              return const Scaffold(
-                body: Center(child: Text('Produit introuvable')),
+              return Scaffold(
+                body: Center(child: Text(tr(context, 'product_not_found'))),
               );
             }
             return ProductDetailScreen(product: snapshot.data!);
@@ -415,72 +402,230 @@ class _UzaAppState extends State<UzaApp> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<SettingsService>(
-      builder: (context, settings, child) {
-        return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          title: 'Uzaapp',
-          theme: UzaTheme.lightTheme,
-          darkTheme: ThemeData.dark().copyWith(
-            primaryColor: UzaColors.primary,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: UzaColors.primary,
-              brightness: Brightness.dark,
-            ),
-          ),
-          themeMode: settings.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-          locale: Locale(settings.language),
-          navigatorKey: _rootNavigatorKey,
-          home: const BiometricGuard(),
-          onGenerateRoute: (settings) {
-            // Deep link handling for uzaapp.com (#/shop/1 or #/product/1)
-            final uri = Uri.parse(settings.name ?? '');
-            if (uri.pathSegments.length >= 2) {
-              final id = int.tryParse(uri.pathSegments[1]);
-              if (id != null) {
-                if (uri.pathSegments[0] == 'shop') {
-                  return MaterialPageRoute(
-                    builder: (context) => FutureBuilder<Shop?>(
-                      future: context.read<ShopRepository>().getShopById(id),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting)
-                          return const Scaffold(
-                            body: Center(child: CircularProgressIndicator()),
-                          );
-                        if (!snapshot.hasData || snapshot.data == null)
-                          return const Scaffold(
-                            body: Center(child: Text('Boutique introuvable')),
-                          );
-                        return ShopProfileScreen(shop: snapshot.data!);
-                      },
-                    ),
-                  );
-                } else if (uri.pathSegments[0] == 'product') {
-                  return MaterialPageRoute(
-                    builder: (context) => FutureBuilder<Product?>(
-                      future: context.read<ProductRepository>().getProductById(
-                        id,
-                      ),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting)
-                          return const Scaffold(
-                            body: Center(child: CircularProgressIndicator()),
-                          );
-                        if (!snapshot.hasData || snapshot.data == null)
-                          return const Scaffold(
-                            body: Center(child: Text('Produit introuvable')),
-                          );
-                        return ProductDetailScreen(product: snapshot.data!);
-                      },
-                    ),
-                  );
-                }
-              }
-            }
-            return null;
-          },
-        );
+    return FutureBuilder<void>(
+      future: _initializationFuture,
+      builder: (context, snapshot) {
+        // Show splash screen while initializing
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildSplashScreen();
+        }
+
+        // Show main app with all services ready
+        // Skip BiometricGuard for faster startup - go directly to HomeScreen
+        return _buildMainApp();
       },
     );
   }
+
+  Widget _buildSplashScreen() {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Uzaapp',
+      theme: UzaTheme.lightTheme,
+      home: Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // App Logo
+              Image.asset(
+                'assets/logo.png',
+                width: 120,
+                height: 120,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      color: UzaColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: const Icon(
+                      Icons.shopping_bag_outlined,
+                      size: 56,
+                      color: UzaColors.primary,
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'UzaApp',
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: UzaColors.primary,
+                ),
+              ),
+              const SizedBox(height: 32),
+              const SizedBox(
+                width: 40,
+                height: 40,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: UzaColors.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainApp() {
+    if (_services == null) {
+      return _buildSplashScreen();
+    }
+
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: _services!.notificationService),
+        Provider<UzaDatabase>.value(value: _services!.database),
+        Provider<ApiService>.value(value: _services!.apiService),
+        ProxyProvider<UzaDatabase, StoryRepository>(
+          update: (_, db, __) => _services!.storyRepository,
+        ),
+        ChangeNotifierProxyProvider4<
+          UzaDatabase,
+          ApiService,
+          NotificationService,
+          StoryRepository,
+          SyncService
+        >(
+          create: (context) => _services!.syncService,
+          update: (_, db, api, notification, storyRepo, current) =>
+              _services!.syncService,
+        ),
+        Provider<AuthRepository>.value(value: _services!.authRepository),
+        Provider<CartRepository>.value(value: _services!.cartRepository),
+        ChangeNotifierProxyProvider<AuthRepository, AuthService>(
+          create: (context) => _services!.authService,
+          update: (context, repo, current) => _services!.authService,
+        ),
+        ProxyProvider2<UzaDatabase, SyncService, ShopRepository>(
+          update: (_, db, sync, __) => _services!.shopRepository,
+        ),
+        ProxyProvider2<UzaDatabase, SyncService, ProductRepository>(
+          update: (_, db, sync, __) => _services!.productRepository,
+        ),
+        ProxyProvider<UzaDatabase, ContactService>(
+          update: (_, db, __) => _services!.contactService,
+        ),
+        ChangeNotifierProvider<SettingsService>(
+          create: (context) => _services!.settingsService,
+        ),
+      ],
+      child: Consumer<SettingsService>(
+        builder: (context, settings, child) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'Uzaapp',
+            theme: UzaTheme.lightTheme,
+            darkTheme: ThemeData.dark().copyWith(
+              primaryColor: UzaColors.primary,
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: UzaColors.primary,
+                brightness: Brightness.dark,
+              ),
+            ),
+            themeMode: settings.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+            locale: Locale(settings.language),
+            navigatorKey: _rootNavigatorKey,
+            // Go directly to HomeScreen - skip BiometricGuard for faster startup
+            home: const HomeScreen(),
+            onGenerateRoute: (settings) {
+              // Deep link handling for uzaapp.com (#/shop/1 or #/product/1)
+              final uri = Uri.parse(settings.name ?? '');
+              if (uri.pathSegments.length >= 2) {
+                final id = int.tryParse(uri.pathSegments[1]);
+                if (id != null) {
+                  if (uri.pathSegments[0] == 'shop') {
+                    return MaterialPageRoute(
+                      builder: (context) => FutureBuilder<Shop?>(
+                        future: context.read<ShopRepository>().getShopById(id),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Scaffold(
+                              body: Center(child: CircularProgressIndicator()),
+                            );
+                          }
+                          if (!snapshot.hasData || snapshot.data == null) {
+                            return Scaffold(
+                              body: Center(
+                                child: Text(tr(context, 'shop_not_found')),
+                              ),
+                            );
+                          }
+                          return ShopProfileScreen(shop: snapshot.data!);
+                        },
+                      ),
+                    );
+                  } else if (uri.pathSegments[0] == 'product') {
+                    return MaterialPageRoute(
+                      builder: (context) => FutureBuilder<Product?>(
+                        future: context
+                            .read<ProductRepository>()
+                            .getProductById(id),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Scaffold(
+                              body: Center(child: CircularProgressIndicator()),
+                            );
+                          }
+                          if (!snapshot.hasData || snapshot.data == null) {
+                            return Scaffold(
+                              body: Center(
+                                child: Text(tr(context, 'product_not_found')),
+                              ),
+                            );
+                          }
+                          return ProductDetailScreen(product: snapshot.data!);
+                        },
+                      ),
+                    );
+                  }
+                }
+              }
+              return null;
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Container for all app services
+class _UzaServices {
+  final UzaDatabase database;
+  final NotificationService notificationService;
+  final ApiService apiService;
+  final StoryRepository storyRepository;
+  final SyncService syncService;
+  final AuthRepository authRepository;
+  final AuthService authService;
+  final ShopRepository shopRepository;
+  final ProductRepository productRepository;
+  final CartRepository cartRepository;
+  final ContactService contactService;
+  final SettingsService settingsService;
+
+  _UzaServices({
+    required this.database,
+    required this.notificationService,
+    required this.apiService,
+    required this.storyRepository,
+    required this.syncService,
+    required this.authRepository,
+    required this.authService,
+    required this.shopRepository,
+    required this.productRepository,
+    required this.cartRepository,
+    required this.contactService,
+    required this.settingsService,
+  });
 }

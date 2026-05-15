@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/l10n/tr.dart';
 import '../../data/local/uza_database.dart';
 import 'manage_products_screen.dart';
 import 'edit_shop_screen.dart';
@@ -35,8 +36,8 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
         }
         final shop = snapshot.data;
         if (shop == null) {
-          return const Scaffold(
-            body: Center(child: Text('Boutique introuvable')),
+          return Scaffold(
+            body: Center(child: Text(tr(context, 'shop_not_found'))),
           );
         }
 

@@ -162,7 +162,7 @@ class _CompactStoryFeed extends StatelessWidget {
                                   : '',
                               width: 60,
                               height: 60,
-                              fit: BoxFit.cover,
+                              fit: BoxFit.contain,
                             ),
                             if (firstStory.mediaType == 'video')
                               Positioned(
@@ -426,7 +426,7 @@ class _FullStoryFeed extends StatelessWidget {
                         firstStory.mediaUrl.isNotEmpty
                             ? CryptoUtils.decrypt(firstStory.mediaUrl)
                             : '',
-                        fit: BoxFit.cover,
+                        fit: BoxFit.contain,
                       ),
                       Container(
                         decoration: BoxDecoration(

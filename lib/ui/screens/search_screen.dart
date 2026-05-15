@@ -32,7 +32,6 @@ class _SearchScreenState extends State<SearchScreen> {
   late int? _selectedSubcategoryId;
   late String? _selectedSubcategoryName;
   int _refreshKey = 0;
-  bool _nearbyEnabled = false;
   Position? _userPosition;
   bool _locationLoading = false;
 
@@ -43,7 +42,13 @@ class _SearchScreenState extends State<SearchScreen> {
     _selectedCategoryName = widget.initialCategoryName;
     _selectedSubcategoryId = null;
     _selectedSubcategoryName = null;
-    if (_selectedCategoryId != null) {
+
+    // Initialize filter state with initial category if provided
+    if (widget.initialCategoryId != null && widget.initialCategoryId! > 0) {
+      _filterState = SearchFilterState(
+        categoryId: widget.initialCategoryId,
+        category: widget.initialCategoryName,
+      );
       _refreshKey++;
     }
   }
@@ -89,7 +94,6 @@ class _SearchScreenState extends State<SearchScreen> {
           );
         }
         setState(() {
-          _nearbyEnabled = false;
           _locationLoading = false;
         });
         return;
@@ -109,7 +113,6 @@ class _SearchScreenState extends State<SearchScreen> {
           );
         }
         setState(() {
-          _nearbyEnabled = false;
           _locationLoading = false;
         });
         return;
@@ -132,17 +135,9 @@ class _SearchScreenState extends State<SearchScreen> {
           const SnackBar(content: Text('Erreur de localisation.')),
         );
         setState(() {
-          _nearbyEnabled = false;
           _locationLoading = false;
         });
       }
-    }
-  }
-
-  void _toggleNearby(bool value) {
-    setState(() => _nearbyEnabled = value);
-    if (value && _userPosition == null) {
-      _requestLocation();
     }
   }
 
@@ -277,70 +272,25 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
 
-            // ─── Search Filters + Nearby Toggle ─────────────────
+            // ─── Search Filters ─────────────────
             SliverToBoxAdapter(
               child: StreamBuilder<List<Category>>(
                 stream: productRepo.watchCategories(),
                 builder: (context, snapshot) {
                   final categoryNames =
                       snapshot.data?.map((c) => c.name).toList() ?? [];
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SearchFilters(
-                        key: ValueKey('filters_$_refreshKey'),
-                        categories: categoryNames,
-                        onFiltersChanged: _onFiltersChanged,
-                        initialState: _filterState,
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: FilterChip(
-                          label: Text(
-                            _locationLoading
-                                ? 'Localisation...'
-                                : 'A proximite',
-                          ),
-                          selected: _nearbyEnabled,
-                          onSelected: _toggleNearby,
-                          selectedColor: UzaColors.primary.withValues(
-                            alpha: 0.15,
-                          ),
-                          checkmarkColor: UzaColors.primary,
-                          avatar: Icon(
-                            Icons.near_me,
-                            size: 16,
-                            color: _nearbyEnabled
-                                ? UzaColors.primary
-                                : Colors.grey,
-                          ),
-                          labelStyle: TextStyle(
-                            color: _nearbyEnabled
-                                ? UzaColors.primary
-                                : Colors.black87,
-                            fontWeight: _nearbyEnabled
-                                ? FontWeight.w600
-                                : FontWeight.normal,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            side: BorderSide(
-                              color: _nearbyEnabled
-                                  ? UzaColors.primary
-                                  : Colors.grey[300]!,
-                            ),
-                          ),
-                          backgroundColor: Colors.white,
-                        ),
-                      ),
-                    ],
+                  return SearchFilters(
+                    key: ValueKey('filters_$_refreshKey'),
+                    categories: categoryNames,
+                    onFiltersChanged: _onFiltersChanged,
+                    initialState: _filterState,
                   );
                 },
               ),
             ),
 
             // ─── Results ─────────────────────────────────────────
-            if (_nearbyEnabled || _filterState.sortBy == SortBy.nearest)
+            if (_filterState.sortBy == SortBy.nearest)
               _buildNearbyResultsSliver(productRepo)
             else
               StreamBuilder<List<Product>>(

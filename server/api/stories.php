@@ -10,6 +10,38 @@ $ALLOWED_STORY_COLUMNS = ['id', 'shop_id', 'media_url', 'media_type', 'is_arriva
 try {
     $db = DB::getInstance();
 
+    // DELETE: Remove a story and its media items
+    if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
+        $rawInput = file_get_contents('php://input');
+        $input = json_decode($rawInput, true);
+        
+        if (!$input) {
+            error_log("Stories DELETE: Invalid JSON input");
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid JSON input']);
+            exit;
+        }
+
+        $id = isset($input['id']) ? $input['id'] : null;
+
+        if (!$id) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Story id is required']);
+            exit;
+        }
+
+        // Delete story_media first, then the story
+        $mediaStmt = $db->prepare("DELETE FROM story_media WHERE story_id = ?");
+        $mediaStmt->execute([$id]);
+        
+        $storyStmt = $db->prepare("DELETE FROM stories WHERE id = ?");
+        $storyStmt->execute([$id]);
+        
+        error_log("Stories DELETE success: id=$id");
+        echo json_encode(['success' => true, 'action' => 'DELETE', 'id' => $id]);
+        exit;
+    }
+
     // Log incoming POST for debugging
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $rawInput = file_get_contents('php://input');
@@ -168,7 +200,7 @@ try {
     if ($isSyncMode) {
         // For sync mode, ALWAYS return non-expired stories (ignore updated_since filter)
         // Stories have short lifespans, so we need all active ones for proper sync
-        $query = "SELECT s.*, sh.name AS shop_name FROM stories s LEFT JOIN shops sh ON s.shop_id = sh.id WHERE s.expires_at > NOW() ORDER BY s.created_at DESC";
+        $query = "SELECT s.*, sh.name AS shop_name, sh.owner_id AS owner_id FROM stories s LEFT JOIN shops sh ON s.shop_id = sh.id WHERE s.expires_at > NOW() ORDER BY s.created_at DESC";
         $params = [];
         $stmt = $db->prepare($query);
         $stmt->execute($params);
@@ -182,7 +214,7 @@ try {
         $countStmt->execute();
         $total = (int)$countStmt->fetch()['total'];
 
-        $query = "SELECT s.*, sh.name AS shop_name FROM stories s LEFT JOIN shops sh ON s.shop_id = sh.id WHERE s.expires_at > NOW() ORDER BY s.id DESC LIMIT ? OFFSET ?";
+        $query = "SELECT s.*, sh.name AS shop_name, sh.owner_id AS owner_id FROM stories s LEFT JOIN shops sh ON s.shop_id = sh.id WHERE s.expires_at > NOW() ORDER BY s.id DESC LIMIT ? OFFSET ?";
         $stmt = $db->prepare($query);
         $stmt->execute([$perPage, $offset]);
         $stories = $stmt->fetchAll();

@@ -410,7 +410,7 @@ class ApiService {
       }
 
       debugPrint(
-        'PUSH ← $entityType/$action  status=${response.statusCode}  body=${response.body.length > 500 ? response.body.substring(0, 500) + '…' : response.body}',
+        'PUSH ← $entityType/$action  status=${response.statusCode}  body=${response.body.length > 500 ? '${response.body.substring(0, 500)}…' : response.body}',
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {

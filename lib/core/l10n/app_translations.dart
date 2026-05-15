@@ -720,6 +720,34 @@ class AppTranslations {
       'try_other_filter': 'Try another filter',
       'first_shop_banner': 'Be the first to create your shop!',
       'create_first_shop': 'Create my shop',
+
+      // Nearby products
+      'nearby_at': 'at',
+      'change': 'Change',
+      'define_your_zone': 'Define your zone',
+      'find_products_nearby': 'Find products available near you',
+      'choose_my_commune': 'Choose my commune',
+      'no_products_nearby': 'No products found near',
+      'for_now': 'for now',
+      'your_commune': 'Your commune',
+      'search_commune': 'Search for a commune...',
+      'choose_city_first': 'Choose a city first',
+
+      // Biometric
+      'app_locked': 'App is locked',
+      'unlock': 'Unlock',
+      'skip_guest': 'Skip (guest mode)',
+
+      // Not found
+      'shop_not_found': 'Shop not found',
+      'product_not_found': 'Product not found',
+
+      // Verification
+      'verification': 'Verification',
+      'verification_ignored': 'Verification ignored',
+      'shop_verified': 'Shop verified!',
+      'shop_verified_success': 'Shop verified successfully!',
+      'verification_removed': 'Verification removed',
     },
 
     // ─── Lingala ──────────────────────────────────────────────────
@@ -1079,6 +1107,34 @@ class AppTranslations {
       'try_other_filter': 'Meka filtre mosusu',
       'first_shop_banner': 'Zala ya liboso kosala boutique na yo!',
       'create_first_shop': 'Sala boutique na ngai',
+
+      // Nearby products
+      'nearby_at': 'na',
+      'change': 'Bobongola',
+      'define_your_zone': 'Tyaka zone na yo',
+      'find_products_nearby': 'Luka ba produit oyo ezali pene na yo',
+      'choose_my_commune': 'Pona commune na ngai',
+      'no_products_nearby': 'Eloko moko te ezwami pene na',
+      'for_now': 'siku oyo',
+      'your_commune': 'Commune na yo',
+      'search_commune': 'Luka commune...',
+      'choose_city_first': 'Pona engumba liboso',
+
+      // Biometric
+      'app_locked': 'App ekangami',
+      'unlock': 'Fungola',
+      'skip_guest': 'Leka (mode invité)',
+
+      // Not found
+      'shop_not_found': 'Boutique ezwami te',
+      'product_not_found': 'Produit ezwami te',
+
+      // Verification
+      'verification': 'Vérification',
+      'verification_ignored': 'Vérification elongwe',
+      'shop_verified': 'Boutique econfirmé!',
+      'shop_verified_success': 'Boutique econfirmé na succès!',
+      'verification_removed': 'Vérification elongwe',
     },
 
     // ─── Swahili ──────────────────────────────────────────────────
@@ -1438,6 +1494,34 @@ class AppTranslations {
       'try_other_filter': 'Jaribu kichujio kingine',
       'first_shop_banner': 'Kuwa wa kwanza kuunda duka lako!',
       'create_first_shop': 'Unda duka langu',
+
+      // Nearby products
+      'nearby_at': 'katika',
+      'change': 'Badilisha',
+      'define_your_zone': 'Bainisha eneo lako',
+      'find_products_nearby': 'Tafuta bidhaa zinazopatikana karibu nawe',
+      'choose_my_commune': 'Chagua komini yangu',
+      'no_products_nearby': 'Hakuna bidhaa zilizopatikana karibu na',
+      'for_now': 'kwa sasa',
+      'your_commune': 'Komini yako',
+      'search_commune': 'Tafuta komini...',
+      'choose_city_first': 'Chagua jiji kwanza',
+
+      // Biometric
+      'app_locked': 'App imefungwa',
+      'unlock': 'Fungua',
+      'skip_guest': 'Ruka (hali ya mgeni)',
+
+      // Not found
+      'shop_not_found': 'Duka halipatikani',
+      'product_not_found': 'Bidhaa haipatikani',
+
+      // Verification
+      'verification': 'Uthibitishaji',
+      'verification_ignored': 'Uthibitishaji umepuuzwa',
+      'shop_verified': 'Duka limethibitishwa!',
+      'shop_verified_success': 'Duka limethibitishwa kwa mafanikio!',
+      'verification_removed': 'Uthibitishaji umeondolewa',
     },
   };
 

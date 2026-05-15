@@ -47,6 +47,11 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
     return widget.shop.isVerified;
   }
 
+  bool _isShopOwner(BuildContext context) {
+    final userPhone = context.read<AuthService>().user?.phoneNumber ?? '';
+    return widget.shop.phone == userPhone || widget.shop.ownerId == userPhone;
+  }
+
   @override
   Widget build(BuildContext context) {
     final productRepo = context.watch<ProductRepository>();
@@ -647,7 +652,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                             )
                           : ImageUtils.buildCachedImage(
                               decryptedUrl,
-                              fit: BoxFit.cover,
+                              fit: BoxFit.contain,
                             ),
                       // Gradient overlay
                       Container(
@@ -726,6 +731,28 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                           ],
                         ),
                       ),
+                      // Delete button for shop owner
+                      if (_isShopOwner(context))
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Material(
+                            color: Colors.red.withValues(alpha: 0.9),
+                            borderRadius: BorderRadius.circular(16),
+                            child: InkWell(
+                              onTap: () => _confirmDeleteStory(context, story),
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                padding: const EdgeInsets.all(6),
+                                child: const Icon(
+                                  Icons.delete,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -752,11 +779,50 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
     }
   }
 
+  void _confirmDeleteStory(BuildContext context, Story story) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer ?'),
+        content: Text(
+          story.isArrivage
+              ? 'Voulez-vous vraiment supprimer cet arrivage ?'
+              : 'Voulez-vous vraiment supprimer cette story ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              // Use deleteStoryWithSync to propagate deletion to all users
+              await context.read<StoryRepository>().deleteStoryWithSync(
+                story.id,
+              );
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Supprimé avec succès'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildVideo(BuildContext context) {
     final shop = widget.shop;
     final videoUrl = CryptoUtils.decrypt(shop.videoUrl ?? '');
-    if (videoUrl.isEmpty)
+    if (videoUrl.isEmpty) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
 
     return SliverToBoxAdapter(
       child: Padding(
@@ -779,8 +845,9 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
   Widget _buildBanner() {
     final shop = widget.shop;
     final bannerUrl = CryptoUtils.decrypt(shop.bannerUrl ?? '');
-    if (shop.bannerStatus != 2 || bannerUrl.isEmpty)
+    if (shop.bannerStatus != 2 || bannerUrl.isEmpty) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
 
     return SliverToBoxAdapter(
       child: Padding(
@@ -1001,7 +1068,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
               const Icon(Icons.navigation, color: Colors.teal, size: 18),
               const SizedBox(width: 8),
               const Text(
-                'Voir le chemin',
+                'Aller à la Boutique',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 14,

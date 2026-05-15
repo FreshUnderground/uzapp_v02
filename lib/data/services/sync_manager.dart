@@ -320,6 +320,54 @@ class SyncManager extends ChangeNotifier {
       }
     }
 
+    // Build a map of remote_id -> category data to calculate correct levels
+    final Map<String, Map<String, dynamic>> remoteCatMap = {};
+    for (var cat in remoteCategories) {
+      final dynamic rawRemoteId = cat['remote_id'];
+      final String rId =
+          rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+          ? rawRemoteId.toString()
+          : (cat['id']?.toString() ?? '');
+      remoteCatMap[rId] = cat;
+    }
+
+    // Calculate correct levels based on parent-child relationships
+    final Map<String, int> calculatedLevels = {};
+    for (var entry in remoteCatMap.entries) {
+      final rId = entry.key;
+      final cat = entry.value;
+      final parentId = cat['parent_id'];
+      if (parentId == null) {
+        calculatedLevels[rId] = 0;
+      }
+    }
+
+    // Iteratively calculate levels
+    bool changed = true;
+    int maxIterations = 10;
+    while (changed && maxIterations > 0) {
+      changed = false;
+      maxIterations--;
+      for (var entry in remoteCatMap.entries) {
+        final rId = entry.key;
+        final cat = entry.value;
+        if (calculatedLevels.containsKey(rId)) continue;
+
+        final dynamic rawParentId = cat['parent_id'];
+        if (rawParentId == null) {
+          calculatedLevels[rId] = 0;
+          changed = true;
+          continue;
+        }
+
+        final String parentRemoteId = rawParentId.toString();
+        if (calculatedLevels.containsKey(parentRemoteId)) {
+          calculatedLevels[rId] = calculatedLevels[parentRemoteId]! + 1;
+          changed = true;
+        }
+      }
+    }
+
     // Batch upsert
     await db.batch((batch) {
       // Sync Categories
@@ -331,6 +379,11 @@ class SyncManager extends ChangeNotifier {
             ? rawRemoteId.toString()
             : (cat['id']?.toString() ?? '');
         final int? existingLocalId = categoryIdMap[rId];
+
+        // Use calculated level if available, otherwise fall back to server value
+        final int calculatedLevel =
+            calculatedLevels[rId] ?? (_toInt(cat['level']) ?? 0);
+
         batch.insert(
           db.categories,
           CategoriesCompanion(
@@ -340,7 +393,7 @@ class SyncManager extends ChangeNotifier {
             remoteId: Value(rId),
             name: Value(cat['name'] as String? ?? 'Sans nom'),
             icon: Value(cat['icon'] as String?),
-            level: Value(_toInt(cat['level']) ?? 0),
+            level: Value(calculatedLevel),
             parentId: Value(_toInt(cat['parent_id'])),
             sortOrder: Value(_toInt(cat['sort_order']) ?? 0),
             updatedAt: Value(

@@ -75,7 +75,7 @@ class _ProductCardState extends State<ProductCard> {
                         top: Radius.circular(12),
                       ),
                       child: Hero(
-                        tag: 'product_image_${widget.product.id}',
+                        tag: 'product_card_${widget.product.id}',
                         child: AspectRatio(
                           aspectRatio: 1.2,
                           child: Builder(

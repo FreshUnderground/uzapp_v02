@@ -8,7 +8,6 @@ import '../../components/tap_animator.dart';
 import '../../../data/repositories/shop_repository.dart';
 import '../shop_dashboard_screen.dart';
 import '../home_screen.dart';
-import 'package:flutter/foundation.dart';
 
 class StepIndicator extends StatelessWidget {
   final int currentStep;

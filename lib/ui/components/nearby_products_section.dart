@@ -3,6 +3,7 @@ import '../../data/local/uza_database.dart';
 import '../../data/repositories/location_data.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/utils/image_utils.dart';
+import '../../core/l10n/tr.dart';
 import 'modern_card.dart';
 import 'tap_animator.dart';
 
@@ -53,16 +54,16 @@ class NearbyProductsSection extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Près de toi',
-                      style: TextStyle(
+                    Text(
+                      tr(context, 'nearby'),
+                      style: const TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 16,
                         letterSpacing: -0.3,
                       ),
                     ),
                     Text(
-                      'à $userCommune',
+                      '${tr(context, 'nearby_at')} $userCommune',
                       style: TextStyle(
                         color: UzaColors.textSecondary,
                         fontSize: 12,
@@ -83,9 +84,9 @@ class NearbyProductsSection extends StatelessWidget {
                     color: UzaColors.secondary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Text(
-                    'Changer',
-                    style: TextStyle(
+                  child: Text(
+                    tr(context, 'change'),
+                    style: const TextStyle(
                       color: UzaColors.secondary,
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -99,7 +100,7 @@ class NearbyProductsSection extends StatelessWidget {
 
         // Products list
         if (nearbyProducts.isEmpty)
-          _buildEmptyState()
+          _buildEmptyState(context)
         else
           SizedBox(
             height: 220,
@@ -157,9 +158,9 @@ class NearbyProductsSection extends StatelessWidget {
                 color: UzaColors.primary,
                 borderRadius: BorderRadius.circular(24),
               ),
-              child: const Text(
-                'Choisir ma commune',
-                style: TextStyle(
+              child: Text(
+                tr(context, 'choose_my_commune'),
+                style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
                   fontSize: 13,
@@ -172,7 +173,7 @@ class NearbyProductsSection extends StatelessWidget {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Container(
@@ -188,7 +189,7 @@ class NearbyProductsSection extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                'Aucun produit trouvé près de $userCommune pour le moment',
+                '${tr(context, 'no_products_nearby')} $userCommune ${tr(context, 'for_now')}',
                 style: TextStyle(color: UzaColors.textSecondary, fontSize: 13),
               ),
             ),
@@ -417,7 +418,7 @@ class _CommunePickerSheetState extends State<CommunePickerSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: TextField(
                 decoration: InputDecoration(
-                  hintText: 'Chercher une commune...',
+                  hintText: tr(context, 'search_commune'),
                   prefixIcon: const Icon(Icons.search, size: 20),
                   prefixIconColor: UzaColors.textSecondary,
                   filled: true,
@@ -502,7 +503,7 @@ class _CommunePickerSheetState extends State<CommunePickerSheet> {
             Expanded(
               child: Center(
                 child: Text(
-                  'Choisis une ville d\'abord',
+                  tr(context, 'choose_city_first'),
                   style: TextStyle(
                     color: UzaColors.textSecondary,
                     fontSize: 14,

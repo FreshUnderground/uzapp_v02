@@ -302,7 +302,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       children: [
         Positioned.fill(
           child: Hero(
-            tag: 'product_image_${widget.product.id}',
+            tag: 'product_detail_${widget.product.id}',
             child: PageView.builder(
               controller: _pageController,
               onPageChanged: (index) =>
@@ -841,13 +841,15 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       radius: 24,
                       backgroundColor: UzaColors.primary,
                       backgroundImage: () {
-                        if (shop.logoUrl == null || shop.logoUrl!.isEmpty)
+                        if (shop.logoUrl == null || shop.logoUrl!.isEmpty) {
                           return null;
+                        }
                         final decrypted = CryptoUtils.decrypt(shop.logoUrl!);
                         if (decrypted.isEmpty ||
                             (!decrypted.startsWith('http://') &&
-                                !decrypted.startsWith('https://')))
+                                !decrypted.startsWith('https://'))) {
                           return null;
+                        }
                         return CachedNetworkImageProvider(decrypted)
                             as ImageProvider;
                       }(),
@@ -1427,7 +1429,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       : null,
                   icon: const Icon(Icons.directions_outlined, size: 16),
                   label: const Text(
-                    'Boutique',
+                    'Adresse',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,

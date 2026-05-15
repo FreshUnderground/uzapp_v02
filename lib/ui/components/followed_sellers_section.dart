@@ -163,13 +163,15 @@ class _SellerCircle extends StatelessWidget {
                     radius: 30,
                     backgroundColor: Colors.grey[100],
                     backgroundImage: () {
-                      if (shop.logoUrl == null || shop.logoUrl!.isEmpty)
+                      if (shop.logoUrl == null || shop.logoUrl!.isEmpty) {
                         return null;
+                      }
                       final decrypted = CryptoUtils.decrypt(shop.logoUrl!);
                       if (decrypted.isEmpty ||
                           (!decrypted.startsWith('http://') &&
-                              !decrypted.startsWith('https://')))
+                              !decrypted.startsWith('https://'))) {
                         return null;
+                      }
                       return CachedNetworkImageProvider(decrypted)
                           as ImageProvider;
                     }(),

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -15,6 +14,7 @@ import '../../core/res/uza_colors.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/utils/image_compress_utils.dart';
+import '../../core/l10n/tr.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../core/utils/crypto_utils.dart';
@@ -164,6 +164,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
     'Vérification',
     'Détails',
     'Mot de passe',
+    'Aperçu',
     'Localisation',
   ];
 
@@ -273,6 +274,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         }
         return true;
       case 5:
+        // Preview step, always valid
+        return true;
+      case 6:
         // Location is optional, always valid
         return true;
       default:
@@ -297,8 +301,15 @@ class _CreateShopScreenState extends State<CreateShopScreen>
           !_isSendingOtp) {
         _sendOtp();
       }
-    } else {
-      // Step 5 is location, user will manually submit from there
+    } else if (_currentStep == 5) {
+      // Move from step 5 (preview) to step 6 (location)
+      setState(() {
+        _isGoingForward = true;
+        _currentStep = 6;
+      });
+    } else if (_currentStep == 6) {
+      // Step 6 is location, submit the shop
+      _submitShop();
     }
   }
 
@@ -333,6 +344,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         message = 'Veuillez créer un mot de passe (min. 6 caractères)';
         break;
       case 5:
+        message = 'Vérifiez les informations avant de continuer';
+        break;
+      case 6:
         message = 'Veuillez capturer la localisation ou passer';
         break;
       default:
@@ -788,7 +802,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             height: 4,
             child: FractionallySizedBox(
               alignment: Alignment.centerLeft,
-              widthFactor: (_currentStep + 1) / 5,
+              widthFactor: (_currentStep + 1) / 6,
               child: Container(color: UzaColors.primary),
             ),
           ),
@@ -802,7 +816,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
               Padding(
                 padding: const EdgeInsets.only(top: 12, bottom: 4),
                 child: Text(
-                  'Étape ${_currentStep + 1} sur 6',
+                  'Étape ${_currentStep + 1} sur 7',
                   style: TextStyle(
                     color: Colors.grey[500],
                     fontSize: 13,
@@ -852,7 +866,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Text(
-                          _currentStep == 5 ? 'Publier ma boutique' : 'Suivant',
+                          _currentStep == 6 ? 'Publier ma boutique' : 'Suivant',
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -900,6 +914,8 @@ class _CreateShopScreenState extends State<CreateShopScreen>
       case 4:
         return _buildStepPassword();
       case 5:
+        return _buildStepPreview();
+      case 6:
         return _buildStepLocation();
       default:
         return const SizedBox.shrink();
@@ -1240,9 +1256,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
-              'Vérification ignorée',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            Text(
+              tr(context, 'verification_ignored'),
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(

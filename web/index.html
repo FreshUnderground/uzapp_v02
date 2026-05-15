@@ -9,6 +9,11 @@
   <meta name="keywords" content="commerce, local, boutiques, produits, uzaapp, achat, vente">
   <meta name="theme-color" content="#FE3E00">
 
+  <!-- Force no cache for always getting latest version -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://uzaapp.com/">
@@ -44,6 +49,132 @@
   <!-- sql.js is required for Drift web -->
   <script src="sql-wasm.js"></script>
 
+  <!-- Version Control & Force Update System -->
+  <script>
+    const APP_VERSION = "2.0.0";
+    const STORAGE_VERSION_KEY = "uzaapp_version";
+
+    // Check for old version
+    const oldVersion = localStorage.getItem(STORAGE_VERSION_KEY);
+
+    if (oldVersion && oldVersion !== APP_VERSION) {
+      console.log(`Uzaapp: Version change detected (${oldVersion} -> ${APP_VERSION})`);
+
+      // Clear all browser caches
+      if ('caches' in window) {
+        caches.keys().then(names => {
+          for (let name of names) {
+            caches.delete(name);
+            console.log(`Uzaapp: Cache deleted: ${name}`);
+          }
+        });
+      }
+
+      // Clear service worker
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (let registration of registrations) {
+            registration.unregister();
+            console.log('Uzaapp: Service worker unregistered');
+          }
+        });
+      }
+
+      // Block app and show update screen
+      document.body.innerHTML = `
+        <div style="
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+          flex-direction: column;
+          font-family: Arial, sans-serif;
+          text-align: center;
+          padding: 20px;
+          background: linear-gradient(135deg, #FE3E00 0%, #ff6b3d 100%);
+          color: white;
+        ">
+          <div style="
+            background: white;
+            color: #333;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 90%;
+          ">
+            <div style="font-size: 60px; margin-bottom: 20px;">🔄</div>
+            <h1 style="margin-bottom: 15px; color: #FE3E00;">Nouvelle version disponible</h1>
+            <p style="margin-bottom: 25px; font-size: 16px; line-height: 1.6; color: #666;">
+              Uzaapp a été mis à jour avec des améliorations importantes.<br>
+              Veuillez recharger l'application pour profiter de la nouvelle version.
+            </p>
+            <button onclick="forceUpdate()" style="
+              padding: 15px 30px;
+              border: none;
+              border-radius: 12px;
+              background: #FE3E00;
+              color: white;
+              font-size: 18px;
+              font-weight: bold;
+              cursor: pointer;
+              transition: all 0.3s ease;
+              box-shadow: 0 4px 15px rgba(254, 62, 0, 0.4);
+            " onmouseover="this.style.background='#e03600'; this.style.transform='translateY(-2px)'" 
+               onmouseout="this.style.background='#FE3E00'; this.style.transform='translateY(0)'">
+              🚀 Mettre à jour maintenant
+            </button>
+          </div>
+        </div>
+      `;
+
+      function forceUpdate() {
+        localStorage.setItem(STORAGE_VERSION_KEY, APP_VERSION);
+        window.location.reload(true);
+      }
+    }
+
+    // Save current version
+    localStorage.setItem(STORAGE_VERSION_KEY, APP_VERSION);
+
+    // Check for new service worker updates
+    window.addEventListener('load', function() {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(function(registration) {
+          registration.addEventListener('updatefound', function() {
+            const newWorker = registration.installing;
+            newWorker.addEventListener('statechange', function() {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // New service worker available, show update notification
+                console.log('Uzaapp: New version available, reloading...');
+                if (confirm('Une nouvelle version d\'Uzaapp est disponible. Recharger maintenant?')) {
+                  window.location.reload(true);
+                }
+              }
+            });
+          });
+        });
+      }
+    });
+  </script>
+
+  <!-- iOS PWA Installation Popup -->
+  <div id="iosInstallPopup" class="ios-popup" style="display:none;">
+    <div class="popup-content">
+      <h2>Installer Uzaapp</h2>
+      <div class="step">
+        <div class="icon">⬆️</div>
+        <p>1. Cliquez sur le bouton <b>Partager</b> dans Safari</p>
+      </div>
+      <div class="arrow">↓</div>
+      <div class="step">
+        <div class="icon">➕</div>
+        <p>2. Cliquez sur <b>Ajouter à l'écran d'accueil</b></p>
+      </div>
+      <button onclick="closePopup()">Continuer</button>
+    </div>
+  </div>
+
   <script>
     window.addEventListener('load', function() {
       if (typeof initSqlJs !== 'undefined') {
@@ -52,6 +183,72 @@
         console.warn('Uzaapp: sql.js (WASM) failed to load.');
       }
     });
+
+    // PWA Install Prompt
+    let deferredPrompt;
+    const installButton = document.getElementById('install-button');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      // Stash the event so it can be triggered later
+      deferredPrompt = e;
+      // Update UI to notify the user they can install the PWA
+      console.log('PWA: Install prompt available');
+      
+      // Automatically show the install prompt after a short delay
+      setTimeout(() => {
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          deferredPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === 'accepted') {
+              console.log('User accepted the install prompt');
+            } else {
+              console.log('User dismissed the install prompt');
+            }
+            deferredPrompt = null;
+          });
+        }
+      }, 2000); // Show after 2 seconds
+    });
+
+    window.addEventListener('appinstalled', (evt) => {
+      // Log install to analytics
+      console.log('PWA: App was installed');
+      deferredPrompt = null;
+    });
+
+    // Check if install prompt was already dismissed
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      console.log('PWA: App is already installed and running in standalone mode');
+    }
+
+    // iOS Installation Popup Logic
+    function isIos() {
+      return /iphone|ipad|ipod/i.test(navigator.userAgent);
+    }
+
+    function isInStandaloneMode() {
+      return ('standalone' in window.navigator) && window.navigator.standalone;
+    }
+
+    // Show iOS install popup only on iPhone Safari
+    if (isIos() && !isInStandaloneMode()) {
+      setTimeout(() => {
+        document.getElementById('iosInstallPopup').style.display = 'flex';
+      }, 2000);
+    }
+
+    function closePopup() {
+      document.getElementById('iosInstallPopup').style.display = 'none';
+      // Optionally save to localStorage to not show again
+      localStorage.setItem('iosPopupDismissed', 'true');
+    }
+
+    // Check if user previously dismissed the popup
+    if (localStorage.getItem('iosPopupDismissed') === 'true') {
+      document.getElementById('iosInstallPopup').style.display = 'none';
+    }
   </script>
   <style>
     body {
@@ -78,6 +275,85 @@
     }
     @keyframes spin {
       to { transform: rotate(360deg); }
+    }
+
+    /* iOS Installation Popup Styles */
+    .ios-popup {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 99999;
+      animation: fadeIn 0.4s ease;
+    }
+
+    .popup-content {
+      width: 90%;
+      max-width: 350px;
+      background: white;
+      border-radius: 20px;
+      padding: 25px;
+      text-align: center;
+      font-family: Arial, sans-serif;
+      animation: slideUp 0.4s ease;
+    }
+
+    .popup-content h2 {
+      margin-bottom: 20px;
+      color: #333;
+    }
+
+    .step {
+      margin: 20px 0;
+    }
+
+    .icon {
+      font-size: 40px;
+      animation: bounce 1.5s infinite;
+    }
+
+    .arrow {
+      font-size: 30px;
+      color: #FE3E00;
+    }
+
+    .popup-content button {
+      margin-top: 20px;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 10px;
+      background: #FE3E00;
+      color: white;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    .popup-content button:hover {
+      background: #e03600;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes slideUp {
+      from {
+        transform: translateY(50px);
+        opacity: 0;
+      }
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
     }
   </style>
 </head>

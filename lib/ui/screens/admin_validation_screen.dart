@@ -4,6 +4,7 @@ import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/services/sync_service.dart';
+import '../../core/l10n/tr.dart';
 import 'package:drift/drift.dart' as drift;
 
 class AdminValidationScreen extends StatelessWidget {
@@ -15,12 +16,12 @@ class AdminValidationScreen extends StatelessWidget {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Validation Admin'),
-          bottom: const TabBar(
+          title: Text(tr(context, 'admin_validation')),
+          bottom: TabBar(
             tabs: [
-              Tab(text: 'Boutiques'),
-              Tab(text: 'Produits'),
-              Tab(text: 'Vérification'),
+              Tab(text: tr(context, 'shops')),
+              Tab(text: tr(context, 'products')),
+              Tab(text: tr(context, 'verification')),
             ],
           ),
         ),
@@ -339,7 +340,9 @@ class _ShopVerificationList extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            verify ? 'Boutique vérifiée !' : 'Vérification retirée',
+            verify
+                ? tr(context, 'shop_verified')
+                : tr(context, 'verification_removed'),
           ),
         ),
       );

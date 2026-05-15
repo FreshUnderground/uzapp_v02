@@ -1,6 +1,7 @@
 import 'dart:developer' as developer;
 import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
+import '../services/sync_service.dart';
 
 /// One feed entry = one media item of an active arrivage.
 /// Stories with no StoryMedia row fall back to their own mediaUrl.
@@ -20,8 +21,9 @@ class ArrivageMediaItem {
 
 class StoryRepository {
   final UzaDatabase db;
+  final SyncService? syncService;
 
-  StoryRepository(this.db);
+  StoryRepository(this.db, {this.syncService});
 
   /// 24-hour expiry for regular stories
   static const Duration storyExpiry = Duration(hours: 24);
@@ -165,6 +167,60 @@ class StoryRepository {
 
       return count;
     });
+  }
+
+  /// Delete a specific story by ID (for shop owners)
+  Future<void> deleteStory(int storyId) async {
+    await db.transaction(() async {
+      // Delete story_media rows first
+      await (db.delete(
+        db.storyMedia,
+      )..where((t) => t.storyId.equals(storyId))).go();
+
+      // Delete the story
+      await (db.delete(db.stories)..where((t) => t.id.equals(storyId))).go();
+    });
+  }
+
+  /// Delete a story and sync the deletion to server (propagates to all users)
+  Future<void> deleteStoryWithSync(int storyId) async {
+    final story = await (db.select(
+      db.stories,
+    )..where((t) => t.id.equals(storyId))).getSingleOrNull();
+
+    if (story == null) {
+      developer.log('Story not found: $storyId', name: 'StoryRepo');
+      return;
+    }
+
+    // Delete locally first
+    await db.transaction(() async {
+      // Delete story_media rows first
+      await (db.delete(
+        db.storyMedia,
+      )..where((t) => t.storyId.equals(storyId))).go();
+
+      // Delete the story
+      await (db.delete(db.stories)..where((t) => t.id.equals(storyId))).go();
+    });
+
+    // Queue DELETE sync if story has remoteId
+    if (syncService != null &&
+        story.remoteId != null &&
+        story.remoteId!.isNotEmpty) {
+      await syncService!.addToQueue('DELETE', 'stories', {
+        'id': story.remoteId,
+      });
+      developer.log(
+        'Queued story deletion for sync: remoteId=${story.remoteId}',
+        name: 'StoryRepo',
+      );
+    } else {
+      developer.log(
+        'Story deletion NOT queued - missing syncService or remoteId',
+        name: 'StoryRepo',
+      );
+    }
   }
 
   Future<void> logStoryView(int storyId) async {

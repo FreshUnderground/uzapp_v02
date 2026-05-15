@@ -302,8 +302,16 @@ class _EditProductScreenState extends State<EditProductScreen> {
   }
 
   Map<String, dynamic>? _collectCategoryFormData() {
-    final category = _selectedCategory;
-    final formType = _getFormType(category);
+    final effectiveCategoryId = _selectedCategoryId ?? _selectedRootCategoryId;
+    Category? effectiveCategory;
+    if (effectiveCategoryId != null) {
+      try {
+        effectiveCategory = _categories.firstWhere(
+          (c) => c.id == effectiveCategoryId,
+        );
+      } catch (_) {}
+    }
+    final formType = _getFormType(effectiveCategory);
 
     switch (formType) {
       case 'vehicule':
@@ -427,7 +435,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
         description: drift.Value(_descController.text),
         price: drift.Value(double.tryParse(_priceController.text) ?? 0.0),
         imageUrls: drift.Value(encryptedImages),
-        categoryId: drift.Value(_selectedCategoryId),
+        categoryId: drift.Value(effectiveCategoryId),
         category: drift.Value(selectedCategory?.name),
         stockCount: drift.Value(int.tryParse(_stockController.text)),
         isArrival: widget.product != null
@@ -477,14 +485,14 @@ class _EditProductScreenState extends State<EditProductScreen> {
 
       // Queue for background sync
       await syncService.addToQueue(action, 'products', {
-        if (remoteProductId != null) 'id': remoteProductId,
+        'id': ?remoteProductId,
         'local_id': productId, // kept for local remoteId mapping after push
         'shop_id': remoteShopId,
         'name': _nameController.text.trim(),
         'description': _descController.text.trim(),
         'price': double.tryParse(_priceController.text) ?? 0.0,
         'image_urls': finalUrls.join(','), // Send raw URLs to server
-        'category_id': _selectedCategoryId,
+        'category_id': effectiveCategoryId,
         'category': selectedCategory?.name,
         'stock_count': int.tryParse(_stockController.text),
         'is_arrival': widget.product?.isArrival ?? false,
@@ -680,7 +688,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                 children: [
                   // Root category dropdown
                   DropdownButtonFormField<int>(
-                    value: _selectedRootCategoryId,
+                    initialValue: _selectedRootCategoryId,
                     decoration: const InputDecoration(
                       labelText: 'Catégorie *',
                       border: OutlineInputBorder(),
@@ -706,7 +714,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                   // Subcategory dropdown (only show if root has children)
                   if (_subCategories.isNotEmpty)
                     DropdownButtonFormField<int>(
-                      value: _selectedCategoryId,
+                      initialValue: _selectedCategoryId,
                       decoration: const InputDecoration(
                         labelText: 'Sous-catégorie (optionnel)',
                         border: OutlineInputBorder(),
@@ -721,19 +729,10 @@ class _EditProductScreenState extends State<EditProductScreen> {
                         DropdownMenuItem<int>(
                           value: _selectedRootCategoryId,
                           child: Text(
-                            _rootCategories
-                                    .firstWhere(
-                                      (c) => c.id == _selectedRootCategoryId,
-                                      orElse: () => Category(
-                                        id: 0,
-                                        name: 'Catégorie principale',
-                                        updatedAt: DateTime.now(),
-                                        level: 0,
-                                        sortOrder: 0,
-                                      ),
-                                    )
-                                    .name +
-                                ' (racine)',
+                            '${_rootCategories.firstWhere(
+                              (c) => c.id == _selectedRootCategoryId,
+                              orElse: () => Category(id: 0, name: 'Catégorie principale', updatedAt: DateTime.now(), level: 0, sortOrder: 0),
+                            ).name} (racine)',
                           ),
                         ),
                         // All subcategories

@@ -23,6 +23,14 @@ class ShopsDirectoryScreen extends StatefulWidget {
 
 class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
   _ShopFilter _filter = _ShopFilter.all;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,30 +39,50 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: Text(tr(context, 'boutiques')),
-        backgroundColor: Colors.white,
-        foregroundColor: UzaColors.textPrimary,
-        elevation: 0,
-        surfaceTintColor: Colors.transparent,
-        actions: [
-          if (syncService.isSyncing)
-            const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-        ],
-      ),
       body: RefreshIndicator(
         onRefresh: () async {
           await context.read<SyncService>().syncNow();
         },
         child: Column(
           children: [
+            // Search bar
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value.toLowerCase().trim();
+                  });
+                },
+                decoration: InputDecoration(
+                  hintText: 'Rechercher une boutique...',
+                  prefixIcon: const Icon(
+                    Icons.search,
+                    color: UzaColors.textSecondary,
+                  ),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 20),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {
+                              _searchQuery = '';
+                            });
+                          },
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
             // Filter chips
             Container(
               color: Colors.white,
@@ -93,10 +121,14 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                   }
 
                   final allShops = snapshot.data ?? [];
-                  final shops = _applyFilter(allShops);
+                  final filteredByType = _applyFilter(allShops);
+                  final shops = _applySearch(filteredByType);
 
                   if (shops.isEmpty) {
-                    return _buildEmptyState(allShops.isEmpty);
+                    return _buildEmptyState(
+                      allShops.isEmpty,
+                      _searchQuery.isNotEmpty,
+                    );
                   }
 
                   return GridView.builder(
@@ -162,7 +194,37 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
     }
   }
 
-  Widget _buildEmptyState(bool trulyEmpty) {
+  List<Shop> _applySearch(List<Shop> shops) {
+    if (_searchQuery.isEmpty) {
+      return shops;
+    }
+
+    return shops.where((shop) {
+      final name = shop.name.toLowerCase();
+      final description = (shop.description ?? '').toLowerCase();
+      final location = _getSearchableLocation(shop).toLowerCase();
+
+      return name.contains(_searchQuery) ||
+          description.contains(_searchQuery) ||
+          location.contains(_searchQuery);
+    }).toList();
+  }
+
+  String _getSearchableLocation(Shop shop) {
+    final parts = <String>[];
+    if (shop.city != null && shop.city!.isNotEmpty) {
+      parts.add(shop.city!);
+    }
+    if (shop.commune != null && shop.commune!.isNotEmpty) {
+      parts.add(shop.commune!);
+    }
+    if (shop.address != null && shop.address!.isNotEmpty) {
+      parts.add(shop.address!);
+    }
+    return parts.join(' ');
+  }
+
+  Widget _buildEmptyState(bool trulyEmpty, bool isSearch) {
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
@@ -176,13 +238,15 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      Icons.storefront_outlined,
+                      isSearch ? Icons.search_off : Icons.storefront_outlined,
                       size: 64,
                       color: Colors.grey[300],
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      trulyEmpty
+                      isSearch
+                          ? 'Aucune boutique trouvée'
+                          : trulyEmpty
                           ? tr(context, 'no_shops_directory')
                           : tr(context, 'no_shops_filter'),
                       textAlign: TextAlign.center,
@@ -194,7 +258,9 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      trulyEmpty
+                      isSearch
+                          ? 'Essayez avec d\'autres termes de recherche'
+                          : trulyEmpty
                           ? tr(context, 'sync_shops_hint')
                           : tr(context, 'try_other_filter'),
                       textAlign: TextAlign.center,
@@ -313,7 +379,7 @@ class _ShopDirectoryCard extends StatelessWidget {
                                 ),
                                 SizedBox(width: 4),
                                 Text(
-                                  'Itinéraire',
+                                  'Adresse',
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,

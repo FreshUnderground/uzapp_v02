@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uzaapp - App Store Assets Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #008080 0%, #006666 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #008080;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        
+        .asset-section {
+            margin-bottom: 40px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border-left: 5px solid #008080;
+        }
+        
+        .asset-section h2 {
+            color: #008080;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .asset-section h2 .icon {
+            font-size: 1.5em;
+        }
+        
+        .preview-container {
+            margin: 20px 0;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        canvas {
+            max-width: 100%;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .btn {
+            background: #008080;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            margin: 10px 5px;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        
+        .btn:hover {
+            background: #006666;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,128,128,0.3);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .info-box {
+            background: #e7f3f3;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #008080;
+        }
+        
+        .info-box strong {
+            color: #008080;
+        }
+        
+        .specs {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .spec-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+        }
+        
+        .spec-card .label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .spec-card .value {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #008080;
+        }
+        
+        .progress {
+            margin: 20px 0;
+            padding: 20px;
+            background: #fff3cd;
+            border-radius: 10px;
+            border-left: 5px solid #ffc107;
+        }
+        
+        .progress h3 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+        
+        .checklist {
+            list-style: none;
+            margin: 15px 0;
+        }
+        
+        .checklist li {
+            padding: 10px;
+            margin: 5px 0;
+            background: white;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .checklist li::before {
+            content: "☐";
+            font-size: 1.2em;
+            color: #008080;
+        }
+        
+        .checklist li.done::before {
+            content: "✓";
+            color: #28a745;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📱 Uzaapp Store Assets</h1>
+        <p class="subtitle">Generate all assets needed for Google Play Store & Apple App Store</p>
+        
+        <!-- App Icon Section -->
+        <div class="asset-section">
+            <h2><span class="icon">📱</span> App Icon (512x512)</h2>
+            <div class="info-box">
+                <strong>Requirements:</strong> 512x512 pixels, PNG format, simple logo design
+            </div>
+            
+            <div class="specs">
+                <div class="spec-card">
+                    <div class="label">Size</div>
+                    <div class="value">512 × 512</div>
+                </div>
+                <div class="spec-card">
+                    <div class="label">Format</div>
+                    <div class="value">PNG</div>
+                </div>
+                <div class="spec-card">
+                    <div class="label">Background</div>
+                    <div class="value">Transparent</div>
+                </div>
+            </div>
+            
+            <div class="preview-container">
+                <canvas id="iconCanvas" width="512" height="512"></canvas>
+            </div>
+            
+            <button class="btn" onclick="generateIcon()">🎨 Generate Icon</button>
+            <button class="btn btn-secondary" onclick="downloadIcon()">⬇️ Download Icon</button>
+        </div>
+        
+        <!-- Feature Graphic Section -->
+        <div class="asset-section">
+            <h2><span class="icon">🖼️</span> Feature Graphic (1024x500)</h2>
+            <div class="info-box">
+                <strong>Text:</strong> "Buy & Sell Locally with Uzaapp"
+            </div>
+            
+            <div class="specs">
+                <div class="spec-card">
+                    <div class="label">Size</div>
+                    <div class="value">1024 × 500</div>
+                </div>
+                <div class="spec-card">
+                    <div class="label">Format</div>
+                    <div class="value">PNG or JPEG</div>
+                </div>
+                <div class="spec-card">
+                    <div class="label">Platform</div>
+                    <div class="value">Google Play</div>
+                </div>
+            </div>
+            
+            <div class="preview-container">
+                <canvas id="featureCanvas" width="1024" height="500"></canvas>
+            </div>
+            
+            <button class="btn" onclick="generateFeatureGraphic()">🎨 Generate Feature Graphic</button>
+            <button class="btn btn-secondary" onclick="downloadFeatureGraphic()">⬇️ Download Feature Graphic</button>
+        </div>
+        
+        <!-- Screenshots Section -->
+        <div class="asset-section">
+            <h2><span class="icon">📸</span> Screenshots Guide</h2>
+            <div class="info-box">
+                <strong>Google Play:</strong> Minimum 2, Maximum 8 screenshots<br>
+                <strong>Apple App Store:</strong> At least 1 per device size
+            </div>
+            
+            <h3 style="margin: 20px 0 10px 0; color: #008080;">Recommended Screenshots:</h3>
+            <ul class="checklist">
+                <li>Home Screen - Main discovery feed</li>
+                <li>Product Detail - Show product with price</li>
+                <li>Shop Profile - Boutique page</li>
+                <li>Categories - Browse by category</li>
+                <li>Stories/Arrivages - New arrivals feature</li>
+                <li>User Profile - Account management</li>
+                <li>Search - Product search</li>
+                <li>Cart/Checkout - Shopping experience</li>
+            </ul>
+            
+            <div class="progress">
+                <h3>📋 How to Capture Screenshots:</h3>
+                <ol style="margin-left: 20px; line-height: 2;">
+                    <li>Run your Flutter app on a phone or emulator</li>
+                    <li>Navigate to each screen listed above</li>
+                    <li>Take screenshots (use device buttons or Flutter DevTools)</li>
+                    <li>Save as PNG in <code>assets/store/screenshots/</code></li>
+                    <li>Recommended size: <strong>1080x1920</strong> (portrait)</li>
+                </ol>
+            </div>
+        </div>
+        
+        <!-- Next Steps -->
+        <div class="asset-section">
+            <h2><span class="icon">📤</span> Upload to App Stores</h2>
+            
+            <h3 style="margin: 15px 0 10px 0; color: #008080;">Google Play Console:</h3>
+            <ol style="margin-left: 20px; line-height: 2;">
+                <li>Go to <strong>Store Presence</strong> → <strong>Store Listing</strong></li>
+                <li>Upload app icon (512x512)</li>
+                <li>Upload feature graphic (1024x500)</li>
+                <li>Upload screenshots (minimum 2)</li>
+            </ol>
+            
+            <h3 style="margin: 15px 0 10px 0; color: #008080;">Apple App Store Connect:</h3>
+            <ol style="margin-left: 20px; line-height: 2;">
+                <li>Go to <strong>My Apps</strong> → Select your app</li>
+                <li>Add screenshots for each required device size</li>
+                <li>App icon is managed in Xcode (already configured)</li>
+            </ol>
+        </div>
+    </div>
+    
+    <script>
+        // Generate App Icon
+        function generateIcon() {
+            const canvas = document.getElementById('iconCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, 512, 512);
+            
+            // Background
+            ctx.fillStyle = '#008080';
+            ctx.fillRect(0, 0, 512, 512);
+            
+            // Draw "U" letter (simple logo representation)
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 350px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('U', 256, 256);
+            
+            // Add "zaapp" text below
+            ctx.font = 'bold 60px Arial';
+            ctx.fillText('zaapp', 256, 420);
+            
+            alert('✅ Icon generated! Click Download to save.');
+        }
+        
+        // Download Icon
+        function downloadIcon() {
+            const canvas = document.getElementById('iconCanvas');
+            const link = document.createElement('a');
+            link.download = 'icon-512.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+        
+        // Generate Feature Graphic
+        function generateFeatureGraphic() {
+            const canvas = document.getElementById('featureCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, 1024, 500);
+            
+            // Background gradient
+            const gradient = ctx.createLinearGradient(0, 0, 1024, 500);
+            gradient.addColorStop(0, '#008080');
+            gradient.addColorStop(1, '#006666');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 1024, 500);
+            
+            // Draw logo circle
+            ctx.beginPath();
+            ctx.arc(200, 250, 100, 0, 2 * Math.PI);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fill();
+            
+            // Draw "U" in circle
+            ctx.fillStyle = '#008080';
+            ctx.font = 'bold 120px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('U', 200, 250);
+            
+            // Add main text
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 60px Arial';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            
+            // Text with shadow
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+            ctx.shadowBlur = 10;
+            ctx.shadowOffsetX = 3;
+            ctx.shadowOffsetY = 3;
+            ctx.fillText('Buy & Sell Locally', 350, 200);
+            ctx.fillText('with Uzaapp', 350, 280);
+            
+            // Reset shadow
+            ctx.shadowColor = 'transparent';
+            
+            // Add subtitle
+            ctx.font = '30px Arial';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillText('Your Local Marketplace', 350, 350);
+            
+            alert('✅ Feature graphic generated! Click Download to save.');
+        }
+        
+        // Download Feature Graphic
+        function downloadFeatureGraphic() {
+            const canvas = document.getElementById('featureCanvas');
+            const link = document.createElement('a');
+            link.download = 'feature-graphic-1024x500.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+        
+        // Auto-generate on load
+        window.addEventListener('load', () => {
+            generateIcon();
+            generateFeatureGraphic();
+        });
+    </script>
+</body>
+</html>

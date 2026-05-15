@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/res/uza_colors.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/contact_service.dart';
 import '../../core/utils/crypto_utils.dart';
@@ -15,6 +14,7 @@ import '../../data/repositories/product_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/story_repository.dart'
     show StoryRepository, ArrivageMediaItem;
+import '../../data/services/sync_service.dart';
 import '../components/shop_video_player.dart';
 import '../utils/page_transitions.dart';
 import 'product_detail_screen.dart';
@@ -33,6 +33,10 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
   int _lastProductCount = -1;
   int _lastArrivageMediaCount = -1;
   final Random _rng = Random();
+  
+  // Cache to prevent UI flickering during sync
+  List<dynamic> _cachedFeed = [];
+  bool _isFirstBuild = true;
 
   @override
   void dispose() {
@@ -41,14 +45,89 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
   }
 
   /// Synchronous — JOIN stream already expands media items, just shuffle.
+  /// Prioritizes videos while maintaining randomness.
   void _buildFeed(List<Product> products, List<ArrivageMediaItem> mediaItems) {
-    final mixed = <dynamic>[...products, ...mediaItems];
-    for (var i = mixed.length - 1; i > 0; i--) {
+    // Separate videos from other media
+    final videos = mediaItems.where((m) => m.mediaType == 'video').toList();
+    final otherMedia = mediaItems.where((m) => m.mediaType != 'video').toList();
+
+    // Shuffle each category independently
+    for (var i = videos.length - 1; i > 0; i--) {
       final j = _rng.nextInt(i + 1);
-      final tmp = mixed[i];
-      mixed[i] = mixed[j];
-      mixed[j] = tmp;
+      final tmp = videos[i];
+      videos[i] = videos[j];
+      videos[j] = tmp;
     }
+
+    for (var i = otherMedia.length - 1; i > 0; i--) {
+      final j = _rng.nextInt(i + 1);
+      final tmp = otherMedia[i];
+      otherMedia[i] = otherMedia[j];
+      otherMedia[j] = tmp;
+    }
+
+    // Shuffle products
+    final shuffledProducts = [...products];
+    for (var i = shuffledProducts.length - 1; i > 0; i--) {
+      final j = _rng.nextInt(i + 1);
+      final tmp = shuffledProducts[i];
+      shuffledProducts[i] = shuffledProducts[j];
+      shuffledProducts[j] = tmp;
+    }
+
+    // Build feed: interleave with video priority
+    // Strategy: videos get ~40% of feed, other media ~30%, products ~30%
+    final mixed = <dynamic>[];
+    final totalItems =
+        videos.length + otherMedia.length + shuffledProducts.length;
+
+    if (totalItems == 0) {
+      setState(() {
+        _feed = [];
+        _lastProductCount = products.length;
+        _lastArrivageMediaCount = mediaItems.length;
+      });
+      return;
+    }
+
+    // Calculate target ratios
+    final videoTarget = (totalItems * 0.4).round();
+    final mediaTarget = (totalItems * 0.3).round();
+    final productTarget = totalItems - videoTarget - mediaTarget;
+
+    int videoIdx = 0;
+    int mediaIdx = 0;
+    int productIdx = 0;
+
+    // Distribute items maintaining ratios but with some randomness
+    while (videoIdx < videos.length ||
+        mediaIdx < otherMedia.length ||
+        productIdx < shuffledProducts.length) {
+      // Add video if we haven't reached target and have videos left
+      if (videoIdx < videos.length &&
+          (videoIdx < videoTarget || _rng.nextDouble() < 0.5)) {
+        mixed.add(videos[videoIdx++]);
+      }
+
+      // Add product if we haven't reached target and have products left
+      if (productIdx < shuffledProducts.length &&
+          (productIdx < productTarget || _rng.nextDouble() < 0.4)) {
+        mixed.add(shuffledProducts[productIdx++]);
+      }
+
+      // Add other media if we haven't reached target and have media left
+      if (mediaIdx < otherMedia.length &&
+          (mediaIdx < mediaTarget || _rng.nextDouble() < 0.3)) {
+        mixed.add(otherMedia[mediaIdx++]);
+      }
+    }
+
+    // Add any remaining items
+    while (videoIdx < videos.length) mixed.add(videos[videoIdx++]);
+    while (mediaIdx < otherMedia.length) mixed.add(otherMedia[mediaIdx++]);
+    while (productIdx < shuffledProducts.length)
+      mixed.add(shuffledProducts[productIdx++]);
+
     setState(() {
       _feed = mixed;
       _lastProductCount = products.length;
@@ -60,6 +139,7 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
   Widget build(BuildContext context) {
     final productRepo = context.watch<ProductRepository>();
     final storyRepo = context.watch<StoryRepository>();
+    final syncService = context.watch<SyncService>();
 
     return SizedBox.expand(
       child: ColoredBox(
@@ -73,12 +153,17 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
                 final products = productSnap.data ?? [];
                 final mediaItems = mediaSnap.data ?? [];
 
-                final loading =
+                // Show loading when: streams still loading, OR sync is running with no data
+                final streamsLoading =
                     productSnap.connectionState == ConnectionState.waiting &&
-                    mediaSnap.connectionState == ConnectionState.waiting &&
-                    _feed.isEmpty;
+                    mediaSnap.connectionState == ConnectionState.waiting;
+                final syncRunningNoData =
+                    (syncService.isSyncing || syncService.isFirstSync) &&
+                    _feed.isEmpty &&
+                    products.isEmpty &&
+                    mediaItems.isEmpty;
 
-                if (loading) {
+                if (streamsLoading || syncRunningNoData) {
                   return const Center(
                     child: CircularProgressIndicator(color: Colors.white),
                   );
@@ -145,11 +230,22 @@ class _ProductPage extends StatefulWidget {
 
 class _ProductPageState extends State<_ProductPage> {
   Shop? _shop;
+  List<String> _images = [];
+  int _currentImageIndex = 0;
+  late PageController _imagePageController;
 
   @override
   void initState() {
     super.initState();
+    _imagePageController = PageController();
     _loadShop();
+    _loadImages();
+  }
+
+  @override
+  void dispose() {
+    _imagePageController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadShop() async {
@@ -159,9 +255,13 @@ class _ProductPageState extends State<_ProductPage> {
     if (mounted) setState(() => _shop = shop);
   }
 
-  String get _firstImage {
+  void _loadImages() {
     final imgs = ImageUtils.getDecryptedList(widget.product.imageUrls);
-    return imgs.isNotEmpty ? imgs.first : '';
+    if (mounted) {
+      setState(() {
+        _images = imgs;
+      });
+    }
   }
 
   @override
@@ -169,21 +269,43 @@ class _ProductPageState extends State<_ProductPage> {
     final screenWidth = MediaQuery.of(context).size.width;
     final isWide = screenWidth > 600;
 
+    // Use loaded images or empty list
+    final images = _images.isNotEmpty ? _images : [];
+    final firstImage = images.isNotEmpty ? images.first : '';
+
     String? videoUrl;
     if (_shop?.videoUrl != null && _shop!.videoUrl!.isNotEmpty) {
       videoUrl = CryptoUtils.decrypt(_shop!.videoUrl!);
     }
 
-    final bg = videoUrl != null
-        ? ShopVideoPlayer(videoUrl: videoUrl, isBackground: true)
-        : ImageUtils.buildCachedImage(_firstImage, fit: BoxFit.cover);
+    Widget bg;
+    if (videoUrl != null) {
+      bg = ShopVideoPlayer(videoUrl: videoUrl, isBackground: true);
+    } else if (images.isNotEmpty) {
+      bg = PageView.builder(
+        controller: _imagePageController,
+        onPageChanged: (index) {
+          setState(() => _currentImageIndex = index);
+        },
+        itemCount: images.length,
+        itemBuilder: (context, index) {
+          return ImageUtils.buildCachedImage(images[index], fit: BoxFit.cover);
+        },
+      );
+    } else {
+      bg = Container(color: Colors.black);
+    }
 
     return Stack(
       fit: StackFit.expand,
       children: [
         // Blurred backdrop (wide screens only)
         if (isWide) ...[
-          bg,
+          videoUrl != null
+              ? ShopVideoPlayer(videoUrl: videoUrl, isBackground: true)
+              : (images.isNotEmpty
+                    ? ImageUtils.buildCachedImage(firstImage, fit: BoxFit.cover)
+                    : Container(color: Colors.black)),
           BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
             child: Container(color: Colors.black.withValues(alpha: 0.6)),
@@ -215,6 +337,22 @@ class _ProductPageState extends State<_ProductPage> {
                     ),
                   ),
                 ),
+
+                // Image indicators (if multiple images)
+                if (images.length > 1)
+                  Positioned(
+                    bottom: 100,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: images
+                          .asMap()
+                          .entries
+                          .map((e) => _buildProductImageIndicator(e.key))
+                          .toList(),
+                    ),
+                  ),
 
                 // Bottom-left info
                 Positioned(
@@ -295,7 +433,7 @@ class _ProductPageState extends State<_ProductPage> {
                               entityType: 'product',
                               entityId: widget.product.id,
                               name: widget.product.name,
-                              imageUrl: _firstImage,
+                              imageUrl: firstImage,
                               productUrl:
                                   'https://uzaapp.com/product/${widget.product.id}',
                               price: widget.product.price,
@@ -334,6 +472,19 @@ class _ProductPageState extends State<_ProductPage> {
       ],
     );
   }
+
+  Widget _buildProductImageIndicator(int index) {
+    final isActive = index == _currentImageIndex;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      width: isActive ? 24 : 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(4),
+      ),
+    );
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -350,13 +501,24 @@ class _ArrivagePage extends StatefulWidget {
 
 class _ArrivagePageState extends State<_ArrivagePage> {
   Shop? _shop;
+  List<ArrivageMediaItem> _mediaItems = [];
+  int _currentMediaIndex = 0;
+  late PageController _mediaPageController;
 
   ArrivageMediaItem get entry => widget.entry;
 
   @override
   void initState() {
     super.initState();
+    _mediaPageController = PageController();
     _loadShop();
+    _loadMediaItems();
+  }
+
+  @override
+  void dispose() {
+    _mediaPageController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadShop() async {
@@ -366,27 +528,50 @@ class _ArrivagePageState extends State<_ArrivagePage> {
     if (mounted) setState(() => _shop = shop);
   }
 
+  Future<void> _loadMediaItems() async {
+    final storyRepo = context.read<StoryRepository>();
+    final mediaData = await storyRepo.getStoryMedia(entry.storyId);
+
+    if (mounted) {
+      final items = <ArrivageMediaItem>[];
+
+      // If no media items found, use the entry itself
+      if (mediaData.isEmpty) {
+        items.add(entry);
+      } else {
+        // Convert StoryMediaData to ArrivageMediaItem
+        for (final media in mediaData) {
+          items.add(
+            ArrivageMediaItem(
+              storyId: entry.storyId,
+              shopId: entry.shopId,
+              mediaUrl: media.mediaUrl,
+              mediaType: media.mediaType,
+            ),
+          );
+        }
+      }
+
+      setState(() {
+        _mediaItems = items;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final decryptedUrl = entry.mediaUrl.isNotEmpty
-        ? CryptoUtils.decrypt(entry.mediaUrl)
-        : '';
     final screenWidth = MediaQuery.of(context).size.width;
     final isWide = screenWidth > 600;
 
-    Widget media;
-    if (entry.mediaType == 'video' && decryptedUrl.isNotEmpty) {
-      media = ShopVideoPlayer(videoUrl: decryptedUrl, isBackground: true);
-    } else {
-      media = ImageUtils.buildCachedImage(decryptedUrl, fit: BoxFit.cover);
-    }
+    // Use loaded media items or fall back to single entry
+    final mediaItems = _mediaItems.isNotEmpty ? _mediaItems : [entry];
 
     return Stack(
       fit: StackFit.expand,
       children: [
         // Blurred backdrop (wide screens)
         if (isWide) ...[
-          media,
+          _buildMediaContent(mediaItems[_currentMediaIndex]),
           BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
             child: Container(color: Colors.black.withValues(alpha: 0.6)),
@@ -399,9 +584,19 @@ class _ArrivagePageState extends State<_ArrivagePage> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                media,
+                // Horizontal PageView for media carousel
+                PageView.builder(
+                  controller: _mediaPageController,
+                  onPageChanged: (index) {
+                    setState(() => _currentMediaIndex = index);
+                  },
+                  itemCount: mediaItems.length,
+                  itemBuilder: (context, index) {
+                    return _buildMediaContent(mediaItems[index]);
+                  },
+                ),
 
-                // Gradient
+                // Gradient overlay
                 Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -417,6 +612,22 @@ class _ArrivagePageState extends State<_ArrivagePage> {
                     ),
                   ),
                 ),
+
+                // Media indicators (if multiple items)
+                if (mediaItems.length > 1)
+                  Positioned(
+                    bottom: 100,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: mediaItems
+                          .asMap()
+                          .entries
+                          .map((e) => _buildMediaIndicator(e.key))
+                          .toList(),
+                    ),
+                  ),
 
                 // Bottom-left: shop info
                 Positioned(
@@ -449,21 +660,66 @@ class _ArrivagePageState extends State<_ArrivagePage> {
                   ),
                 ),
 
-                // Right: go-to-shop button
+                // Right-side action buttons
                 Positioned(
                   right: 12,
                   bottom: 40,
-                  child: _ActionBtn(
-                    icon: Icons.storefront,
-                    label: 'Boutique',
-                    onTap: () {
-                      if (_shop != null) {
-                        Navigator.push(
-                          context,
-                          SlideUpRoute(page: ShopProfileScreen(shop: _shop!)),
-                        );
-                      }
-                    },
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // WhatsApp button
+                      _ActionBtn(
+                        icon: FontAwesomeIcons.whatsapp,
+                        label: 'WhatsApp',
+                        color: Colors.green,
+                        onTap: () {
+                          if (_shop?.whatsapp != null) {
+                            context.read<ContactService>().launchWhatsApp(
+                              phone: _shop!.whatsapp!,
+                              entityType: 'arrivage',
+                              entityId: entry.storyId,
+                              name: 'Arrivage - ${_shop?.name ?? ''}',
+                              imageUrl:
+                                  mediaItems[_currentMediaIndex]
+                                      .mediaUrl
+                                      .isNotEmpty
+                                  ? CryptoUtils.decrypt(
+                                      mediaItems[_currentMediaIndex].mediaUrl,
+                                    )
+                                  : '',
+                            );
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      // Share button
+                      _ActionBtn(
+                        icon: Icons.share,
+                        label: 'Partager',
+                        onTap: () {
+                          // Share the arrivage/shop
+                          if (_shop != null) {
+                            context.read<ContactService>().shareShop(_shop!);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      // Shop profile button
+                      _ActionBtn(
+                        icon: Icons.storefront,
+                        label: 'Boutique',
+                        onTap: () {
+                          if (_shop != null) {
+                            Navigator.push(
+                              context,
+                              SlideUpRoute(
+                                page: ShopProfileScreen(shop: _shop!),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -471,6 +727,31 @@ class _ArrivagePageState extends State<_ArrivagePage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildMediaContent(ArrivageMediaItem item) {
+    final decryptedUrl = item.mediaUrl.isNotEmpty
+        ? CryptoUtils.decrypt(item.mediaUrl)
+        : '';
+
+    if (item.mediaType == 'video' && decryptedUrl.isNotEmpty) {
+      return ShopVideoPlayer(videoUrl: decryptedUrl, isBackground: true);
+    } else {
+      return ImageUtils.buildCachedImage(decryptedUrl, fit: BoxFit.cover);
+    }
+  }
+
+  Widget _buildMediaIndicator(int index) {
+    final isActive = index == _currentMediaIndex;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      width: isActive ? 24 : 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(4),
+      ),
     );
   }
 }

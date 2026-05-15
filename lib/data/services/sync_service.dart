@@ -129,6 +129,17 @@ class SyncService extends ChangeNotifier {
     _syncTimer = Timer.periodic(interval, (_) => syncNow());
   }
 
+  /// Trigger an immediate sync (push + pull) for real-time updates.
+  /// This is called after creating content to make it visible to others quickly.
+  Future<void> triggerImmediateSync() async {
+    if (_isSyncing) {
+      debugPrint("Immediate sync: already syncing, skipping");
+      return;
+    }
+    debugPrint("IMMEDIATE SYNC: Triggering push+pull for real-time update");
+    await syncNow();
+  }
+
   void stopAutoSync() {
     _syncTimer?.cancel();
   }
@@ -302,6 +313,13 @@ class SyncService extends ChangeNotifier {
     // Reset retry counters so every item gets a fresh attempt
     _retryCounts.clear();
     await pushLocalChanges();
+
+    // IMMEDIATE PULL: After pushing, pull updates from server so other users' content appears quickly
+    debugPrint(
+      'FORCE PUSH: Triggering immediate pull to get other users\' content',
+    );
+    await pullRemoteUpdates();
+
     await _updatePendingCount();
   }
 
@@ -388,9 +406,8 @@ class SyncService extends ChangeNotifier {
       List<Map<String, dynamic>> remoteProducts = [];
 
       try {
-        remoteCategories = await api
-            .fetchCategories(updatedSince: lastSyncTime)
-            .timeout(_requestTimeout);
+        // Fetch ALL categories (not incremental) to detect deletions
+        remoteCategories = await api.fetchCategories().timeout(_requestTimeout);
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: categories');
       } catch (e) {
@@ -398,9 +415,8 @@ class SyncService extends ChangeNotifier {
       }
 
       try {
-        remoteProducts = await api
-            .fetchProducts(updatedSince: lastSyncTime)
-            .timeout(_requestTimeout);
+        // Fetch ALL products (not incremental) to detect deletions
+        remoteProducts = await api.fetchProducts().timeout(_requestTimeout);
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: products');
       } catch (e) {
@@ -444,8 +460,112 @@ class SyncService extends ChangeNotifier {
         }
       }
 
+      // Build a map of remote_id -> category data to calculate correct levels
+      final Map<String, Map<String, dynamic>> remoteCatMap = {};
+      for (var cat in remoteCategories) {
+        final dynamic rawRemoteId = cat['remote_id'];
+        final String rId =
+            rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+            ? rawRemoteId.toString()
+            : (cat['id']?.toString() ?? '');
+        remoteCatMap[rId] = cat;
+      }
+
+      // Calculate correct levels based on parent-child relationships
+      final Map<String, int> calculatedLevels = {};
+      for (var entry in remoteCatMap.entries) {
+        final rId = entry.key;
+        final cat = entry.value;
+        final parentId = cat['parent_id'];
+        if (parentId == null) {
+          calculatedLevels[rId] = 0;
+        }
+      }
+
+      // Iteratively calculate levels
+      bool changed = true;
+      int maxIterations = 10;
+      while (changed && maxIterations > 0) {
+        changed = false;
+        maxIterations--;
+        for (var entry in remoteCatMap.entries) {
+          final rId = entry.key;
+          final cat = entry.value;
+          if (calculatedLevels.containsKey(rId)) continue;
+
+          final dynamic rawParentId = cat['parent_id'];
+          if (rawParentId == null) {
+            calculatedLevels[rId] = 0;
+            changed = true;
+            continue;
+          }
+
+          final String parentRemoteId = rawParentId.toString();
+          if (calculatedLevels.containsKey(parentRemoteId)) {
+            calculatedLevels[rId] = calculatedLevels[parentRemoteId]! + 1;
+            changed = true;
+          }
+        }
+      }
+
       // Batch-insert categories & products immediately so the UI can render
       if (remoteCategories.isNotEmpty || remoteProducts.isNotEmpty) {
+        // Delete local categories that no longer exist on the server
+        if (remoteCategories.isNotEmpty) {
+          final serverCategoryRemoteIds = <String>{};
+          for (var cat in remoteCategories) {
+            final dynamic rawRemoteId = cat['remote_id'];
+            final String rId =
+                rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+                ? rawRemoteId.toString()
+                : (cat['id']?.toString() ?? '');
+            if (rId.isNotEmpty) {
+              serverCategoryRemoteIds.add(rId);
+            }
+          }
+
+          for (var localCat in allCategories) {
+            if (localCat.remoteId != null &&
+                localCat.remoteId!.isNotEmpty &&
+                !serverCategoryRemoteIds.contains(localCat.remoteId)) {
+              await (db.delete(
+                db.categories,
+              )..where((t) => t.id.equals(localCat.id))).go();
+              debugPrint(
+                'Sync: Removed deleted category ${localCat.name} (remoteId: ${localCat.remoteId})',
+              );
+            }
+          }
+        }
+
+        // Delete local products that no longer exist on the server
+        if (remoteProducts.isNotEmpty) {
+          final serverProductRemoteIds = <String>{};
+          for (var p in remoteProducts) {
+            final dynamic rawRemoteId = p['remote_id'];
+            final String rId =
+                rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+                ? rawRemoteId.toString()
+                : (p['id']?.toString() ?? '');
+            if (rId.isNotEmpty) {
+              serverProductRemoteIds.add(rId);
+            }
+          }
+
+          for (var localProduct in allProducts) {
+            if (localProduct.remoteId != null &&
+                localProduct.remoteId!.isNotEmpty &&
+                !serverProductRemoteIds.contains(localProduct.remoteId)) {
+              await (db.delete(
+                db.products,
+              )..where((t) => t.id.equals(localProduct.id))).go();
+              debugPrint(
+                'Sync: Removed deleted product ${localProduct.name} (remoteId: ${localProduct.remoteId})',
+              );
+            }
+          }
+        }
+
         await db.batch((batch) {
           for (var cat in remoteCategories) {
             // Use remote_id if available, otherwise use id as fallback
@@ -455,6 +575,11 @@ class SyncService extends ChangeNotifier {
                 ? rawRemoteId.toString()
                 : (cat['id']?.toString() ?? '');
             final int? existingLocalId = categoryIdMap[rId];
+
+            // Use calculated level if available, otherwise fall back to server value
+            final int calculatedLevel =
+                calculatedLevels[rId] ?? (_toInt(cat['level']) ?? 0);
+
             batch.insert(
               db.categories,
               CategoriesCompanion(
@@ -464,7 +589,7 @@ class SyncService extends ChangeNotifier {
                 remoteId: Value(rId),
                 name: Value(cat['name'] as String? ?? 'Sans nom'),
                 icon: Value(cat['icon'] as String?),
-                level: Value(_toInt(cat['level']) ?? 0),
+                level: Value(calculatedLevel),
                 parentId: Value(_toInt(cat['parent_id'])),
                 sortOrder: Value(_toInt(cat['sort_order']) ?? 0),
                 updatedAt: Value(
@@ -560,9 +685,8 @@ class SyncService extends ChangeNotifier {
       }
 
       try {
-        remoteStories = await api
-            .fetchStories(updatedSince: lastSyncTime)
-            .timeout(_requestTimeout);
+        // Fetch ALL stories (not incremental) to detect deletions
+        remoteStories = await api.fetchStories().timeout(_requestTimeout);
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: stories');
       } catch (e) {
@@ -598,6 +722,37 @@ class SyncService extends ChangeNotifier {
 
       // ── PHASE 2a: sync shops first so shopIdMap can be refreshed before stories ──
       if (remoteShops.isNotEmpty) {
+        // Build a set of remote IDs that exist on the server
+        final serverRemoteIds = <String>{};
+        for (var s in remoteShops) {
+          final dynamic rawRemoteId = s['remote_id'];
+          final String rId =
+              rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+              ? rawRemoteId.toString()
+              : (s['id']?.toString() ?? '');
+          if (rId.isNotEmpty) {
+            serverRemoteIds.add(rId);
+          }
+        }
+
+        // Delete local shops that no longer exist on the server
+        // (shops whose remoteId is not in the server's list)
+        final allLocalShops = await db.select(db.shops).get();
+        for (var localShop in allLocalShops) {
+          if (localShop.remoteId != null &&
+              localShop.remoteId!.isNotEmpty &&
+              !serverRemoteIds.contains(localShop.remoteId)) {
+            // This shop was deleted on the server, remove it locally
+            await (db.delete(
+              db.shops,
+            )..where((t) => t.id.equals(localShop.id))).go();
+            debugPrint(
+              'Sync: Removed deleted shop ${localShop.name} (remoteId: ${localShop.remoteId})',
+            );
+          }
+        }
+
+        // Now insert or update shops from server
         await db.batch((batch) {
           for (var s in remoteShops) {
             // Use remote_id if available, otherwise use id as fallback
@@ -658,6 +813,7 @@ class SyncService extends ChangeNotifier {
             );
           }
         });
+        debugPrint('Sync: Synced ${remoteShops.length} shops from server');
       }
 
       // Refresh shopIdMap after shops are committed so stories can resolve shop IDs
@@ -668,11 +824,72 @@ class SyncService extends ChangeNotifier {
           if (s.remoteId != null && s.remoteId!.isNotEmpty) {
             shopIdMap[s.remoteId!] = s.id;
           }
+          // Also map by ownerId for fallback lookups
+          if (s.ownerId != null && s.ownerId!.isNotEmpty) {
+            shopIdMap['owner:${s.ownerId}'] = s.id;
+          }
+          // Also map by shop name for fallback lookups
+          shopIdMap['name:${s.name}'] = s.id;
         }
+      }
+
+      // Build a comprehensive shop lookup map BEFORE the batch insert
+      // This includes remote_id, owner_id, and name-based lookups
+      final Map<String, int> comprehensiveShopMap = Map.from(shopIdMap);
+
+      // Pre-load all shops for quick lookup during story sync
+      final allShopsForStorySync = await db.select(db.shops).get();
+      for (var shop in allShopsForStorySync) {
+        if (shop.remoteId != null && shop.remoteId!.isNotEmpty) {
+          comprehensiveShopMap[shop.remoteId!] = shop.id;
+        }
+        if (shop.ownerId != null && shop.ownerId!.isNotEmpty) {
+          comprehensiveShopMap['owner:${shop.ownerId}'] = shop.id;
+        }
+        comprehensiveShopMap['name:${shop.name}'] = shop.id;
       }
 
       // ── PHASE 2b: sync stories using the refreshed shopIdMap ────────────
       if (remoteStories.isNotEmpty) {
+        // Build a set of remote IDs that exist on the server
+        final serverStoryRemoteIds = <String>{};
+        for (var st in remoteStories) {
+          final dynamic rawRemoteId = st['remote_id'];
+          final String rId =
+              rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+              ? rawRemoteId.toString()
+              : (st['id']?.toString() ?? '');
+          if (rId.isNotEmpty) {
+            serverStoryRemoteIds.add(rId);
+          }
+        }
+
+        // SOFT DELETE: Mark expired stories instead of hard deleting
+        // This prevents UI flickering - expired stories won't show in watch queries anyway
+        final allLocalStories = await db.select(db.stories).get();
+        for (var localStory in allLocalStories) {
+          if (localStory.remoteId != null &&
+              localStory.remoteId!.isNotEmpty &&
+              !serverStoryRemoteIds.contains(localStory.remoteId)) {
+            // Update expiresAt to past timestamp instead of deleting
+            // The watch queries filter by expiresAt > NOW() so they won't appear
+            await (db.update(
+              db.stories,
+            )..where((t) => t.id.equals(localStory.id))).write(
+              StoriesCompanion(
+                expiresAt: Value(
+                  DateTime.now().subtract(const Duration(days: 1)),
+                ),
+              ),
+            );
+            debugPrint(
+              'Sync: Soft-deleted expired story (remoteId: ${localStory.remoteId})',
+            );
+          }
+        }
+
+        // INCREMENTAL UPSERT: Only insert/update new or changed stories
+        // Avoid re-inserting existing stories to preserve UI state
         await db.batch((batch) {
           for (var st in remoteStories) {
             // Use remote_id if available, otherwise use id as fallback
@@ -682,7 +899,7 @@ class SyncService extends ChangeNotifier {
                 ? rawRemoteId.toString()
                 : (st['id']?.toString() ?? '');
 
-            // Skip if story with this remoteId already exists (dedup)
+            // Skip if story already exists and hasn't changed (dedup optimization)
             if (rId.isNotEmpty && existingStoryRemoteIds.contains(rId)) {
               continue;
             }
@@ -696,14 +913,44 @@ class SyncService extends ChangeNotifier {
             );
             final serverTimestamp = serverUpdatedAt ?? serverCreatedAt;
 
-            // Map server shop_id to local shop id
-            // Server returns server-side shop ID, we need to find local shop by remoteId
+            // Map server shop_id to local shop id using comprehensive lookup
+            // Try multiple strategies: remote_id, owner_id, shop_name
             final String serverShopId = (st['shop_id'])?.toString() ?? '';
-            final int localShopId = shopIdMap[serverShopId] ?? 0;
+            int localShopId = comprehensiveShopMap[serverShopId] ?? 0;
+
+            // Fallback 1: Try owner_id from the story data
+            if (localShopId == 0) {
+              final String? storyOwnerId = st['owner_id']?.toString();
+              if (storyOwnerId != null && storyOwnerId.isNotEmpty) {
+                localShopId = comprehensiveShopMap['owner:$storyOwnerId'] ?? 0;
+                if (localShopId != 0) {
+                  debugPrint(
+                    'Story sync: Found shop by owner_id fallback - localShopId=$localShopId',
+                  );
+                }
+              }
+            }
+
+            // Fallback 2: Try shop_name from the story data
+            if (localShopId == 0) {
+              final String? shopName = st['shop_name']?.toString();
+              if (shopName != null && shopName.isNotEmpty) {
+                localShopId = comprehensiveShopMap['name:$shopName'] ?? 0;
+                if (localShopId != 0) {
+                  debugPrint(
+                    'Story sync: Found shop by name fallback - localShopId=$localShopId',
+                  );
+                }
+              }
+            }
 
             if (localShopId == 0) {
               debugPrint(
-                'Story sync: WARNING - could not map shop ID for story $rId, server shop ID: $serverShopId',
+                'Story sync: ERROR - could not map shop ID for story $rId, '
+                'server shop ID: $serverShopId, '
+                'owner_id: ${st['owner_id']}, '
+                'shop_name: ${st['shop_name']}, '
+                'skipping story',
               );
               continue; // Skip this story to avoid orphaned records
             }
@@ -729,6 +976,7 @@ class SyncService extends ChangeNotifier {
                 ? CryptoUtils.encrypt(rawMediaUrl)
                 : '';
 
+            // INSERT OR REPLACE to handle both new and updated stories
             batch.insert(
               db.stories,
               StoriesCompanion.insert(
@@ -750,6 +998,7 @@ class SyncService extends ChangeNotifier {
 
       // Sync story_media items after stories are inserted
       // (We need the auto-generated local story IDs)
+      // OPTIMIZED: Only update media for NEW or CHANGED stories to avoid UI flickering
       if (remoteStories.isNotEmpty) {
         try {
           for (var st in remoteStories) {
@@ -762,37 +1011,44 @@ class SyncService extends ChangeNotifier {
                 : (st['id']?.toString() ?? '');
             if (rId.isEmpty) continue;
 
+            // Skip if story already existed (media already synced)
+            if (rId.isNotEmpty && existingStoryRemoteIds.contains(rId)) {
+              continue;
+            }
+
             // Find the local story by remoteId
             final localStory = await (db.select(
               db.stories,
             )..where((t) => t.remoteId.equals(rId))).getSingleOrNull();
             if (localStory == null) continue;
 
-            // Delete existing story_media rows before re-inserting to prevent
-            // duplicates (storyMedia has no unique constraint on (storyId, sortOrder),
-            // so insertOnConflictUpdate always inserts a new row with a new auto-id).
-            await (db.delete(
+            // Only delete and re-insert media for NEW stories
+            // This prevents breaking image links for existing stories
+            final existingMedia = await (db.select(
               db.storyMedia,
-            )..where((t) => t.storyId.equals(localStory.id))).go();
+            )..where((t) => t.storyId.equals(localStory.id))).get();
 
-            for (var mi in st['media_items'] as List) {
-              final mediaItem = mi as Map<String, dynamic>;
-              final rawMediaUrl = mediaItem['media_url'] as String? ?? '';
-              final encryptedMediaUrl = rawMediaUrl.isNotEmpty
-                  ? CryptoUtils.encrypt(rawMediaUrl)
-                  : '';
-              await db
-                  .into(db.storyMedia)
-                  .insert(
-                    StoryMediaCompanion.insert(
-                      storyId: localStory.id,
-                      mediaUrl: encryptedMediaUrl,
-                      mediaType: Value(
-                        mediaItem['media_type'] as String? ?? 'image',
+            if (existingMedia.isEmpty) {
+              // Only insert if no media exists yet (new story)
+              for (var mi in st['media_items'] as List) {
+                final mediaItem = mi as Map<String, dynamic>;
+                final rawMediaUrl = mediaItem['media_url'] as String? ?? '';
+                final encryptedMediaUrl = rawMediaUrl.isNotEmpty
+                    ? CryptoUtils.encrypt(rawMediaUrl)
+                    : '';
+                await db
+                    .into(db.storyMedia)
+                    .insert(
+                      StoryMediaCompanion.insert(
+                        storyId: localStory.id,
+                        mediaUrl: encryptedMediaUrl,
+                        mediaType: Value(
+                          mediaItem['media_type'] as String? ?? 'image',
+                        ),
+                        sortOrder: Value(mediaItem['sort_order'] as int? ?? 0),
                       ),
-                      sortOrder: Value(mediaItem['sort_order'] as int? ?? 0),
-                    ),
-                  );
+                    );
+              }
             }
           }
         } catch (e) {
@@ -972,6 +1228,71 @@ class SyncService extends ChangeNotifier {
         }
       }
 
+      // Build a map of remote_id -> category data to calculate correct levels
+      final Map<String, Map<String, dynamic>> remoteCatMap = {};
+      for (var cat in remoteCategories) {
+        final dynamic rawRemoteId = cat['remote_id'];
+        final String rId =
+            rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+            ? rawRemoteId.toString()
+            : (cat['id']?.toString() ?? '');
+        remoteCatMap[rId] = cat;
+      }
+
+      // Calculate correct levels based on parent-child relationships
+      // First pass: identify root categories (parent_id is null)
+      final Map<String, int> calculatedLevels = {};
+      for (var entry in remoteCatMap.entries) {
+        final rId = entry.key;
+        final cat = entry.value;
+        final parentId = cat['parent_id'];
+        if (parentId == null) {
+          calculatedLevels[rId] = 0;
+        }
+      }
+
+      // Second pass: calculate levels iteratively
+      bool changed = true;
+      int maxIterations = 10; // Prevent infinite loops
+      while (changed && maxIterations > 0) {
+        changed = false;
+        maxIterations--;
+        for (var entry in remoteCatMap.entries) {
+          final rId = entry.key;
+          final cat = entry.value;
+          if (calculatedLevels.containsKey(rId)) continue;
+
+          final dynamic rawParentId = cat['parent_id'];
+          if (rawParentId == null) {
+            calculatedLevels[rId] = 0;
+            changed = true;
+            continue;
+          }
+
+          final String parentRemoteId = rawParentId.toString();
+          if (calculatedLevels.containsKey(parentRemoteId)) {
+            calculatedLevels[rId] = calculatedLevels[parentRemoteId]! + 1;
+            changed = true;
+          }
+        }
+      }
+
+      debugPrint(
+        'ensureCategoriesSynced: calculated levels for ${calculatedLevels.length} categories',
+      );
+      // Log first few calculated levels
+      int logCount = 0;
+      for (var entry in calculatedLevels.entries) {
+        if (logCount >= 5) break;
+        final cat = remoteCatMap[entry.key];
+        if (cat != null) {
+          debugPrint(
+            '  Category: ${cat['name']}, remote_id=${entry.key}, calculated_level=${entry.value}, server_level=${cat['level']}',
+          );
+          logCount++;
+        }
+      }
+
       await db.batch((batch) {
         for (var cat in remoteCategories) {
           // Use remote_id if available, otherwise use id as fallback
@@ -982,6 +1303,10 @@ class SyncService extends ChangeNotifier {
               : (cat['id']?.toString() ?? '');
           final int? existingLocalId = categoryIdMap[rId];
 
+          // Use calculated level if available, otherwise fall back to server value
+          final int calculatedLevel =
+              calculatedLevels[rId] ?? (_toInt(cat['level']) ?? 0);
+
           batch.insert(
             db.categories,
             CategoriesCompanion(
@@ -991,7 +1316,7 @@ class SyncService extends ChangeNotifier {
               remoteId: Value(rId),
               name: Value(cat['name'] as String? ?? 'Sans nom'),
               icon: Value(cat['icon'] as String?),
-              level: Value(_toInt(cat['level']) ?? 0),
+              level: Value(calculatedLevel),
               parentId: Value(_toInt(cat['parent_id'])),
               sortOrder: Value(_toInt(cat['sort_order']) ?? 0),
               updatedAt: Value(

@@ -17,7 +17,10 @@ class AnimatedBottomNav extends StatelessWidget {
     final items = [
       _NavItem(icon: Icons.home_rounded, label: tr(context, 'home')),
       _NavItem(icon: Icons.explore_rounded, label: tr(context, 'discover')),
-      _NavItem(icon: Icons.storefront_outlined, label: 'Boutiques'),
+      _NavItem(
+        icon: Icons.storefront_outlined,
+        label: tr(context, 'boutiques'),
+      ),
       _NavItem(icon: Icons.person_rounded, label: tr(context, 'profile')),
     ];
 

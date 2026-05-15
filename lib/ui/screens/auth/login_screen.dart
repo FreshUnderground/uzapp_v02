@@ -50,7 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String _phoneNumber = "";
   bool _isPhoneValid = false;
   final _formKey = GlobalKey<FormState>();
-  bool _usePasswordLogin = true; // Password is default
+  final bool _usePasswordLogin = true; // Password is default
   final _passwordController = TextEditingController();
   bool _showPassword = false;
 

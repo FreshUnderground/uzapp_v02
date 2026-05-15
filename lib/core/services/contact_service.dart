@@ -39,7 +39,7 @@ class ContactService {
     if (entityType == 'product' && name != null) {
       buf.writeln('Bonjour, je vous contacte depuis Uzaapp.');
       buf.writeln('Je suis très intéressé(e) par votre article :');
-      buf.writeln('📌 *${name}*');
+      buf.writeln('📌 *$name*');
       buf.writeln();
       final productLink = productUrl ?? 'https://uzaapp.com/product/$entityId';
       buf.writeln('🔗 Lien : $productLink');
@@ -63,9 +63,17 @@ class ContactService {
       "https://wa.me/$cleanPhone?text=${Uri.encodeComponent(message)}",
     );
 
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-      await _logInteraction(entityType, entityId, 'whatsapp');
+    debugPrint('Launching WhatsApp: $url');
+
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+        await _logInteraction(entityType, entityId, 'whatsapp');
+      } else {
+        debugPrint('Cannot launch WhatsApp URL');
+      }
+    } catch (e) {
+      debugPrint('Error launching WhatsApp: $e');
     }
   }
 
@@ -75,9 +83,18 @@ class ContactService {
     required int entityId,
   }) async {
     final url = Uri.parse("tel:$phone");
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-      await _logInteraction(entityType, entityId, 'call');
+    debugPrint('Launching phone call: $url');
+
+    try {
+      if (await canLaunchUrl(url)) {
+        // Use platformDefaultLaunchMode for tel: URLs to work on all platforms
+        await launchUrl(url, mode: LaunchMode.platformDefault);
+        await _logInteraction(entityType, entityId, 'call');
+      } else {
+        debugPrint('Cannot launch phone dialer');
+      }
+    } catch (e) {
+      debugPrint('Error making call: $e');
     }
   }
 
@@ -87,12 +104,21 @@ class ContactService {
     required String entityType,
     required int entityId,
   }) async {
+    final cleanPhone = phone.replaceAll(RegExp(r'\D'), '');
     final url = Uri.parse(
-      "sms:$phone?body=${Uri.encodeComponent(message ?? '')}",
+      "sms:$cleanPhone?body=${Uri.encodeComponent(message ?? '')}",
     );
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-      await _logInteraction(entityType, entityId, 'sms');
+    debugPrint('Launching SMS: $url');
+
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.platformDefault);
+        await _logInteraction(entityType, entityId, 'sms');
+      } else {
+        debugPrint('Cannot launch SMS app');
+      }
+    } catch (e) {
+      debugPrint('Error sending SMS: $e');
     }
   }
 
@@ -201,11 +227,9 @@ class ContactService {
 
   Future<void> shareProduct(Product product, Shop? shop) async {
     Shop? actualShop = shop;
-    if (actualShop == null) {
-      actualShop = await (db.select(
-        db.shops,
-      )..where((t) => t.id.equals(product.shopId))).getSingleOrNull();
-    }
+    actualShop ??= await (db.select(
+      db.shops,
+    )..where((t) => t.id.equals(product.shopId))).getSingleOrNull();
 
     final String productRef =
         (product.remoteId != null && product.remoteId!.isNotEmpty)

@@ -121,7 +121,7 @@ class InformatiqueFormState extends State<InformatiqueForm> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           labelText: label,
           filled: true,

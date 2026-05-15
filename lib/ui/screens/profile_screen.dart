@@ -7,6 +7,7 @@ import '../../core/res/uza_colors.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
+import '../../data/services/sync_service.dart';
 import 'shop_dashboard_screen.dart';
 import 'create_shop_screen.dart';
 import 'shop_verification_screen.dart';
@@ -988,6 +989,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               separatorBuilder: (_, _) => const SizedBox(width: 10),
               itemBuilder: (context, index) {
                 final p = display[index];
+                final images = ImageUtils.getDecryptedList(p.imageUrls);
+                final firstImage = images.isNotEmpty ? images.first : null;
                 return TapAnimator(
                   onTap: () => Navigator.push(
                     context,
@@ -1004,12 +1007,51 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          child: Center(
-                            child: Icon(
-                              Icons.inventory_2_outlined,
-                              color: Colors.grey[400],
-                              size: 28,
-                            ),
+                          child: Stack(
+                            children: [
+                              Center(
+                                child: firstImage != null
+                                    ? ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: ImageUtils.buildCachedImage(
+                                          firstImage,
+                                          fit: BoxFit.cover,
+                                          placeholder: Container(
+                                            color: Colors.grey[200],
+                                            child: Icon(
+                                              Icons.inventory_2_outlined,
+                                              color: Colors.grey[400],
+                                              size: 28,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.inventory_2_outlined,
+                                        color: Colors.grey[400],
+                                        size: 28,
+                                      ),
+                              ),
+                              Positioned(
+                                top: 0,
+                                right: 0,
+                                child: GestureDetector(
+                                  onTap: () => _confirmDeleteProduct(context, p),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: const BoxDecoration(
+                                      color: Colors.red,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.close,
+                                      color: Colors.white,
+                                      size: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         Text(
@@ -1081,56 +1123,79 @@ class _ProfileScreenState extends State<ProfileScreen> {
               itemBuilder: (context, index) {
                 final story = stories[index];
                 final decryptedUrl = CryptoUtils.decrypt(story.mediaUrl);
-                return TapAnimator(
-                  onTap: () async {
-                    final storyRepo = context.read<StoryRepository>();
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => StoryViewScreen(
-                          stories: stories,
-                          initialIndex: index,
-                          shopLookup: {shop.id: shop},
-                          getViewCount: storyRepo.getStoryViewCount,
-                        ),
-                      ),
-                    );
-                  },
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 70,
-                        height: 70,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Colors.purple.withValues(alpha: 0.4),
-                            width: 2,
+                return Stack(
+                  children: [
+                    TapAnimator(
+                      onTap: () async {
+                        final storyRepo = context.read<StoryRepository>();
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => StoryViewScreen(
+                              stories: stories,
+                              initialIndex: index,
+                              shopLookup: {shop.id: shop},
+                              getViewCount: storyRepo.getStoryViewCount,
+                            ),
                           ),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: ImageUtils.buildCachedImage(
-                            decryptedUrl,
-                            fit: BoxFit.cover,
-                            placeholder: Container(
-                              color: Colors.grey[200],
-                              child: Icon(
-                                Icons.auto_awesome,
-                                color: Colors.purple[300],
-                                size: 24,
+                        );
+                      },
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 70,
+                            height: 70,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: Colors.purple.withValues(alpha: 0.4),
+                                width: 2,
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: ImageUtils.buildCachedImage(
+                                decryptedUrl,
+                                fit: BoxFit.contain,
+                                placeholder: Container(
+                                  color: Colors.grey[200],
+                                  child: Icon(
+                                    Icons.auto_awesome,
+                                    color: Colors.purple[300],
+                                    size: 24,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
+                          const SizedBox(height: 4),
+                          Text(
+                            story.mediaType == 'video' ? 'Vidéo' : 'Photo',
+                            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: GestureDetector(
+                        onTap: () => _confirmDeleteStory(context, story),
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 12,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        story.mediaType == 'video' ? 'Vidéo' : 'Photo',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 );
               },
             ),
@@ -1170,58 +1235,81 @@ class _ProfileScreenState extends State<ProfileScreen> {
               itemBuilder: (context, index) {
                 final arrivage = arrivages[index];
                 final decryptedUrl = CryptoUtils.decrypt(arrivage.mediaUrl);
-                return TapAnimator(
-                  onTap: () async {
-                    final storyRepo = context.read<StoryRepository>();
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => StoryViewScreen(
-                          stories: arrivages,
-                          initialIndex: index,
-                          shopLookup: {shop.id: shop},
-                          getViewCount: storyRepo.getStoryViewCount,
-                        ),
-                      ),
-                    );
-                  },
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 70,
-                        height: 70,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: UzaColors.secondary.withValues(alpha: 0.4),
-                            width: 2,
+                return Stack(
+                  children: [
+                    TapAnimator(
+                      onTap: () async {
+                        final storyRepo = context.read<StoryRepository>();
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => StoryViewScreen(
+                              stories: arrivages,
+                              initialIndex: index,
+                              shopLookup: {shop.id: shop},
+                              getViewCount: storyRepo.getStoryViewCount,
+                            ),
                           ),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: ImageUtils.buildCachedImage(
-                            decryptedUrl,
-                            fit: BoxFit.cover,
-                            placeholder: Container(
-                              color: Colors.grey[200],
-                              child: Icon(
-                                Icons.local_shipping,
-                                color: UzaColors.secondary.withValues(
-                                  alpha: 0.6,
+                        );
+                      },
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 70,
+                            height: 70,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: UzaColors.secondary.withValues(alpha: 0.4),
+                                width: 2,
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: ImageUtils.buildCachedImage(
+                                decryptedUrl,
+                                fit: BoxFit.contain,
+                                placeholder: Container(
+                                  color: Colors.grey[200],
+                                  child: Icon(
+                                    Icons.local_shipping,
+                                    color: UzaColors.secondary.withValues(
+                                      alpha: 0.6,
+                                    ),
+                                    size: 24,
+                                  ),
                                 ),
-                                size: 24,
                               ),
                             ),
                           ),
+                          const SizedBox(height: 4),
+                          Text(
+                            arrivage.mediaType == 'video' ? 'Vidéo' : 'Photo',
+                            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: GestureDetector(
+                        onTap: () => _confirmDeleteStory(context, arrivage),
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 12,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        arrivage.mediaType == 'video' ? 'Vidéo' : 'Photo',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 );
               },
             ),
@@ -1818,6 +1906,77 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Delete Confirmation Dialogs ─────────────────────────────────
+
+  void _confirmDeleteProduct(BuildContext context, Product product) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer ?'),
+        content: Text('Voulez-vous vraiment supprimer "${product.name}" ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final repo = context.read<ProductRepository>();
+              final syncService = context.read<SyncService>();
+              Navigator.pop(context);
+              await repo.deleteProductWithSync(product.id);
+              await syncService.forcePush();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Produit supprimé avec succès'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteStory(BuildContext context, Story story) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer ?'),
+        content: Text(
+          story.isArrivage
+              ? 'Voulez-vous vraiment supprimer cet arrivage ?'
+              : 'Voulez-vous vraiment supprimer cette story ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await context.read<StoryRepository>().deleteStory(story.id);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Supprimé avec succès'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),

@@ -247,7 +247,7 @@ class ProductMetadataDisplay extends StatelessWidget {
         _MetadataItem(
           icon: Icons.timer,
           label: 'Temps de préparation',
-          value: '${prepTime} min',
+          value: '$prepTime min',
         ),
       );
     }

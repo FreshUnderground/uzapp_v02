@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:drift/drift.dart' as drift;
 import '../../../core/services/auth_service.dart';
 import '../../../core/res/uza_colors.dart';
+import '../../../core/l10n/tr.dart';
 import '../../../data/local/uza_database.dart';
 import '../../../data/repositories/shop_repository.dart';
 import '../../../data/services/sync_service.dart';
@@ -169,8 +170,8 @@ class _ShopVerificationScreenState extends State<ShopVerificationScreen>
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Boutique vérifiée avec succès!'),
+          SnackBar(
+            content: Text(tr(context, 'shop_verified_success')),
             backgroundColor: Colors.green,
           ),
         );

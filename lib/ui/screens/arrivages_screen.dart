@@ -197,7 +197,7 @@ class _ArrivageStoryCard extends StatelessWidget {
                 tag: 'arrivage_image_${story.id}',
                 child: ImageUtils.buildCachedImage(
                   decryptedUrl,
-                  fit: BoxFit.cover,
+                  fit: BoxFit.contain,
                   borderRadius: BorderRadius.circular(12),
                 ),
               )

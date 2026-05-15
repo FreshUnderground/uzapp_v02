@@ -465,7 +465,7 @@ class _EditShopScreenState extends State<EditShopScreen> {
         ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
-          value: _selectedCity,
+          initialValue: _selectedCity,
           decoration: const InputDecoration(
             labelText: 'Ville',
             prefixIcon: Icon(Icons.location_city),
@@ -483,7 +483,7 @@ class _EditShopScreenState extends State<EditShopScreen> {
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           key: ValueKey(_selectedCity ?? 'none'),
-          value: _selectedCommune,
+          initialValue: _selectedCommune,
           decoration: const InputDecoration(
             labelText: 'Commune',
             prefixIcon: Icon(Icons.place),

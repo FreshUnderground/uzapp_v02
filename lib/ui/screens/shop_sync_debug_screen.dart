@@ -7,7 +7,7 @@ import '../../data/local/uza_database.dart';
 
 /// Debug screen to diagnose shop sync issues
 class ShopSyncDebugScreen extends StatefulWidget {
-  const ShopSyncDebugScreen({Key? key}) : super(key: key);
+  const ShopSyncDebugScreen({super.key});
 
   @override
   State<ShopSyncDebugScreen> createState() => _ShopSyncDebugScreenState();

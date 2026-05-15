@@ -239,6 +239,15 @@ class ImageUtils {
     Object? error,
   }) {
     final bool isQuotaError = error?.toString().contains('402') ?? false;
+    final bool isNotFoundError = error?.toString().contains('404') ?? false;
+    final bool isServerError = error?.toString().contains('5') ?? false;
+
+    // Log detailed error for debugging
+    if (error != null) {
+      debugPrint(
+        'ImageUtils.buildErrorWidget: error=$error, isQuota=$isQuotaError, isNotFound=$isNotFoundError',
+      );
+    }
 
     return Container(
       height: height,
@@ -254,13 +263,21 @@ class ImageUtils {
             Icon(
               isQuotaError
                   ? Icons.cloud_off_outlined
+                  : isNotFoundError
+                  ? Icons.image_not_supported_outlined
                   : Icons.broken_image_outlined,
               color: Colors.grey[400],
               size: 28,
             ),
             const SizedBox(height: 4),
             Text(
-              isQuotaError ? 'Quota dépassé' : 'Image non disponible',
+              isQuotaError
+                  ? 'Quota dépassé'
+                  : isNotFoundError
+                  ? 'Image supprimée'
+                  : isServerError
+                  ? 'Erreur serveur'
+                  : 'Image non disponible',
               style: TextStyle(color: Colors.grey[500], fontSize: 9),
             ),
           ],
@@ -351,9 +368,20 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
             );
       },
       errorWidget: (context, url, error) {
+        // Log all image loading errors for debugging
+        debugPrint(
+          'Image load failed: url=$url, error=$error, retry=$_retryCount',
+        );
+
         if (error.toString().contains('402')) {
-          debugPrint('STORAGE QUOTA EXCEEDED for $url');
+          debugPrint('⚠️ FIREBASE STORAGE QUOTA EXCEEDED for $url');
+          debugPrint(
+            '💡 Run fix_firebase_urls.sql to migrate Firebase URLs to server',
+          );
+        } else if (error.toString().contains('404')) {
+          debugPrint('⚠️ IMAGE NOT FOUND (404) for $url');
         }
+
         if (_retryCount < 2) {
           _scheduleRetry();
           return widget.placeholder ??

@@ -107,7 +107,7 @@ class ShopCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${shop.description ?? "Boutique locale"}',
+                      shop.description ?? "Boutique locale",
                       style: TextStyle(color: Colors.grey[600], fontSize: 11),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

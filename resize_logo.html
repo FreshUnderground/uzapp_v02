@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logo Resizer - 512x512</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #4CAF50;
+        }
+        .upload-area p {
+            margin: 10px 0;
+            color: #666;
+        }
+        #fileInput {
+            display: none;
+        }
+        .preview-container {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+        .preview-box {
+            text-align: center;
+            margin: 10px;
+        }
+        .preview-box img {
+            max-width: 256px;
+            max-height: 256px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .preview-box p {
+            margin-top: 5px;
+            font-weight: bold;
+        }
+        .download-btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            display: block;
+            margin: 20px auto;
+        }
+        .download-btn:hover {
+            background-color: #45a049;
+        }
+        .info {
+            background-color: #e8f5e9;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .format-selector {
+            margin: 15px 0;
+            text-align: center;
+        }
+        .format-selector label {
+            margin: 0 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Logo Resizer - 512x512</h1>
+        <p>Resize your logo to 512x512 pixels (PNG or JPG, under 1MB)</p>
+        
+        <div class="upload-area" id="uploadArea">
+            <p>📁 Click to upload your logo.png</p>
+            <p>or drag and drop</p>
+            <input type="file" id="fileInput" accept="image/*">
+        </div>
+        
+        <div class="info" id="infoBox" style="display: none;">
+            <p><strong>Original:</strong> <span id="originalSize"></span></p>
+            <p><strong>Resized:</strong> <span id="resizedSize"></span></p>
+        </div>
+        
+        <div class="preview-container" id="previewContainer" style="display: none;">
+            <div class="preview-box">
+                <img id="originalPreview" src="" alt="Original">
+                <p>Original</p>
+            </div>
+            <div class="preview-box">
+                <img id="resizedPreview" src="" alt="Resized">
+                <p>512x512</p>
+            </div>
+        </div>
+        
+        <div class="format-selector" id="formatSelector" style="display: none;">
+            <label>
+                <input type="radio" name="format" value="png" checked> PNG
+            </label>
+            <label>
+                <input type="radio" name="format" value="jpeg"> JPG
+            </label>
+        </div>
+        
+        <button class="download-btn" id="downloadBtn" style="display: none;">
+            Download 512x512 Image
+        </button>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const originalPreview = document.getElementById('originalPreview');
+        const resizedPreview = document.getElementById('resizedPreview');
+        const previewContainer = document.getElementById('previewContainer');
+        const infoBox = document.getElementById('infoBox');
+        const originalSize = document.getElementById('originalSize');
+        const resizedSize = document.getElementById('resizedSize');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const formatSelector = document.getElementById('formatSelector');
+        
+        let originalImage = null;
+        let resizedCanvas = null;
+        
+        // Upload area click
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+        
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#4CAF50';
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.style.borderColor = '#ccc';
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#ccc';
+            
+            if (e.dataTransfer.files.length) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+        
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length) {
+                handleFile(e.target.files[0]);
+            }
+        });
+        
+        // Format change
+        document.querySelectorAll('input[name="format"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                if (originalImage) {
+                    processImage();
+                }
+            });
+        });
+        
+        function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Please select an image file');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                originalImage = new Image();
+                originalImage.onload = () => {
+                    originalPreview.src = e.target.result;
+                    originalSize.textContent = `${originalImage.width}x${originalImage.height} (${formatFileSize(file.size)})`;
+                    processImage();
+                };
+                originalImage.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        function processImage() {
+            if (!originalImage) return;
+            
+            // Create canvas for resizing
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            
+            // Calculate scaling to fit image in 512x512
+            const scale = Math.min(512 / originalImage.width, 512 / originalImage.height);
+            const scaledWidth = originalImage.width * scale;
+            const scaledHeight = originalImage.height * scale;
+            
+            // Center the image
+            const offsetX = (512 - scaledWidth) / 2;
+            const offsetY = (512 - scaledHeight) / 2;
+            
+            // Fill background with white
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, 512, 512);
+            
+            // Draw the scaled image
+            ctx.drawImage(originalImage, offsetX, offsetY, scaledWidth, scaledHeight);
+            
+            // Get selected format
+            const format = document.querySelector('input[name="format"]:checked').value;
+            const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+            const quality = format === 'jpeg' ? 0.92 : undefined;
+            
+            // Generate data URL
+            const dataUrl = canvas.toDataURL(mimeType, quality);
+            resizedPreview.src = dataUrl;
+            
+            // Calculate size
+            const base64Length = dataUrl.split(',')[1].length;
+            const fileSize = Math.ceil(base64Length * 0.75); // Approximate file size
+            resizedSize.textContent = `512x512 (${formatFileSize(fileSize)})`;
+            
+            // Show elements
+            previewContainer.style.display = 'flex';
+            infoBox.style.display = 'block';
+            downloadBtn.style.display = 'block';
+            formatSelector.style.display = 'block';
+            
+            // Update download button
+            downloadBtn.onclick = () => {
+                const link = document.createElement('a');
+                link.download = `logo_512x512.${format}`;
+                link.href = dataUrl;
+                link.click();
+            };
+            
+            // Check if size is under 1MB
+            if (fileSize > 1048576) {
+                resizedSize.textContent += ' ⚠️ (Over 1MB - try JPG format)';
+            } else {
+                resizedSize.textContent += ' ✅';
+            }
+        }
+        
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            else return (bytes / 1048576).toFixed(2) + ' MB';
+        }
+    </script>
+</body>
+</html>

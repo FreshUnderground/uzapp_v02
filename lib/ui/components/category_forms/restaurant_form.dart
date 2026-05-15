@@ -115,7 +115,7 @@ class RestaurantFormState extends State<RestaurantForm> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           labelText: label,
           filled: true,
@@ -166,7 +166,7 @@ class RestaurantFormState extends State<RestaurantForm> {
             title: const Text('Livraison disponible'),
             value: _deliveryAvailable,
             onChanged: (v) => setState(() => _deliveryAvailable = v),
-            activeColor: UzaColors.primary,
+            activeThumbColor: UzaColors.primary,
             contentPadding: EdgeInsets.zero,
           ),
           const SizedBox(height: 8),
