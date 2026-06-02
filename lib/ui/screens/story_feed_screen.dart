@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
@@ -120,82 +121,76 @@ class _CompactStoryFeed extends StatelessWidget {
         final stories = groupedStories[shopId]!;
         final firstStory = stories.first;
 
-        return Padding(
-          padding: const EdgeInsets.only(right: 12),
-          child: Column(
-            children: [
-              GestureDetector(
-                onTap: () => _handleShopTap(context, stories),
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [UzaColors.primary, UzaColors.secondary],
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: UzaColors.primary.withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
+        return FutureBuilder<Shop?>(
+          future: context.read<ShopRepository>().getShopById(shopId),
+          builder: (context, snapshot) {
+            final shop = snapshot.data;
+            return Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Column(
+                children: [
+                  GestureDetector(
+                    onTap: () => _handleShopTap(context, stories),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [UzaColors.primary, UzaColors.secondary],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: UzaColors.primary.withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.all(3),
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: ClipOval(
-                      child: SizedBox(
-                        width: 60,
-                        height: 60,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            ImageUtils.buildCachedImage(
-                              firstStory.mediaUrl.isNotEmpty
-                                  ? CryptoUtils.decrypt(firstStory.mediaUrl)
-                                  : '',
-                              width: 60,
-                              height: 60,
-                              fit: BoxFit.contain,
+                      padding: const EdgeInsets.all(3),
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        child: ClipOval(
+                          child: SizedBox(
+                            width: 60,
+                            height: 60,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                _buildStoryPreview(firstStory, shop),
+                                if (firstStory.mediaType == 'video')
+                                  Positioned(
+                                    right: 2,
+                                    bottom: 2,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        Icons.play_arrow,
+                                        color: UzaColors.primary,
+                                        size: 12,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
-                            if (firstStory.mediaType == 'video')
-                              Positioned(
-                                right: 2,
-                                bottom: 2,
-                                child: Container(
-                                  padding: const EdgeInsets.all(2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Icons.play_arrow,
-                                    color: UzaColors.primary,
-                                    size: 12,
-                                  ),
-                                ),
-                              ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              SizedBox(
-                width: 72,
-                child: FutureBuilder<Shop?>(
-                  future: context.read<ShopRepository>().getShopById(shopId),
-                  builder: (context, snapshot) {
-                    return Text(
-                      snapshot.data?.name ?? '...',
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: 72,
+                    child: Text(
+                      shop?.name ?? '...',
                       style: const TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
@@ -203,14 +198,41 @@ class _CompactStoryFeed extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildStoryPreview(Story story, Shop? shop) {
+    final storyUrl = story.mediaUrl.isNotEmpty
+        ? CryptoUtils.decrypt(story.mediaUrl)
+        : '';
+    final hasRemoteMedia =
+        storyUrl.startsWith('http://') || storyUrl.startsWith('https://');
+
+    if (!hasRemoteMedia) {
+      return _buildShopFallback(shop);
+    }
+
+    return CachedNetworkImage(
+      imageUrl: storyUrl,
+      fit: BoxFit.cover,
+      placeholder: (_, __) => _buildShopFallback(shop),
+      errorWidget: (_, __, ___) => _buildShopFallback(shop),
+    );
+  }
+
+  Widget _buildShopFallback(Shop? shop) {
+    return ImageUtils.getLogoWidget(
+      shop?.logoUrl,
+      size: 60,
+      fallbackIcon: Icons.storefront,
     );
   }
 
@@ -404,127 +426,175 @@ class _FullStoryFeed extends StatelessWidget {
             final stories = groupedStories[shopId]!;
             final firstStory = stories.first;
 
-            return GestureDetector(
-              onTap: () => _handleShopTap(context, stories),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      ImageUtils.buildCachedImage(
-                        firstStory.mediaUrl.isNotEmpty
-                            ? CryptoUtils.decrypt(firstStory.mediaUrl)
-                            : '',
-                        fit: BoxFit.contain,
-                      ),
-                      Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withValues(alpha: 0.8),
-                            ],
-                          ),
+            return FutureBuilder<Shop?>(
+              future: context.read<ShopRepository>().getShopById(shopId),
+              builder: (context, snapshot) {
+                final shop = snapshot.data;
+                return GestureDetector(
+                  onTap: () => _handleShopTap(context, stories),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
                         ),
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          _buildStoryCardBackground(firstStory, shop),
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.8),
+                                ],
+                              ),
+                            ),
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.all(2),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: UzaColors.primary,
-                                      width: 2,
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: UzaColors.primary,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: CircleAvatar(
+                                        radius: 14,
+                                        backgroundColor: Colors.grey[200],
+                                        backgroundImage:
+                                            ImageUtils.getImageProvider(
+                                              shop?.logoUrl,
+                                            ),
+                                        child: ImageUtils.getImageProvider(
+                                                  shop?.logoUrl,
+                                                ) ==
+                                                null
+                                            ? const Icon(
+                                                Icons.storefront,
+                                                size: 16,
+                                                color: UzaColors.textSecondary,
+                                              )
+                                            : null,
+                                      ),
                                     ),
-                                  ),
-                                  child: CircleAvatar(
-                                    radius: 14,
-                                    backgroundColor: Colors.grey[200],
-                                    child: const Icon(
-                                      Icons.person,
-                                      size: 16,
-                                      color: UzaColors.textSecondary,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: FutureBuilder<Shop?>(
-                                    future: context
-                                        .read<ShopRepository>()
-                                        .getShopById(shopId),
-                                    builder: (context, snapshot) {
-                                      return Text(
-                                        snapshot.data?.name ?? 'Boutique',
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        shop?.name ?? 'Boutique',
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontWeight: FontWeight.bold,
                                           fontSize: 13,
                                         ),
                                         overflow: TextOverflow.ellipsis,
-                                      );
-                                    },
+                                      ),
+                                    ),
+                                    if (stories.length > 1)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: UzaColors.primary.withValues(
+                                            alpha: 0.9,
+                                          ),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          '${stories.length}',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _formatTime(firstStory.createdAt),
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11,
                                   ),
                                 ),
-                                // Story count badge
-                                if (stories.length > 1)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: UzaColors.primary.withValues(
-                                        alpha: 0.9,
-                                      ),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Text(
-                                      '${stories.length}',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
                               ],
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _formatTime(firstStory.createdAt),
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStoryCardBackground(Story story, Shop? shop) {
+    final storyUrl = story.mediaUrl.isNotEmpty
+        ? CryptoUtils.decrypt(story.mediaUrl)
+        : '';
+    final hasRemoteMedia =
+        storyUrl.startsWith('http://') || storyUrl.startsWith('https://');
+
+    if (!hasRemoteMedia) {
+      return Container(
+        color: Colors.grey[200],
+        child: Center(
+          child: ImageUtils.getLogoWidget(
+            shop?.logoUrl,
+            size: 72,
+            fallbackIcon: Icons.storefront,
+          ),
+        ),
+      );
+    }
+
+    return CachedNetworkImage(
+      imageUrl: storyUrl,
+      fit: BoxFit.cover,
+      placeholder: (_, __) => Container(
+        color: Colors.grey[200],
+        child: Center(
+          child: ImageUtils.getLogoWidget(
+            shop?.logoUrl,
+            size: 72,
+            fallbackIcon: Icons.storefront,
+          ),
+        ),
+      ),
+      errorWidget: (_, __, ___) => Container(
+        color: Colors.grey[200],
+        child: Center(
+          child: ImageUtils.getLogoWidget(
+            shop?.logoUrl,
+            size: 72,
+            fallbackIcon: Icons.storefront,
+          ),
         ),
       ),
     );

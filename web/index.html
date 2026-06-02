@@ -195,22 +195,29 @@
       deferredPrompt = e;
       // Update UI to notify the user they can install the PWA
       console.log('PWA: Install prompt available');
-      
-      // Automatically show the install prompt after a short delay
-      setTimeout(() => {
-        if (deferredPrompt) {
-          deferredPrompt.prompt();
-          deferredPrompt.userChoice.then((choiceResult) => {
-            if (choiceResult.outcome === 'accepted') {
-              console.log('User accepted the install prompt');
-            } else {
-              console.log('User dismissed the install prompt');
-            }
-            deferredPrompt = null;
-          });
-        }
-      }, 2000); // Show after 2 seconds
+
+      // Prompt must be triggered by a user gesture.
+      if (installButton) {
+        installButton.style.display = 'inline-flex';
+      }
     });
+
+    if (installButton) {
+      installButton.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+
+        deferredPrompt.prompt();
+        const choiceResult = await deferredPrompt.userChoice;
+        if (choiceResult.outcome === 'accepted') {
+          console.log('User accepted the install prompt');
+        } else {
+          console.log('User dismissed the install prompt');
+        }
+
+        deferredPrompt = null;
+        installButton.style.display = 'none';
+      });
+    }
 
     window.addEventListener('appinstalled', (evt) => {
       // Log install to analytics
@@ -355,9 +362,32 @@
         opacity: 1;
       }
     }
+
+    .install-button {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 99998;
+      border: none;
+      border-radius: 12px;
+      padding: 12px 16px;
+      background: #FE3E00;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
+      box-shadow: 0 8px 20px rgba(254, 62, 0, 0.35);
+    }
+
+    .install-button:hover {
+      background: #e03600;
+    }
   </style>
 </head>
 <body>
+  <button id="install-button" class="install-button" style="display:none;" aria-label="Installer Uzaapp">
+    Installer l'app
+  </button>
   <div id="loading_screen" class="loading-container">
     <div class="spinner"></div>
   </div>

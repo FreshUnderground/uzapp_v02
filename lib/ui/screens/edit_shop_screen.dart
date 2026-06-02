@@ -387,23 +387,23 @@ class _EditShopScreenState extends State<EditShopScreen> {
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.teal.withValues(alpha: 0.05),
+            color: UzaColors.secondary.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.teal.withValues(alpha: 0.2)),
+            border: Border.all(color: UzaColors.secondary.withValues(alpha: 0.2)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  const Icon(Icons.location_on, color: Colors.teal),
+                  const Icon(Icons.location_on, color: UzaColors.secondary),
                   const SizedBox(width: 8),
                   const Text(
                     'Localisation GPS',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
-                      color: Colors.teal,
+                      color: UzaColors.secondary,
                     ),
                   ),
                 ],
@@ -447,7 +447,7 @@ class _EditShopScreenState extends State<EditShopScreen> {
                       : 'Capturer ma position',
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
+                  backgroundColor: UzaColors.secondary,
                   foregroundColor: Colors.white,
                 ),
               ),

@@ -4,6 +4,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../data/repositories/cart_repository.dart';
 import '../../../core/res/uza_colors.dart';
+import '../components/skeletons.dart';
+import '../../core/l10n/tr.dart';
+import '../../core/services/auth_service.dart';
+import '../../data/repositories/order_repository.dart';
+import '../../data/repositories/shop_repository.dart';
 
 class CartScreen extends StatefulWidget {
   final bool showAppBar;
@@ -21,7 +26,7 @@ class _CartScreenState extends State<CartScreen> {
     return Scaffold(
       appBar: widget.showAppBar
           ? AppBar(
-              title: const Text('Ma Sélection'),
+              title: Text(tr(context, 'my_cart')),
               backgroundColor: Colors.transparent,
               elevation: 0,
               foregroundColor: UzaColors.primary,
@@ -31,7 +36,12 @@ class _CartScreenState extends State<CartScreen> {
         stream: cartRepo.watchCartWithProducts(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: 4,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (_, __) => const ProductCardSkeleton(),
+            );
           }
 
           final items = snapshot.data!;
@@ -46,14 +56,14 @@ class _CartScreenState extends State<CartScreen> {
                     color: Colors.grey,
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Votre sélection est vide',
-                    style: TextStyle(color: Colors.grey, fontSize: 18),
+                  Text(
+                    tr(context, 'cart_empty'),
+                    style: const TextStyle(color: Colors.grey, fontSize: 18),
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('Explorer le catalogue'),
+                    child: Text(tr(context, 'browse_catalog')),
                   ),
                 ],
               ),
@@ -197,9 +207,9 @@ class _CartScreenState extends State<CartScreen> {
                     ElevatedButton.icon(
                       onPressed: () => _validateOnWhatsApp(context, items),
                       icon: const Icon(Icons.chat_outlined),
-                      label: const Text(
-                        'Discuter des prix sur WhatsApp',
-                        style: TextStyle(
+                      label: Text(
+                        tr(context, 'whatsapp_quote'),
+                        style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
                         ),
@@ -227,6 +237,50 @@ class _CartScreenState extends State<CartScreen> {
     BuildContext context,
     List<CartItemWithProduct> items,
   ) async {
+    if (items.isEmpty) return;
+
+    final shopIds = items.map((i) => i.product.shopId).toSet();
+    if (shopIds.length > 1) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Veuillez valider votre panier pour une seule boutique à la fois.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    final shopId = shopIds.first;
+    final shop = await context.read<ShopRepository>().getShopById(shopId);
+    final targetPhoneRaw = shop?.whatsapp?.trim().isNotEmpty == true
+        ? shop!.whatsapp!.trim()
+        : (shop?.phone?.trim() ?? '');
+    if (targetPhoneRaw.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Cette boutique n\'a pas de numéro WhatsApp ou téléphone valide.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    final targetPhone = targetPhoneRaw.replaceAll(RegExp(r'[^0-9]'), '');
+    if (targetPhone.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Numéro de contact invalide.')),
+        );
+      }
+      return;
+    }
+
     String message = "🌟 *DEMANDE DE DEVIS UZAAPP*\n";
     message +=
         "Bonjour, je souhaite discuter des prix pour ma sélection showroom :\n\n";
@@ -246,8 +300,26 @@ class _CartScreenState extends State<CartScreen> {
     message += "_Envoyé via mon showroom Uzaapp_";
 
     final url = Uri.parse(
-      "https://wa.me/243975955375?text=${Uri.encodeComponent(message)}",
+      "https://wa.me/$targetPhone?text=${Uri.encodeComponent(message)}",
     );
+
+    final buyerPhone = context.read<AuthService>().user?.phoneNumber ?? '';
+    if (buyerPhone.isNotEmpty) {
+      final orderRepo = context.read<OrderRepository>();
+      await orderRepo.createOrder(
+        buyerPhone: buyerPhone,
+        shopId: shopId,
+        items: items
+            .map(
+              (i) => {
+                'product_id': i.product.id,
+                'name': i.product.name,
+                'quantity': i.cartItem.quantity,
+              },
+            )
+            .toList(),
+      );
+    }
 
     if (await launchUrl(url, mode: LaunchMode.externalApplication)) {
       // Success

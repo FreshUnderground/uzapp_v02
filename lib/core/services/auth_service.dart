@@ -17,13 +17,17 @@ class MockUser {
   final String? phoneNumber;
   final String? displayName;
   final String? photoURL;
+  final String role;
 
   MockUser({
     required this.uid,
     this.phoneNumber,
     this.displayName,
     this.photoURL,
+    this.role = 'user',
   });
+
+  bool get isAdmin => role == 'admin';
 }
 
 class AuthService extends ChangeNotifier {
@@ -130,6 +134,7 @@ class AuthService extends ChangeNotifier {
           phoneNumber: profile.phone,
           displayName: profile.name,
           photoURL: profile.avatarUrl,
+          role: profile.role,
         );
         notifyListeners();
       }
@@ -375,11 +380,13 @@ class AuthService extends ChangeNotifier {
     _isPhoneVerified = isPhoneVerified;
 
     // Check for existing profile on server
+    String userRole = 'user';
     if (_syncService != null) {
       final remoteProfile = await _syncService!.api.fetchUserByPhone(phone);
       if (remoteProfile != null) {
         existingName = remoteProfile['name'];
         existingAvatar = remoteProfile['avatar_url'];
+        userRole = remoteProfile['role']?.toString() ?? 'user';
       }
     }
 
@@ -388,6 +395,7 @@ class AuthService extends ChangeNotifier {
       phoneNumber: phone,
       displayName: existingName,
       photoURL: existingAvatar,
+      role: userRole,
     );
 
     // Sync with local repository (upsert — preserves data across logins)
@@ -399,6 +407,7 @@ class AuthService extends ChangeNotifier {
       avatarUrl: existingAvatar,
       passwordHash: passwordHash,
       isPhoneVerified: isPhoneVerified,
+      role: userRole,
       createdAt: DateTime.now(),
     );
     await _repository.saveProfile(profile);

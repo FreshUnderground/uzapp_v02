@@ -89,18 +89,26 @@ class PushNotificationService {
     required String body,
     String? payload,
   }) async {
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'uzaapp_arrivages',
       'Nouveaux arrivages',
       channelDescription: 'Notifications des nouveaux arrivages',
       importance: Importance.max,
       priority: Priority.high,
       showWhen: true,
+      styleInformation: BigTextStyleInformation(body),
+      actions: const <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          'view',
+          'Voir',
+          showsUserInterface: true,
+        ),
+      ],
     );
 
     const iosDetails = DarwinNotificationDetails();
 
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
@@ -126,18 +134,26 @@ class PushNotificationService {
     );
     await plugin.initialize(initSettings);
 
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'uzaapp_arrivages',
       'Nouveaux arrivages',
       channelDescription: 'Notifications des nouveaux arrivages',
       importance: Importance.max,
       priority: Priority.high,
       showWhen: true,
+      styleInformation: BigTextStyleInformation(body),
+      actions: const <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          'view',
+          'Voir',
+          showsUserInterface: true,
+        ),
+      ],
     );
 
     const iosDetails = DarwinNotificationDetails();
 
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );

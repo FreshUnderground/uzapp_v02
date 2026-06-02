@@ -208,9 +208,9 @@ class ApiService {
   }) async {
     try {
       final uri = Uri.parse(
-        '$baseUrl/products.php?page=$page&per_page=$perPage',
+        '$baseUrl/products.php?api_key=$_apiKey&page=$page&per_page=$perPage',
       );
-      final response = await http.get(uri, headers: {'X-API-Key': _apiKey});
+      final response = await http.get(uri, headers: _commonHeaders);
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
@@ -233,8 +233,10 @@ class ApiService {
     int perPage = 20,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/shops.php?page=$page&per_page=$perPage');
-      final response = await http.get(uri, headers: {'X-API-Key': _apiKey});
+      final uri = Uri.parse(
+        '$baseUrl/shops.php?api_key=$_apiKey&page=$page&per_page=$perPage',
+      );
+      final response = await http.get(uri, headers: _commonHeaders);
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }

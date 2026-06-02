@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAMID.com.uzaapp.market",
+        "paths": ["/product/*", "/shop/*", "/product/*", "/shop/*"]
+      }
+    ]
+  }
+}

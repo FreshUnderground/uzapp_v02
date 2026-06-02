@@ -1,59 +1,58 @@
 import 'package:flutter/material.dart';
-import '../../core/res/uza_colors.dart';
-
-class ProductScannerScreen extends StatelessWidget {
+import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/l10n/tr.dart';
+class ProductScannerScreen extends StatefulWidget {
   const ProductScannerScreen({super.key});
+
+  @override
+  State<ProductScannerScreen> createState() => _ProductScannerScreenState();
+}
+
+class _ProductScannerScreenState extends State<ProductScannerScreen> {
+  final MobileScannerController _controller = MobileScannerController();
+  bool _handled = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_handled) return;
+    final code = capture.barcodes.firstOrNull?.rawValue?.trim();
+    if (code == null || code.isEmpty) return;
+    _handled = true;
+    Navigator.pop(context, code);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Trouver un produit'),
+        title: Text(tr(context, 'scanner_title')),
         foregroundColor: Colors.white,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+        backgroundColor: Colors.black,
       ),
-      extendBodyBehindAppBar: true,
       backgroundColor: Colors.black,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.black87, Colors.black],
-          ),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.document_scanner_outlined,
-                size: 80,
-                color: UzaColors.primary.withValues(alpha: 0.7),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Scanner bientôt disponible',
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          MobileScanner(controller: _controller, onDetect: _onDetect),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              color: Colors.black54,
+              child: Text(
+                tr(context, 'scanner_hint'),
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
               ),
-              const SizedBox(height: 12),
-              Text(
-                'Utilisez la recherche par mots-clés\npour trouver vos produits',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.6),
-                  fontSize: 16,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

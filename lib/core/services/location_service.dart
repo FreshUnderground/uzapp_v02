@@ -1,10 +1,36 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
+import '../res/uza_colors.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io' show Platform;
 
 /// Service for handling location-related operations
 class LocationService {
+  static bool _hasValidCoordinates(double latitude, double longitude) {
+    return latitude.isFinite &&
+        longitude.isFinite &&
+        latitude >= -90 &&
+        latitude <= 90 &&
+        longitude >= -180 &&
+        longitude <= 180;
+  }
+
+  static Future<bool> _safeLaunch(Uri uri, {bool preferExternal = true}) async {
+    try {
+      if (preferExternal && await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        return true;
+      }
+      if (await launchUrl(uri, mode: LaunchMode.platformDefault)) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Maps launch failed for $uri: $e');
+      return false;
+    }
+  }
+
   /// Request and capture current location
   static Future<Map<String, double>?> getCurrentLocation({
     bool highAccuracy = true,
@@ -51,15 +77,29 @@ class LocationService {
     required double longitude,
     String? label,
   }) async {
+    if (!_hasValidCoordinates(latitude, longitude)) {
+      debugPrint('Invalid coordinates for maps: $latitude, $longitude');
+      return;
+    }
+
     Uri uri;
+
+    if (kIsWeb) {
+      uri = Uri.https('www.google.com', '/maps/search/', {
+        'api': '1',
+        'query':
+            '${label != null ? '${Uri.encodeComponent(label)} ' : ''}$latitude,$longitude',
+      });
+      await _safeLaunch(uri, preferExternal: false);
+      return;
+    }
 
     if (Platform.isAndroid) {
       // Try Google Maps app first
       uri = Uri.parse(
         'geo:$latitude,$longitude?q=$latitude,$longitude${label != null ? '(${Uri.encodeComponent(label)})' : ''}',
       );
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (await _safeLaunch(uri)) {
         return;
       }
       // Fallback to web URL
@@ -73,16 +113,14 @@ class LocationService {
       uri = Uri.parse(
         'http://maps.apple.com/?ll=$latitude,$longitude&q=${label != null ? Uri.encodeComponent(label) : ''}',
       );
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (await _safeLaunch(uri)) {
         return;
       }
       // Try Google Maps app if installed
       uri = Uri.parse(
         'comgooglemaps://?center=$latitude,$longitude&q=${label != null ? Uri.encodeComponent(label) : ''}',
       );
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (await _safeLaunch(uri)) {
         return;
       }
       // Fallback to web URL
@@ -100,9 +138,7 @@ class LocationService {
       });
     }
 
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
+    if (!await _safeLaunch(uri)) {
       debugPrint('Could not launch Maps');
     }
   }
@@ -113,23 +149,37 @@ class LocationService {
     required double longitude,
     String? destinationName,
   }) async {
+    if (!_hasValidCoordinates(latitude, longitude)) {
+      debugPrint('Invalid coordinates for directions: $latitude, $longitude');
+      return;
+    }
+
     Uri uri;
+
+    if (kIsWeb) {
+      uri = Uri.https('www.google.com', '/maps/dir/', {
+        'api': '1',
+        'destination': '$latitude,$longitude',
+      });
+      if (!await _safeLaunch(uri, preferExternal: false)) {
+        debugPrint('Could not launch Maps Directions (web)');
+      }
+      return;
+    }
 
     if (Platform.isAndroid) {
       // Try Google Maps navigation first
       uri = Uri.parse(
-        'google.navigation:q=$latitude,$longitude${destinationName != null ? '&daddr=${Uri.encodeComponent(destinationName)}' : ''}',
+        'google.navigation:q=$latitude,$longitude',
       );
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (await _safeLaunch(uri)) {
         return;
       }
       // Fallback to geo URI
       uri = Uri.parse(
         'geo:$latitude,$longitude?q=$latitude,$longitude${destinationName != null ? '(${Uri.encodeComponent(destinationName)})' : ''}',
       );
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (await _safeLaunch(uri)) {
         return;
       }
       // Fallback to web URL
@@ -142,16 +192,14 @@ class LocationService {
       uri = Uri.parse(
         'http://maps.apple.com/?daddr=$latitude,$longitude&saddr=&dirflg=d',
       );
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (await _safeLaunch(uri)) {
         return;
       }
       // Try Google Maps app if installed
       uri = Uri.parse(
         'comgooglemaps://?daddr=$latitude,$longitude&directionsmode=driving',
       );
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (await _safeLaunch(uri)) {
         return;
       }
       // Fallback to web URL
@@ -167,9 +215,7 @@ class LocationService {
       });
     }
 
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
+    if (!await _safeLaunch(uri)) {
       debugPrint('Could not launch Maps Directions');
     }
   }
@@ -182,7 +228,7 @@ class LocationService {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            Icon(Icons.security, color: Colors.teal[700]),
+            Icon(Icons.security, color: UzaColors.secondary),
             const SizedBox(width: 8),
             const Text('Sécurité & Confidentialité'),
           ],
@@ -222,7 +268,7 @@ class LocationService {
             ),
             title: const Row(
               children: [
-                Icon(Icons.location_on, color: Colors.teal),
+                Icon(Icons.location_on, color: UzaColors.secondary),
                 SizedBox(width: 8),
                 Text('Localiser la boutique'),
               ],
@@ -259,7 +305,7 @@ class LocationService {
                 onPressed: () => Navigator.pop(context, true),
                 icon: const Icon(Icons.my_location),
                 label: const Text('Capturer'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                style: ElevatedButton.styleFrom(backgroundColor: UzaColors.secondary),
               ),
             ],
           ),
@@ -277,7 +323,7 @@ class LocationService {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(color: Colors.teal),
+            const CircularProgressIndicator(color: UzaColors.secondary),
             const SizedBox(height: 24),
             const Text(
               'Capturer la position...',

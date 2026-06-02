@@ -13,6 +13,9 @@ import 'create_shop_screen.dart';
 import 'shop_verification_screen.dart';
 import 'settings_screen.dart';
 import 'help_screen.dart';
+import 'b2b_hub_screen.dart';
+import 'orders_screen.dart';
+import 'messages_screen.dart';
 import 'auth/login_screen.dart';
 import 'admin_validation_screen.dart';
 import '../components/responsive_layout.dart';
@@ -590,7 +593,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildContentForUser(AuthService authService) {
     final user = authService.user;
-    if (user == null) return _buildLoggedOutContent();
+    if (user == null) return _buildLoggedOutContent(authService);
 
     if (!_hasReconnectedShops) {
       _hasReconnectedShops = true;
@@ -781,7 +784,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       onTap: () => Navigator.push(
         context,
-        SlideUpRoute(page: const ShopDashboardScreen()),
+        SlideUpRoute(page: ShopDashboardScreen(shopId: shop.id)),
       ),
       child: ListTile(
         leading: Container(
@@ -913,7 +916,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: TapAnimator(
               onTap: () => Navigator.push(
                 context,
-                SlideUpRoute(page: const ShopDashboardScreen()),
+                SlideUpRoute(page: ShopDashboardScreen(shopId: shop.id)),
               ),
               child: _quickActionChip(
                 icon: Icons.storefront_outlined,
@@ -1796,7 +1799,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           // Admin section (conditional)
-          if (authService.user != null) ...[
+          if (authService.user?.isAdmin == true) ...[
             const Divider(height: 1, indent: 12, endIndent: 12),
             TapAnimator(
               onTap: () => Navigator.push(
@@ -1840,6 +1843,72 @@ class _ProfileScreenState extends State<ProfileScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         children: [
+          TapAnimator(
+            onTap: () => Navigator.push(
+              context,
+              SlideUpRoute(page: const OrdersScreen()),
+            ),
+            child: ListTile(
+              leading: const Icon(
+                Icons.receipt_long_outlined,
+                color: UzaColors.primary,
+              ),
+              title: Text(
+                tr(context, 'my_orders'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right, size: 20),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ),
+          const Divider(height: 1, indent: 12, endIndent: 12),
+          TapAnimator(
+            onTap: () => Navigator.push(
+              context,
+              SlideUpRoute(page: const MessagesScreen()),
+            ),
+            child: ListTile(
+              leading: Icon(
+                Icons.chat_bubble_outline,
+                color: UzaColors.secondary,
+              ),
+              title: Text(
+                tr(context, 'messages'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right, size: 20),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ),
+          const Divider(height: 1, indent: 12, endIndent: 12),
+          TapAnimator(
+            onTap: () => Navigator.push(
+              context,
+              SlideUpRoute(page: const B2BHubScreen()),
+            ),
+            child: ListTile(
+              leading: Icon(
+                Icons.business_center_outlined,
+                color: UzaColors.secondary,
+              ),
+              title: Text(
+                tr(context, 'b2b_hub'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right, size: 20),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ),
+          const Divider(height: 1, indent: 12, endIndent: 12),
           TapAnimator(
             onTap: () =>
                 Navigator.push(context, SlideUpRoute(page: const HelpScreen())),
@@ -2051,48 +2120,101 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // ─── Logged Out Content ─────────────────────────────────────────
 
-  Widget _buildLoggedOutContent() {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        children: [
-          const SizedBox(height: 40),
-          Icon(Icons.storefront, size: 80, color: Colors.grey[300]),
-          const SizedBox(height: 16),
-          Text(
-            'Explorez librement et créez votre boutique quand vous êtes prêt.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 16, color: Colors.grey),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => Navigator.push(
-                context,
-                SlideUpRoute(page: const CreateShopScreen()),
+  Widget _buildLoggedOutContent(AuthService authService) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            children: [
+              const SizedBox(height: 40),
+              Icon(Icons.storefront, size: 80, color: Colors.grey[300]),
+              const SizedBox(height: 16),
+              Text(
+                'Explorez librement et créez votre boutique quand vous êtes prêt.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16, color: Colors.grey),
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: UzaColors.secondary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    SlideUpRoute(page: const CreateShopScreen()),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: UzaColors.secondary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Créer ma boutique',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
-              child: const Text(
-                'Créer ma boutique',
-                style: TextStyle(fontWeight: FontWeight.bold),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  SlideUpRoute(page: const LoginScreen()),
+                ),
+                child: const Text('J\'ai déjà un compte'),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () => Navigator.push(
-              context,
-              SlideUpRoute(page: const LoginScreen()),
+        ),
+        _buildSectionTitle(tr(context, 'settings')),
+        _buildGuestSettingsSection(),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildGuestSettingsSection() {
+    final settings = context.watch<SettingsService>();
+    return ModernCard(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        children: [
+          SwitchListTile(
+            secondary: Icon(Icons.dark_mode_outlined, color: Colors.indigo),
+            title: Text(
+              tr(context, 'dark_mode'),
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
             ),
-            child: const Text('J\'ai déjà un compte'),
+            value: settings.isDarkMode,
+            onChanged: settings.toggleDarkMode,
+            activeThumbColor: UzaColors.primary,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          ),
+          const Divider(height: 1, indent: 12, endIndent: 12),
+          TapAnimator(
+            onTap: () => Navigator.push(
+              context,
+              SlideUpRoute(page: const SettingsScreen()),
+            ),
+            child: ListTile(
+              leading: Icon(Icons.language, color: Colors.grey[700]),
+              title: Text(
+                tr(context, 'language'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              trailing: Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: Colors.grey[400],
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
           ),
         ],
       ),

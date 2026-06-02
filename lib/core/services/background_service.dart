@@ -5,10 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'push_notification_service.dart';
+import '../../data/local/uza_database.dart';
+import '../../data/services/sync_service.dart';
+import 'api_service.dart';
 
 /// Task identifiers.
 const String _kTaskCheckNewArrivages = 'checkNewArrivages';
 const String _kTaskInactivityReminder = 'inactivityReminder';
+const String _kTaskBackgroundSync = 'backgroundDataSync';
 
 /// Initialize and register background tasks.
 class BackgroundService {
@@ -39,6 +43,15 @@ class BackgroundService {
       constraints: Constraints(networkType: NetworkType.not_required),
       existingWorkPolicy: ExistingWorkPolicy.keep,
     );
+
+    // Periodic catalog sync when network is available
+    Workmanager().registerPeriodicTask(
+      _kTaskBackgroundSync,
+      _kTaskBackgroundSync,
+      frequency: const Duration(hours: 1),
+      constraints: Constraints(networkType: NetworkType.connected),
+      existingWorkPolicy: ExistingWorkPolicy.keep,
+    );
   }
 
   /// Cancel all background tasks.
@@ -64,6 +77,9 @@ void callbackDispatcher() {
           break;
         case _kTaskInactivityReminder:
           await _inactivityReminder();
+          break;
+        case _kTaskBackgroundSync:
+          await _backgroundDataSync();
           break;
         default:
           debugPrint('Unknown background task: $task');
@@ -99,6 +115,19 @@ Future<void> _checkNewArrivages() async {
     }
   } catch (e) {
     debugPrint('checkNewArrivages error: $e');
+  }
+}
+
+Future<void> _backgroundDataSync() async {
+  try {
+    final database = UzaDatabase();
+    const baseUrl = 'https://uzaapp.com/api';
+    final api = ApiService(baseUrl: baseUrl);
+    final sync = SyncService(database, api);
+    await sync.syncNow();
+    debugPrint('backgroundDataSync: completed');
+  } catch (e) {
+    debugPrint('backgroundDataSync error: $e');
   }
 }
 

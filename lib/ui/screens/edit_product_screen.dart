@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/repositories/shop_repository.dart';
@@ -1019,14 +1018,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                 child: SizedBox.expand(
                   child: img.bytes != null
                       ? Image.memory(img.bytes!, fit: BoxFit.cover)
-                      : CachedNetworkImage(
-                          imageUrl: img.url!,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) =>
-                              const Center(child: CircularProgressIndicator()),
-                          errorWidget: (context, url, error) =>
-                              const Icon(Icons.error),
-                        ),
+                      : ImageUtils.buildCachedImage(img.url, fit: BoxFit.cover),
                 ),
               ),
             if (!img.isEmpty)

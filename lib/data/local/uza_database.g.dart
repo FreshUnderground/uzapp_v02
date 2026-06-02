@@ -5390,6 +5390,16 @@ class $UserProfilesTable extends UserProfiles
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _roleMeta = const VerificationMeta('role');
+  @override
+  late final GeneratedColumn<String> role = GeneratedColumn<String>(
+    'role',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('user'),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -5411,6 +5421,7 @@ class $UserProfilesTable extends UserProfiles
     avatarUrl,
     passwordHash,
     isPhoneVerified,
+    role,
     createdAt,
   ];
   @override
@@ -5472,6 +5483,12 @@ class $UserProfilesTable extends UserProfiles
         ),
       );
     }
+    if (data.containsKey('role')) {
+      context.handle(
+        _roleMeta,
+        role.isAcceptableOrUnknown(data['role']!, _roleMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -5515,6 +5532,10 @@ class $UserProfilesTable extends UserProfiles
         DriftSqlType.bool,
         data['${effectivePrefix}is_phone_verified'],
       )!,
+      role: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}role'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -5536,6 +5557,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
   final String? avatarUrl;
   final String? passwordHash;
   final bool isPhoneVerified;
+  final String role;
   final DateTime createdAt;
   const UserProfile({
     required this.id,
@@ -5545,6 +5567,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
     this.avatarUrl,
     this.passwordHash,
     required this.isPhoneVerified,
+    required this.role,
     required this.createdAt,
   });
   @override
@@ -5565,6 +5588,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
       map['password_hash'] = Variable<String>(passwordHash);
     }
     map['is_phone_verified'] = Variable<bool>(isPhoneVerified);
+    map['role'] = Variable<String>(role);
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
   }
@@ -5584,6 +5608,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
           ? const Value.absent()
           : Value(passwordHash),
       isPhoneVerified: Value(isPhoneVerified),
+      role: Value(role),
       createdAt: Value(createdAt),
     );
   }
@@ -5601,6 +5626,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
       avatarUrl: serializer.fromJson<String?>(json['avatarUrl']),
       passwordHash: serializer.fromJson<String?>(json['passwordHash']),
       isPhoneVerified: serializer.fromJson<bool>(json['isPhoneVerified']),
+      role: serializer.fromJson<String>(json['role']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -5615,6 +5641,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
       'avatarUrl': serializer.toJson<String?>(avatarUrl),
       'passwordHash': serializer.toJson<String?>(passwordHash),
       'isPhoneVerified': serializer.toJson<bool>(isPhoneVerified),
+      'role': serializer.toJson<String>(role),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -5627,6 +5654,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
     Value<String?> avatarUrl = const Value.absent(),
     Value<String?> passwordHash = const Value.absent(),
     bool? isPhoneVerified,
+    String? role,
     DateTime? createdAt,
   }) => UserProfile(
     id: id ?? this.id,
@@ -5636,6 +5664,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
     avatarUrl: avatarUrl.present ? avatarUrl.value : this.avatarUrl,
     passwordHash: passwordHash.present ? passwordHash.value : this.passwordHash,
     isPhoneVerified: isPhoneVerified ?? this.isPhoneVerified,
+    role: role ?? this.role,
     createdAt: createdAt ?? this.createdAt,
   );
   UserProfile copyWithCompanion(UserProfilesCompanion data) {
@@ -5651,6 +5680,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
       isPhoneVerified: data.isPhoneVerified.present
           ? data.isPhoneVerified.value
           : this.isPhoneVerified,
+      role: data.role.present ? data.role.value : this.role,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -5665,6 +5695,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
           ..write('avatarUrl: $avatarUrl, ')
           ..write('passwordHash: $passwordHash, ')
           ..write('isPhoneVerified: $isPhoneVerified, ')
+          ..write('role: $role, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -5679,6 +5710,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
     avatarUrl,
     passwordHash,
     isPhoneVerified,
+    role,
     createdAt,
   );
   @override
@@ -5692,6 +5724,7 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
           other.avatarUrl == this.avatarUrl &&
           other.passwordHash == this.passwordHash &&
           other.isPhoneVerified == this.isPhoneVerified &&
+          other.role == this.role &&
           other.createdAt == this.createdAt);
 }
 
@@ -5703,6 +5736,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
   final Value<String?> avatarUrl;
   final Value<String?> passwordHash;
   final Value<bool> isPhoneVerified;
+  final Value<String> role;
   final Value<DateTime> createdAt;
   const UserProfilesCompanion({
     this.id = const Value.absent(),
@@ -5712,6 +5746,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
     this.avatarUrl = const Value.absent(),
     this.passwordHash = const Value.absent(),
     this.isPhoneVerified = const Value.absent(),
+    this.role = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   UserProfilesCompanion.insert({
@@ -5722,6 +5757,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
     this.avatarUrl = const Value.absent(),
     this.passwordHash = const Value.absent(),
     this.isPhoneVerified = const Value.absent(),
+    this.role = const Value.absent(),
     this.createdAt = const Value.absent(),
   }) : phone = Value(phone);
   static Insertable<UserProfile> custom({
@@ -5732,6 +5768,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
     Expression<String>? avatarUrl,
     Expression<String>? passwordHash,
     Expression<bool>? isPhoneVerified,
+    Expression<String>? role,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
@@ -5742,6 +5779,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
       if (avatarUrl != null) 'avatar_url': avatarUrl,
       if (passwordHash != null) 'password_hash': passwordHash,
       if (isPhoneVerified != null) 'is_phone_verified': isPhoneVerified,
+      if (role != null) 'role': role,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
@@ -5754,6 +5792,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
     Value<String?>? avatarUrl,
     Value<String?>? passwordHash,
     Value<bool>? isPhoneVerified,
+    Value<String>? role,
     Value<DateTime>? createdAt,
   }) {
     return UserProfilesCompanion(
@@ -5764,6 +5803,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
       avatarUrl: avatarUrl ?? this.avatarUrl,
       passwordHash: passwordHash ?? this.passwordHash,
       isPhoneVerified: isPhoneVerified ?? this.isPhoneVerified,
+      role: role ?? this.role,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -5792,6 +5832,9 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
     if (isPhoneVerified.present) {
       map['is_phone_verified'] = Variable<bool>(isPhoneVerified.value);
     }
+    if (role.present) {
+      map['role'] = Variable<String>(role.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -5808,6 +5851,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfile> {
           ..write('avatarUrl: $avatarUrl, ')
           ..write('passwordHash: $passwordHash, ')
           ..write('isPhoneVerified: $isPhoneVerified, ')
+          ..write('role: $role, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -9102,6 +9146,1012 @@ class ShopFollowsCompanion extends UpdateCompanion<ShopFollow> {
   }
 }
 
+class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $OrdersTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _buyerPhoneMeta = const VerificationMeta(
+    'buyerPhone',
+  );
+  @override
+  late final GeneratedColumn<String> buyerPhone = GeneratedColumn<String>(
+    'buyer_phone',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _shopIdMeta = const VerificationMeta('shopId');
+  @override
+  late final GeneratedColumn<int> shopId = GeneratedColumn<int>(
+    'shop_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES shops (id)',
+    ),
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('requested'),
+  );
+  static const VerificationMeta _itemsJsonMeta = const VerificationMeta(
+    'itemsJson',
+  );
+  @override
+  late final GeneratedColumn<String> itemsJson = GeneratedColumn<String>(
+    'items_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _noteMeta = const VerificationMeta('note');
+  @override
+  late final GeneratedColumn<String> note = GeneratedColumn<String>(
+    'note',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    buyerPhone,
+    shopId,
+    status,
+    itemsJson,
+    note,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'orders';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<Order> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('buyer_phone')) {
+      context.handle(
+        _buyerPhoneMeta,
+        buyerPhone.isAcceptableOrUnknown(data['buyer_phone']!, _buyerPhoneMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_buyerPhoneMeta);
+    }
+    if (data.containsKey('shop_id')) {
+      context.handle(
+        _shopIdMeta,
+        shopId.isAcceptableOrUnknown(data['shop_id']!, _shopIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_shopIdMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('items_json')) {
+      context.handle(
+        _itemsJsonMeta,
+        itemsJson.isAcceptableOrUnknown(data['items_json']!, _itemsJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_itemsJsonMeta);
+    }
+    if (data.containsKey('note')) {
+      context.handle(
+        _noteMeta,
+        note.isAcceptableOrUnknown(data['note']!, _noteMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Order map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Order(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      buyerPhone: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}buyer_phone'],
+      )!,
+      shopId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}shop_id'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      itemsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}items_json'],
+      )!,
+      note: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}note'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $OrdersTable createAlias(String alias) {
+    return $OrdersTable(attachedDatabase, alias);
+  }
+}
+
+class Order extends DataClass implements Insertable<Order> {
+  final int id;
+  final String buyerPhone;
+  final int shopId;
+  final String status;
+  final String itemsJson;
+  final String? note;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const Order({
+    required this.id,
+    required this.buyerPhone,
+    required this.shopId,
+    required this.status,
+    required this.itemsJson,
+    this.note,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['buyer_phone'] = Variable<String>(buyerPhone);
+    map['shop_id'] = Variable<int>(shopId);
+    map['status'] = Variable<String>(status);
+    map['items_json'] = Variable<String>(itemsJson);
+    if (!nullToAbsent || note != null) {
+      map['note'] = Variable<String>(note);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  OrdersCompanion toCompanion(bool nullToAbsent) {
+    return OrdersCompanion(
+      id: Value(id),
+      buyerPhone: Value(buyerPhone),
+      shopId: Value(shopId),
+      status: Value(status),
+      itemsJson: Value(itemsJson),
+      note: note == null && nullToAbsent ? const Value.absent() : Value(note),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory Order.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Order(
+      id: serializer.fromJson<int>(json['id']),
+      buyerPhone: serializer.fromJson<String>(json['buyerPhone']),
+      shopId: serializer.fromJson<int>(json['shopId']),
+      status: serializer.fromJson<String>(json['status']),
+      itemsJson: serializer.fromJson<String>(json['itemsJson']),
+      note: serializer.fromJson<String?>(json['note']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'buyerPhone': serializer.toJson<String>(buyerPhone),
+      'shopId': serializer.toJson<int>(shopId),
+      'status': serializer.toJson<String>(status),
+      'itemsJson': serializer.toJson<String>(itemsJson),
+      'note': serializer.toJson<String?>(note),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  Order copyWith({
+    int? id,
+    String? buyerPhone,
+    int? shopId,
+    String? status,
+    String? itemsJson,
+    Value<String?> note = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => Order(
+    id: id ?? this.id,
+    buyerPhone: buyerPhone ?? this.buyerPhone,
+    shopId: shopId ?? this.shopId,
+    status: status ?? this.status,
+    itemsJson: itemsJson ?? this.itemsJson,
+    note: note.present ? note.value : this.note,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  Order copyWithCompanion(OrdersCompanion data) {
+    return Order(
+      id: data.id.present ? data.id.value : this.id,
+      buyerPhone: data.buyerPhone.present
+          ? data.buyerPhone.value
+          : this.buyerPhone,
+      shopId: data.shopId.present ? data.shopId.value : this.shopId,
+      status: data.status.present ? data.status.value : this.status,
+      itemsJson: data.itemsJson.present ? data.itemsJson.value : this.itemsJson,
+      note: data.note.present ? data.note.value : this.note,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Order(')
+          ..write('id: $id, ')
+          ..write('buyerPhone: $buyerPhone, ')
+          ..write('shopId: $shopId, ')
+          ..write('status: $status, ')
+          ..write('itemsJson: $itemsJson, ')
+          ..write('note: $note, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    buyerPhone,
+    shopId,
+    status,
+    itemsJson,
+    note,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Order &&
+          other.id == this.id &&
+          other.buyerPhone == this.buyerPhone &&
+          other.shopId == this.shopId &&
+          other.status == this.status &&
+          other.itemsJson == this.itemsJson &&
+          other.note == this.note &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class OrdersCompanion extends UpdateCompanion<Order> {
+  final Value<int> id;
+  final Value<String> buyerPhone;
+  final Value<int> shopId;
+  final Value<String> status;
+  final Value<String> itemsJson;
+  final Value<String?> note;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  const OrdersCompanion({
+    this.id = const Value.absent(),
+    this.buyerPhone = const Value.absent(),
+    this.shopId = const Value.absent(),
+    this.status = const Value.absent(),
+    this.itemsJson = const Value.absent(),
+    this.note = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  OrdersCompanion.insert({
+    this.id = const Value.absent(),
+    required String buyerPhone,
+    required int shopId,
+    this.status = const Value.absent(),
+    required String itemsJson,
+    this.note = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  }) : buyerPhone = Value(buyerPhone),
+       shopId = Value(shopId),
+       itemsJson = Value(itemsJson);
+  static Insertable<Order> custom({
+    Expression<int>? id,
+    Expression<String>? buyerPhone,
+    Expression<int>? shopId,
+    Expression<String>? status,
+    Expression<String>? itemsJson,
+    Expression<String>? note,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (buyerPhone != null) 'buyer_phone': buyerPhone,
+      if (shopId != null) 'shop_id': shopId,
+      if (status != null) 'status': status,
+      if (itemsJson != null) 'items_json': itemsJson,
+      if (note != null) 'note': note,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  OrdersCompanion copyWith({
+    Value<int>? id,
+    Value<String>? buyerPhone,
+    Value<int>? shopId,
+    Value<String>? status,
+    Value<String>? itemsJson,
+    Value<String?>? note,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+  }) {
+    return OrdersCompanion(
+      id: id ?? this.id,
+      buyerPhone: buyerPhone ?? this.buyerPhone,
+      shopId: shopId ?? this.shopId,
+      status: status ?? this.status,
+      itemsJson: itemsJson ?? this.itemsJson,
+      note: note ?? this.note,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (buyerPhone.present) {
+      map['buyer_phone'] = Variable<String>(buyerPhone.value);
+    }
+    if (shopId.present) {
+      map['shop_id'] = Variable<int>(shopId.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (itemsJson.present) {
+      map['items_json'] = Variable<String>(itemsJson.value);
+    }
+    if (note.present) {
+      map['note'] = Variable<String>(note.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OrdersCompanion(')
+          ..write('id: $id, ')
+          ..write('buyerPhone: $buyerPhone, ')
+          ..write('shopId: $shopId, ')
+          ..write('status: $status, ')
+          ..write('itemsJson: $itemsJson, ')
+          ..write('note: $note, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ChatMessagesTable extends ChatMessages
+    with TableInfo<$ChatMessagesTable, ChatMessage> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ChatMessagesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _senderPhoneMeta = const VerificationMeta(
+    'senderPhone',
+  );
+  @override
+  late final GeneratedColumn<String> senderPhone = GeneratedColumn<String>(
+    'sender_phone',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _receiverPhoneMeta = const VerificationMeta(
+    'receiverPhone',
+  );
+  @override
+  late final GeneratedColumn<String> receiverPhone = GeneratedColumn<String>(
+    'receiver_phone',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _shopIdMeta = const VerificationMeta('shopId');
+  @override
+  late final GeneratedColumn<int> shopId = GeneratedColumn<int>(
+    'shop_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES shops (id)',
+    ),
+  );
+  static const VerificationMeta _productIdMeta = const VerificationMeta(
+    'productId',
+  );
+  @override
+  late final GeneratedColumn<int> productId = GeneratedColumn<int>(
+    'product_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES products (id)',
+    ),
+  );
+  static const VerificationMeta _bodyMeta = const VerificationMeta('body');
+  @override
+  late final GeneratedColumn<String> body = GeneratedColumn<String>(
+    'body',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _isReadMeta = const VerificationMeta('isRead');
+  @override
+  late final GeneratedColumn<bool> isRead = GeneratedColumn<bool>(
+    'is_read',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_read" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    senderPhone,
+    receiverPhone,
+    shopId,
+    productId,
+    body,
+    isRead,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'chat_messages';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ChatMessage> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('sender_phone')) {
+      context.handle(
+        _senderPhoneMeta,
+        senderPhone.isAcceptableOrUnknown(
+          data['sender_phone']!,
+          _senderPhoneMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_senderPhoneMeta);
+    }
+    if (data.containsKey('receiver_phone')) {
+      context.handle(
+        _receiverPhoneMeta,
+        receiverPhone.isAcceptableOrUnknown(
+          data['receiver_phone']!,
+          _receiverPhoneMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_receiverPhoneMeta);
+    }
+    if (data.containsKey('shop_id')) {
+      context.handle(
+        _shopIdMeta,
+        shopId.isAcceptableOrUnknown(data['shop_id']!, _shopIdMeta),
+      );
+    }
+    if (data.containsKey('product_id')) {
+      context.handle(
+        _productIdMeta,
+        productId.isAcceptableOrUnknown(data['product_id']!, _productIdMeta),
+      );
+    }
+    if (data.containsKey('body')) {
+      context.handle(
+        _bodyMeta,
+        body.isAcceptableOrUnknown(data['body']!, _bodyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bodyMeta);
+    }
+    if (data.containsKey('is_read')) {
+      context.handle(
+        _isReadMeta,
+        isRead.isAcceptableOrUnknown(data['is_read']!, _isReadMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ChatMessage map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ChatMessage(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      senderPhone: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sender_phone'],
+      )!,
+      receiverPhone: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}receiver_phone'],
+      )!,
+      shopId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}shop_id'],
+      ),
+      productId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}product_id'],
+      ),
+      body: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}body'],
+      )!,
+      isRead: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_read'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ChatMessagesTable createAlias(String alias) {
+    return $ChatMessagesTable(attachedDatabase, alias);
+  }
+}
+
+class ChatMessage extends DataClass implements Insertable<ChatMessage> {
+  final int id;
+  final String senderPhone;
+  final String receiverPhone;
+  final int? shopId;
+  final int? productId;
+  final String body;
+  final bool isRead;
+  final DateTime createdAt;
+  const ChatMessage({
+    required this.id,
+    required this.senderPhone,
+    required this.receiverPhone,
+    this.shopId,
+    this.productId,
+    required this.body,
+    required this.isRead,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['sender_phone'] = Variable<String>(senderPhone);
+    map['receiver_phone'] = Variable<String>(receiverPhone);
+    if (!nullToAbsent || shopId != null) {
+      map['shop_id'] = Variable<int>(shopId);
+    }
+    if (!nullToAbsent || productId != null) {
+      map['product_id'] = Variable<int>(productId);
+    }
+    map['body'] = Variable<String>(body);
+    map['is_read'] = Variable<bool>(isRead);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  ChatMessagesCompanion toCompanion(bool nullToAbsent) {
+    return ChatMessagesCompanion(
+      id: Value(id),
+      senderPhone: Value(senderPhone),
+      receiverPhone: Value(receiverPhone),
+      shopId: shopId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(shopId),
+      productId: productId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(productId),
+      body: Value(body),
+      isRead: Value(isRead),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory ChatMessage.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ChatMessage(
+      id: serializer.fromJson<int>(json['id']),
+      senderPhone: serializer.fromJson<String>(json['senderPhone']),
+      receiverPhone: serializer.fromJson<String>(json['receiverPhone']),
+      shopId: serializer.fromJson<int?>(json['shopId']),
+      productId: serializer.fromJson<int?>(json['productId']),
+      body: serializer.fromJson<String>(json['body']),
+      isRead: serializer.fromJson<bool>(json['isRead']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'senderPhone': serializer.toJson<String>(senderPhone),
+      'receiverPhone': serializer.toJson<String>(receiverPhone),
+      'shopId': serializer.toJson<int?>(shopId),
+      'productId': serializer.toJson<int?>(productId),
+      'body': serializer.toJson<String>(body),
+      'isRead': serializer.toJson<bool>(isRead),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  ChatMessage copyWith({
+    int? id,
+    String? senderPhone,
+    String? receiverPhone,
+    Value<int?> shopId = const Value.absent(),
+    Value<int?> productId = const Value.absent(),
+    String? body,
+    bool? isRead,
+    DateTime? createdAt,
+  }) => ChatMessage(
+    id: id ?? this.id,
+    senderPhone: senderPhone ?? this.senderPhone,
+    receiverPhone: receiverPhone ?? this.receiverPhone,
+    shopId: shopId.present ? shopId.value : this.shopId,
+    productId: productId.present ? productId.value : this.productId,
+    body: body ?? this.body,
+    isRead: isRead ?? this.isRead,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  ChatMessage copyWithCompanion(ChatMessagesCompanion data) {
+    return ChatMessage(
+      id: data.id.present ? data.id.value : this.id,
+      senderPhone: data.senderPhone.present
+          ? data.senderPhone.value
+          : this.senderPhone,
+      receiverPhone: data.receiverPhone.present
+          ? data.receiverPhone.value
+          : this.receiverPhone,
+      shopId: data.shopId.present ? data.shopId.value : this.shopId,
+      productId: data.productId.present ? data.productId.value : this.productId,
+      body: data.body.present ? data.body.value : this.body,
+      isRead: data.isRead.present ? data.isRead.value : this.isRead,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChatMessage(')
+          ..write('id: $id, ')
+          ..write('senderPhone: $senderPhone, ')
+          ..write('receiverPhone: $receiverPhone, ')
+          ..write('shopId: $shopId, ')
+          ..write('productId: $productId, ')
+          ..write('body: $body, ')
+          ..write('isRead: $isRead, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    senderPhone,
+    receiverPhone,
+    shopId,
+    productId,
+    body,
+    isRead,
+    createdAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ChatMessage &&
+          other.id == this.id &&
+          other.senderPhone == this.senderPhone &&
+          other.receiverPhone == this.receiverPhone &&
+          other.shopId == this.shopId &&
+          other.productId == this.productId &&
+          other.body == this.body &&
+          other.isRead == this.isRead &&
+          other.createdAt == this.createdAt);
+}
+
+class ChatMessagesCompanion extends UpdateCompanion<ChatMessage> {
+  final Value<int> id;
+  final Value<String> senderPhone;
+  final Value<String> receiverPhone;
+  final Value<int?> shopId;
+  final Value<int?> productId;
+  final Value<String> body;
+  final Value<bool> isRead;
+  final Value<DateTime> createdAt;
+  const ChatMessagesCompanion({
+    this.id = const Value.absent(),
+    this.senderPhone = const Value.absent(),
+    this.receiverPhone = const Value.absent(),
+    this.shopId = const Value.absent(),
+    this.productId = const Value.absent(),
+    this.body = const Value.absent(),
+    this.isRead = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  ChatMessagesCompanion.insert({
+    this.id = const Value.absent(),
+    required String senderPhone,
+    required String receiverPhone,
+    this.shopId = const Value.absent(),
+    this.productId = const Value.absent(),
+    required String body,
+    this.isRead = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  }) : senderPhone = Value(senderPhone),
+       receiverPhone = Value(receiverPhone),
+       body = Value(body);
+  static Insertable<ChatMessage> custom({
+    Expression<int>? id,
+    Expression<String>? senderPhone,
+    Expression<String>? receiverPhone,
+    Expression<int>? shopId,
+    Expression<int>? productId,
+    Expression<String>? body,
+    Expression<bool>? isRead,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (senderPhone != null) 'sender_phone': senderPhone,
+      if (receiverPhone != null) 'receiver_phone': receiverPhone,
+      if (shopId != null) 'shop_id': shopId,
+      if (productId != null) 'product_id': productId,
+      if (body != null) 'body': body,
+      if (isRead != null) 'is_read': isRead,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  ChatMessagesCompanion copyWith({
+    Value<int>? id,
+    Value<String>? senderPhone,
+    Value<String>? receiverPhone,
+    Value<int?>? shopId,
+    Value<int?>? productId,
+    Value<String>? body,
+    Value<bool>? isRead,
+    Value<DateTime>? createdAt,
+  }) {
+    return ChatMessagesCompanion(
+      id: id ?? this.id,
+      senderPhone: senderPhone ?? this.senderPhone,
+      receiverPhone: receiverPhone ?? this.receiverPhone,
+      shopId: shopId ?? this.shopId,
+      productId: productId ?? this.productId,
+      body: body ?? this.body,
+      isRead: isRead ?? this.isRead,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (senderPhone.present) {
+      map['sender_phone'] = Variable<String>(senderPhone.value);
+    }
+    if (receiverPhone.present) {
+      map['receiver_phone'] = Variable<String>(receiverPhone.value);
+    }
+    if (shopId.present) {
+      map['shop_id'] = Variable<int>(shopId.value);
+    }
+    if (productId.present) {
+      map['product_id'] = Variable<int>(productId.value);
+    }
+    if (body.present) {
+      map['body'] = Variable<String>(body.value);
+    }
+    if (isRead.present) {
+      map['is_read'] = Variable<bool>(isRead.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChatMessagesCompanion(')
+          ..write('id: $id, ')
+          ..write('senderPhone: $senderPhone, ')
+          ..write('receiverPhone: $receiverPhone, ')
+          ..write('shopId: $shopId, ')
+          ..write('productId: $productId, ')
+          ..write('body: $body, ')
+          ..write('isRead: $isRead, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$UzaDatabase extends GeneratedDatabase {
   _$UzaDatabase(QueryExecutor e) : super(e);
   $UzaDatabaseManager get managers => $UzaDatabaseManager(this);
@@ -9124,6 +10174,8 @@ abstract class _$UzaDatabase extends GeneratedDatabase {
   late final $StoryMediaTable storyMedia = $StoryMediaTable(this);
   late final $ProductLikesTable productLikes = $ProductLikesTable(this);
   late final $ShopFollowsTable shopFollows = $ShopFollowsTable(this);
+  late final $OrdersTable orders = $OrdersTable(this);
+  late final $ChatMessagesTable chatMessages = $ChatMessagesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -9146,6 +10198,8 @@ abstract class _$UzaDatabase extends GeneratedDatabase {
     storyMedia,
     productLikes,
     shopFollows,
+    orders,
+    chatMessages,
   ];
 }
 
@@ -9305,6 +10359,43 @@ final class $$ShopsTableReferences
     ).filter((f) => f.shopId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_shopFollowsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$OrdersTable, List<Order>> _ordersRefsTable(
+    _$UzaDatabase db,
+  ) => MultiTypedResultKey.fromTable(
+    db.orders,
+    aliasName: $_aliasNameGenerator(db.shops.id, db.orders.shopId),
+  );
+
+  $$OrdersTableProcessedTableManager get ordersRefs {
+    final manager = $$OrdersTableTableManager(
+      $_db,
+      $_db.orders,
+    ).filter((f) => f.shopId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_ordersRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$ChatMessagesTable, List<ChatMessage>>
+  _chatMessagesRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
+    db.chatMessages,
+    aliasName: $_aliasNameGenerator(db.shops.id, db.chatMessages.shopId),
+  );
+
+  $$ChatMessagesTableProcessedTableManager get chatMessagesRefs {
+    final manager = $$ChatMessagesTableTableManager(
+      $_db,
+      $_db.chatMessages,
+    ).filter((f) => f.shopId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_chatMessagesRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -9581,6 +10672,56 @@ class $$ShopsTableFilterComposer extends Composer<_$UzaDatabase, $ShopsTable> {
           }) => $$ShopFollowsTableFilterComposer(
             $db: $db,
             $table: $db.shopFollows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> ordersRefs(
+    Expression<bool> Function($$OrdersTableFilterComposer f) f,
+  ) {
+    final $$OrdersTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.orders,
+      getReferencedColumn: (t) => t.shopId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$OrdersTableFilterComposer(
+            $db: $db,
+            $table: $db.orders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> chatMessagesRefs(
+    Expression<bool> Function($$ChatMessagesTableFilterComposer f) f,
+  ) {
+    final $$ChatMessagesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.chatMessages,
+      getReferencedColumn: (t) => t.shopId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ChatMessagesTableFilterComposer(
+            $db: $db,
+            $table: $db.chatMessages,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -9986,6 +11127,56 @@ class $$ShopsTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> ordersRefs<T extends Object>(
+    Expression<T> Function($$OrdersTableAnnotationComposer a) f,
+  ) {
+    final $$OrdersTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.orders,
+      getReferencedColumn: (t) => t.shopId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$OrdersTableAnnotationComposer(
+            $db: $db,
+            $table: $db.orders,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<T> chatMessagesRefs<T extends Object>(
+    Expression<T> Function($$ChatMessagesTableAnnotationComposer a) f,
+  ) {
+    final $$ChatMessagesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.chatMessages,
+      getReferencedColumn: (t) => t.shopId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ChatMessagesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.chatMessages,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$ShopsTableTableManager
@@ -10007,6 +11198,8 @@ class $$ShopsTableTableManager
             bool userContactsRefs,
             bool followedShopsRefs,
             bool shopFollowsRefs,
+            bool ordersRefs,
+            bool chatMessagesRefs,
           })
         > {
   $$ShopsTableTableManager(_$UzaDatabase db, $ShopsTable table)
@@ -10157,6 +11350,8 @@ class $$ShopsTableTableManager
                 userContactsRefs = false,
                 followedShopsRefs = false,
                 shopFollowsRefs = false,
+                ordersRefs = false,
+                chatMessagesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -10166,6 +11361,8 @@ class $$ShopsTableTableManager
                     if (userContactsRefs) db.userContacts,
                     if (followedShopsRefs) db.followedShops,
                     if (shopFollowsRefs) db.shopFollows,
+                    if (ordersRefs) db.orders,
+                    if (chatMessagesRefs) db.chatMessages,
                   ],
                   addJoins: null,
                   getPrefetchedDataCallback: (items) async {
@@ -10263,6 +11460,40 @@ class $$ShopsTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (ordersRefs)
+                        await $_getPrefetchedData<Shop, $ShopsTable, Order>(
+                          currentTable: table,
+                          referencedTable: $$ShopsTableReferences
+                              ._ordersRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ShopsTableReferences(db, table, p0).ordersRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.shopId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (chatMessagesRefs)
+                        await $_getPrefetchedData<
+                          Shop,
+                          $ShopsTable,
+                          ChatMessage
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ShopsTableReferences
+                              ._chatMessagesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ShopsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).chatMessagesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.shopId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -10289,6 +11520,8 @@ typedef $$ShopsTableProcessedTableManager =
         bool userContactsRefs,
         bool followedShopsRefs,
         bool shopFollowsRefs,
+        bool ordersRefs,
+        bool chatMessagesRefs,
       })
     >;
 typedef $$CategoriesTableCreateCompanionBuilder =
@@ -10841,6 +12074,24 @@ final class $$ProductsTableReferences
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
+
+  static MultiTypedResultKey<$ChatMessagesTable, List<ChatMessage>>
+  _chatMessagesRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
+    db.chatMessages,
+    aliasName: $_aliasNameGenerator(db.products.id, db.chatMessages.productId),
+  );
+
+  $$ChatMessagesTableProcessedTableManager get chatMessagesRefs {
+    final manager = $$ChatMessagesTableTableManager(
+      $_db,
+      $_db.chatMessages,
+    ).filter((f) => f.productId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_chatMessagesRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
 }
 
 class $$ProductsTableFilterComposer
@@ -11134,6 +12385,31 @@ class $$ProductsTableFilterComposer
           }) => $$ProductLikesTableFilterComposer(
             $db: $db,
             $table: $db.productLikes,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> chatMessagesRefs(
+    Expression<bool> Function($$ChatMessagesTableFilterComposer f) f,
+  ) {
+    final $$ChatMessagesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.chatMessages,
+      getReferencedColumn: (t) => t.productId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ChatMessagesTableFilterComposer(
+            $db: $db,
+            $table: $db.chatMessages,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -11589,6 +12865,31 @@ class $$ProductsTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> chatMessagesRefs<T extends Object>(
+    Expression<T> Function($$ChatMessagesTableAnnotationComposer a) f,
+  ) {
+    final $$ChatMessagesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.chatMessages,
+      getReferencedColumn: (t) => t.productId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ChatMessagesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.chatMessages,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$ProductsTableTableManager
@@ -11612,6 +12913,7 @@ class $$ProductsTableTableManager
             bool wishlistProductsRefs,
             bool productReviewsRefs,
             bool productLikesRefs,
+            bool chatMessagesRefs,
           })
         > {
   $$ProductsTableTableManager(_$UzaDatabase db, $ProductsTable table)
@@ -11754,6 +13056,7 @@ class $$ProductsTableTableManager
                 wishlistProductsRefs = false,
                 productReviewsRefs = false,
                 productLikesRefs = false,
+                chatMessagesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -11763,6 +13066,7 @@ class $$ProductsTableTableManager
                     if (wishlistProductsRefs) db.wishlistProducts,
                     if (productReviewsRefs) db.productReviews,
                     if (productLikesRefs) db.productLikes,
+                    if (chatMessagesRefs) db.chatMessages,
                   ],
                   addJoins:
                       <
@@ -11916,6 +13220,27 @@ class $$ProductsTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (chatMessagesRefs)
+                        await $_getPrefetchedData<
+                          Product,
+                          $ProductsTable,
+                          ChatMessage
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ProductsTableReferences
+                              ._chatMessagesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ProductsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).chatMessagesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.productId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -11944,6 +13269,7 @@ typedef $$ProductsTableProcessedTableManager =
         bool wishlistProductsRefs,
         bool productReviewsRefs,
         bool productLikesRefs,
+        bool chatMessagesRefs,
       })
     >;
 typedef $$StoriesTableCreateCompanionBuilder =
@@ -13106,6 +14432,7 @@ typedef $$UserProfilesTableCreateCompanionBuilder =
       Value<String?> avatarUrl,
       Value<String?> passwordHash,
       Value<bool> isPhoneVerified,
+      Value<String> role,
       Value<DateTime> createdAt,
     });
 typedef $$UserProfilesTableUpdateCompanionBuilder =
@@ -13117,6 +14444,7 @@ typedef $$UserProfilesTableUpdateCompanionBuilder =
       Value<String?> avatarUrl,
       Value<String?> passwordHash,
       Value<bool> isPhoneVerified,
+      Value<String> role,
       Value<DateTime> createdAt,
     });
 
@@ -13161,6 +14489,11 @@ class $$UserProfilesTableFilterComposer
 
   ColumnFilters<bool> get isPhoneVerified => $composableBuilder(
     column: $table.isPhoneVerified,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get role => $composableBuilder(
+    column: $table.role,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13214,6 +14547,11 @@ class $$UserProfilesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get role => $composableBuilder(
+    column: $table.role,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -13253,6 +14591,9 @@ class $$UserProfilesTableAnnotationComposer
     column: $table.isPhoneVerified,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get role =>
+      $composableBuilder(column: $table.role, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -13296,6 +14637,7 @@ class $$UserProfilesTableTableManager
                 Value<String?> avatarUrl = const Value.absent(),
                 Value<String?> passwordHash = const Value.absent(),
                 Value<bool> isPhoneVerified = const Value.absent(),
+                Value<String> role = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => UserProfilesCompanion(
                 id: id,
@@ -13305,6 +14647,7 @@ class $$UserProfilesTableTableManager
                 avatarUrl: avatarUrl,
                 passwordHash: passwordHash,
                 isPhoneVerified: isPhoneVerified,
+                role: role,
                 createdAt: createdAt,
               ),
           createCompanionCallback:
@@ -13316,6 +14659,7 @@ class $$UserProfilesTableTableManager
                 Value<String?> avatarUrl = const Value.absent(),
                 Value<String?> passwordHash = const Value.absent(),
                 Value<bool> isPhoneVerified = const Value.absent(),
+                Value<String> role = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => UserProfilesCompanion.insert(
                 id: id,
@@ -13325,6 +14669,7 @@ class $$UserProfilesTableTableManager
                 avatarUrl: avatarUrl,
                 passwordHash: passwordHash,
                 isPhoneVerified: isPhoneVerified,
+                role: role,
                 createdAt: createdAt,
               ),
           withReferenceMapper: (p0) => p0
@@ -16205,6 +17550,835 @@ typedef $$ShopFollowsTableProcessedTableManager =
       ShopFollow,
       PrefetchHooks Function({bool shopId})
     >;
+typedef $$OrdersTableCreateCompanionBuilder =
+    OrdersCompanion Function({
+      Value<int> id,
+      required String buyerPhone,
+      required int shopId,
+      Value<String> status,
+      required String itemsJson,
+      Value<String?> note,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+    });
+typedef $$OrdersTableUpdateCompanionBuilder =
+    OrdersCompanion Function({
+      Value<int> id,
+      Value<String> buyerPhone,
+      Value<int> shopId,
+      Value<String> status,
+      Value<String> itemsJson,
+      Value<String?> note,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+    });
+
+final class $$OrdersTableReferences
+    extends BaseReferences<_$UzaDatabase, $OrdersTable, Order> {
+  $$OrdersTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $ShopsTable _shopIdTable(_$UzaDatabase db) =>
+      db.shops.createAlias($_aliasNameGenerator(db.orders.shopId, db.shops.id));
+
+  $$ShopsTableProcessedTableManager get shopId {
+    final $_column = $_itemColumn<int>('shop_id')!;
+
+    final manager = $$ShopsTableTableManager(
+      $_db,
+      $_db.shops,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_shopIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$OrdersTableFilterComposer
+    extends Composer<_$UzaDatabase, $OrdersTable> {
+  $$OrdersTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get buyerPhone => $composableBuilder(
+    column: $table.buyerPhone,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get itemsJson => $composableBuilder(
+    column: $table.itemsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get note => $composableBuilder(
+    column: $table.note,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$ShopsTableFilterComposer get shopId {
+    final $$ShopsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableFilterComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$OrdersTableOrderingComposer
+    extends Composer<_$UzaDatabase, $OrdersTable> {
+  $$OrdersTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get buyerPhone => $composableBuilder(
+    column: $table.buyerPhone,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get itemsJson => $composableBuilder(
+    column: $table.itemsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get note => $composableBuilder(
+    column: $table.note,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$ShopsTableOrderingComposer get shopId {
+    final $$ShopsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableOrderingComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$OrdersTableAnnotationComposer
+    extends Composer<_$UzaDatabase, $OrdersTable> {
+  $$OrdersTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get buyerPhone => $composableBuilder(
+    column: $table.buyerPhone,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get itemsJson =>
+      $composableBuilder(column: $table.itemsJson, builder: (column) => column);
+
+  GeneratedColumn<String> get note =>
+      $composableBuilder(column: $table.note, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$ShopsTableAnnotationComposer get shopId {
+    final $$ShopsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$OrdersTableTableManager
+    extends
+        RootTableManager<
+          _$UzaDatabase,
+          $OrdersTable,
+          Order,
+          $$OrdersTableFilterComposer,
+          $$OrdersTableOrderingComposer,
+          $$OrdersTableAnnotationComposer,
+          $$OrdersTableCreateCompanionBuilder,
+          $$OrdersTableUpdateCompanionBuilder,
+          (Order, $$OrdersTableReferences),
+          Order,
+          PrefetchHooks Function({bool shopId})
+        > {
+  $$OrdersTableTableManager(_$UzaDatabase db, $OrdersTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$OrdersTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$OrdersTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$OrdersTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> buyerPhone = const Value.absent(),
+                Value<int> shopId = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String> itemsJson = const Value.absent(),
+                Value<String?> note = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+              }) => OrdersCompanion(
+                id: id,
+                buyerPhone: buyerPhone,
+                shopId: shopId,
+                status: status,
+                itemsJson: itemsJson,
+                note: note,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String buyerPhone,
+                required int shopId,
+                Value<String> status = const Value.absent(),
+                required String itemsJson,
+                Value<String?> note = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+              }) => OrdersCompanion.insert(
+                id: id,
+                buyerPhone: buyerPhone,
+                shopId: shopId,
+                status: status,
+                itemsJson: itemsJson,
+                note: note,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) =>
+                    (e.readTable(table), $$OrdersTableReferences(db, table, e)),
+              )
+              .toList(),
+          prefetchHooksCallback: ({shopId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (shopId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.shopId,
+                                referencedTable: $$OrdersTableReferences
+                                    ._shopIdTable(db),
+                                referencedColumn: $$OrdersTableReferences
+                                    ._shopIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$OrdersTableProcessedTableManager =
+    ProcessedTableManager<
+      _$UzaDatabase,
+      $OrdersTable,
+      Order,
+      $$OrdersTableFilterComposer,
+      $$OrdersTableOrderingComposer,
+      $$OrdersTableAnnotationComposer,
+      $$OrdersTableCreateCompanionBuilder,
+      $$OrdersTableUpdateCompanionBuilder,
+      (Order, $$OrdersTableReferences),
+      Order,
+      PrefetchHooks Function({bool shopId})
+    >;
+typedef $$ChatMessagesTableCreateCompanionBuilder =
+    ChatMessagesCompanion Function({
+      Value<int> id,
+      required String senderPhone,
+      required String receiverPhone,
+      Value<int?> shopId,
+      Value<int?> productId,
+      required String body,
+      Value<bool> isRead,
+      Value<DateTime> createdAt,
+    });
+typedef $$ChatMessagesTableUpdateCompanionBuilder =
+    ChatMessagesCompanion Function({
+      Value<int> id,
+      Value<String> senderPhone,
+      Value<String> receiverPhone,
+      Value<int?> shopId,
+      Value<int?> productId,
+      Value<String> body,
+      Value<bool> isRead,
+      Value<DateTime> createdAt,
+    });
+
+final class $$ChatMessagesTableReferences
+    extends BaseReferences<_$UzaDatabase, $ChatMessagesTable, ChatMessage> {
+  $$ChatMessagesTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $ShopsTable _shopIdTable(_$UzaDatabase db) => db.shops.createAlias(
+    $_aliasNameGenerator(db.chatMessages.shopId, db.shops.id),
+  );
+
+  $$ShopsTableProcessedTableManager? get shopId {
+    final $_column = $_itemColumn<int>('shop_id');
+    if ($_column == null) return null;
+    final manager = $$ShopsTableTableManager(
+      $_db,
+      $_db.shops,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_shopIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $ProductsTable _productIdTable(_$UzaDatabase db) =>
+      db.products.createAlias(
+        $_aliasNameGenerator(db.chatMessages.productId, db.products.id),
+      );
+
+  $$ProductsTableProcessedTableManager? get productId {
+    final $_column = $_itemColumn<int>('product_id');
+    if ($_column == null) return null;
+    final manager = $$ProductsTableTableManager(
+      $_db,
+      $_db.products,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_productIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$ChatMessagesTableFilterComposer
+    extends Composer<_$UzaDatabase, $ChatMessagesTable> {
+  $$ChatMessagesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get senderPhone => $composableBuilder(
+    column: $table.senderPhone,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get receiverPhone => $composableBuilder(
+    column: $table.receiverPhone,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get body => $composableBuilder(
+    column: $table.body,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isRead => $composableBuilder(
+    column: $table.isRead,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$ShopsTableFilterComposer get shopId {
+    final $$ShopsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableFilterComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ProductsTableFilterComposer get productId {
+    final $$ProductsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableFilterComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ChatMessagesTableOrderingComposer
+    extends Composer<_$UzaDatabase, $ChatMessagesTable> {
+  $$ChatMessagesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get senderPhone => $composableBuilder(
+    column: $table.senderPhone,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get receiverPhone => $composableBuilder(
+    column: $table.receiverPhone,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get body => $composableBuilder(
+    column: $table.body,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isRead => $composableBuilder(
+    column: $table.isRead,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$ShopsTableOrderingComposer get shopId {
+    final $$ShopsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableOrderingComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ProductsTableOrderingComposer get productId {
+    final $$ProductsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableOrderingComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ChatMessagesTableAnnotationComposer
+    extends Composer<_$UzaDatabase, $ChatMessagesTable> {
+  $$ChatMessagesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get senderPhone => $composableBuilder(
+    column: $table.senderPhone,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get receiverPhone => $composableBuilder(
+    column: $table.receiverPhone,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get body =>
+      $composableBuilder(column: $table.body, builder: (column) => column);
+
+  GeneratedColumn<bool> get isRead =>
+      $composableBuilder(column: $table.isRead, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$ShopsTableAnnotationComposer get shopId {
+    final $$ShopsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ProductsTableAnnotationComposer get productId {
+    final $$ProductsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ChatMessagesTableTableManager
+    extends
+        RootTableManager<
+          _$UzaDatabase,
+          $ChatMessagesTable,
+          ChatMessage,
+          $$ChatMessagesTableFilterComposer,
+          $$ChatMessagesTableOrderingComposer,
+          $$ChatMessagesTableAnnotationComposer,
+          $$ChatMessagesTableCreateCompanionBuilder,
+          $$ChatMessagesTableUpdateCompanionBuilder,
+          (ChatMessage, $$ChatMessagesTableReferences),
+          ChatMessage,
+          PrefetchHooks Function({bool shopId, bool productId})
+        > {
+  $$ChatMessagesTableTableManager(_$UzaDatabase db, $ChatMessagesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ChatMessagesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ChatMessagesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ChatMessagesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> senderPhone = const Value.absent(),
+                Value<String> receiverPhone = const Value.absent(),
+                Value<int?> shopId = const Value.absent(),
+                Value<int?> productId = const Value.absent(),
+                Value<String> body = const Value.absent(),
+                Value<bool> isRead = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => ChatMessagesCompanion(
+                id: id,
+                senderPhone: senderPhone,
+                receiverPhone: receiverPhone,
+                shopId: shopId,
+                productId: productId,
+                body: body,
+                isRead: isRead,
+                createdAt: createdAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String senderPhone,
+                required String receiverPhone,
+                Value<int?> shopId = const Value.absent(),
+                Value<int?> productId = const Value.absent(),
+                required String body,
+                Value<bool> isRead = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => ChatMessagesCompanion.insert(
+                id: id,
+                senderPhone: senderPhone,
+                receiverPhone: receiverPhone,
+                shopId: shopId,
+                productId: productId,
+                body: body,
+                isRead: isRead,
+                createdAt: createdAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$ChatMessagesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({shopId = false, productId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (shopId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.shopId,
+                                referencedTable: $$ChatMessagesTableReferences
+                                    ._shopIdTable(db),
+                                referencedColumn: $$ChatMessagesTableReferences
+                                    ._shopIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+                    if (productId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.productId,
+                                referencedTable: $$ChatMessagesTableReferences
+                                    ._productIdTable(db),
+                                referencedColumn: $$ChatMessagesTableReferences
+                                    ._productIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$ChatMessagesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$UzaDatabase,
+      $ChatMessagesTable,
+      ChatMessage,
+      $$ChatMessagesTableFilterComposer,
+      $$ChatMessagesTableOrderingComposer,
+      $$ChatMessagesTableAnnotationComposer,
+      $$ChatMessagesTableCreateCompanionBuilder,
+      $$ChatMessagesTableUpdateCompanionBuilder,
+      (ChatMessage, $$ChatMessagesTableReferences),
+      ChatMessage,
+      PrefetchHooks Function({bool shopId, bool productId})
+    >;
 
 class $UzaDatabaseManager {
   final _$UzaDatabase _db;
@@ -16243,4 +18417,8 @@ class $UzaDatabaseManager {
       $$ProductLikesTableTableManager(_db, _db.productLikes);
   $$ShopFollowsTableTableManager get shopFollows =>
       $$ShopFollowsTableTableManager(_db, _db.shopFollows);
+  $$OrdersTableTableManager get orders =>
+      $$OrdersTableTableManager(_db, _db.orders);
+  $$ChatMessagesTableTableManager get chatMessages =>
+      $$ChatMessagesTableTableManager(_db, _db.chatMessages);
 }

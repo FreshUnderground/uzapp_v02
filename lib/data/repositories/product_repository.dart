@@ -82,6 +82,21 @@ class ProductRepository {
     )..where((t) => t.shopId.equals(shopId))).get();
   }
 
+  /// Products from wholesale (B2B) shops.
+  Stream<List<Product>> watchWholesaleProducts() {
+    return db.select(db.shops).watch().asyncExpand((wholesaleShops) {
+      final ids = wholesaleShops
+          .where((s) => s.type == ShopType.wholesale)
+          .map((s) => s.id)
+          .toList();
+      if (ids.isEmpty) return Stream.value(<Product>[]);
+      return (db.select(db.products)
+            ..where((t) => t.shopId.isIn(ids))
+            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .watch();
+    });
+  }
+
   Stream<List<Product>> watchArrivals() {
     return (db.select(
       db.products,

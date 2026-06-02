@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -5,9 +7,11 @@ import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/res/uza_colors.dart';
+import 'core/router/app_router.dart';
 import 'core/services/api_service.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/background_service.dart';
+import 'core/services/connectivity_service.dart';
 import 'core/services/contact_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/push_notification_service.dart';
@@ -17,10 +21,13 @@ import 'core/l10n/tr.dart';
 import 'data/local/uza_database.dart';
 import 'data/repositories/auth_repository.dart';
 import 'data/repositories/cart_repository.dart';
+import 'data/repositories/message_repository.dart';
+import 'data/repositories/order_repository.dart';
 import 'data/repositories/product_repository.dart';
 import 'data/repositories/shop_repository.dart';
 import 'data/repositories/story_repository.dart';
 import 'data/services/sync_service.dart';
+import 'ui/components/error_boundary.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/product_detail_screen.dart';
 import 'ui/screens/shop_profile_screen.dart';
@@ -54,7 +61,9 @@ void main() async {
 }
 
 class BiometricGuard extends StatefulWidget {
-  const BiometricGuard({super.key});
+  final Widget child;
+
+  const BiometricGuard({super.key, required this.child});
 
   @override
   State<BiometricGuard> createState() => _BiometricGuardState();
@@ -63,6 +72,15 @@ class BiometricGuard extends StatefulWidget {
 class _BiometricGuardState extends State<BiometricGuard> {
   bool _isAuthenticated = false;
   bool _isChecking = false;
+  bool _authAttempted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _authenticate();
+    });
+  }
 
   Future<void> _authenticate() async {
     if (_isChecking) return;
@@ -84,7 +102,12 @@ class _BiometricGuardState extends State<BiometricGuard> {
     } catch (e) {
       debugPrint('Biometric auth error: $e');
     } finally {
-      if (mounted) setState(() => _isChecking = false);
+      if (mounted) {
+        setState(() {
+          _isChecking = false;
+          _authAttempted = true;
+        });
+      }
     }
   }
 
@@ -94,7 +117,7 @@ class _BiometricGuardState extends State<BiometricGuard> {
 
     // If biometric is disabled or already authenticated, show the app
     if (!settings.biometricEnabled || _isAuthenticated) {
-      return const HomeScreen();
+      return widget.child;
     }
 
     // Show lock screen
@@ -180,16 +203,16 @@ class _BiometricGuardState extends State<BiometricGuard> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: _isChecking
-                      ? null
-                      : () => setState(() => _isAuthenticated = true),
-                  child: Text(
-                    tr(context, 'skip_guest'),
-                    style: const TextStyle(color: UzaColors.textSecondary),
+                if (_authAttempted && !_isAuthenticated) ...[
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: _isChecking ? null : _authenticate,
+                    child: Text(
+                      tr(context, 'retry'),
+                      style: const TextStyle(color: UzaColors.textSecondary),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -240,6 +263,7 @@ class _UzaAppState extends State<UzaApp> {
       if (!mounted) return;
 
       final notificationService = NotificationService();
+      final connectivityService = ConnectivityService();
       final apiService = ApiService(baseUrl: baseUrl);
       final syncService = SyncService(
         database,
@@ -258,6 +282,8 @@ class _UzaAppState extends State<UzaApp> {
         syncService: syncService,
       );
       final cartRepository = CartRepository(database);
+      final orderRepository = OrderRepository(database);
+      final messageRepository = MessageRepository(database);
       final contactService = ContactService(database);
       final settingsService = SettingsService(database);
 
@@ -269,6 +295,7 @@ class _UzaAppState extends State<UzaApp> {
       _services = _UzaServices(
         database: database,
         notificationService: notificationService,
+        connectivityService: connectivityService,
         apiService: apiService,
         storyRepository: storyRepository,
         syncService: syncService,
@@ -277,6 +304,8 @@ class _UzaAppState extends State<UzaApp> {
         shopRepository: shopRepository,
         productRepository: productRepository,
         cartRepository: cartRepository,
+        orderRepository: orderRepository,
+        messageRepository: messageRepository,
         contactService: contactService,
         settingsService: settingsService,
       );
@@ -285,14 +314,18 @@ class _UzaAppState extends State<UzaApp> {
       await Future.delayed(const Duration(milliseconds: 500));
       if (!mounted) return;
 
-      // REALTIME SYNC: 30-second interval for near-instant updates
-      // Users will see new content within 30 seconds without UI disruption
-      syncService.startAutoSync(interval: const Duration(seconds: 30));
-
-      // Eager initial sync
-      syncService.checkFirstSync();
-      syncService.repairShopsWithoutRemoteId().then(
-        (_) => syncService.syncNow(),
+      // Public catalog sync — no AuthService.user required
+      await syncService.checkFirstSync();
+      await connectivityService.initialize();
+      syncService.bindConnectivity(connectivityService);
+      syncService.startAutoSync();
+      unawaited(syncService.syncNow());
+      unawaited(
+        syncService.repairShopsWithoutRemoteId().then((_) {
+          if (!syncService.isSyncing) {
+            return syncService.syncNow();
+          }
+        }),
       );
 
       // Initialize local notifications
@@ -500,6 +533,11 @@ class _UzaAppState extends State<UzaApp> {
         ),
         Provider<AuthRepository>.value(value: _services!.authRepository),
         Provider<CartRepository>.value(value: _services!.cartRepository),
+        Provider<OrderRepository>.value(value: _services!.orderRepository),
+        Provider<MessageRepository>.value(value: _services!.messageRepository),
+        ChangeNotifierProvider<ConnectivityService>.value(
+          value: _services!.connectivityService,
+        ),
         ChangeNotifierProxyProvider<AuthRepository, AuthService>(
           create: (context) => _services!.authService,
           update: (context, repo, current) => _services!.authService,
@@ -517,83 +555,35 @@ class _UzaAppState extends State<UzaApp> {
           create: (context) => _services!.settingsService,
         ),
       ],
-      child: Consumer<SettingsService>(
-        builder: (context, settings, child) {
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            title: 'Uzaapp',
-            theme: UzaTheme.lightTheme,
-            darkTheme: ThemeData.dark().copyWith(
-              primaryColor: UzaColors.primary,
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: UzaColors.primary,
-                brightness: Brightness.dark,
+      child: ErrorBoundary(
+        child: Consumer<SettingsService>(
+          builder: (context, settings, child) {
+            final router = AppRouter.create(_rootNavigatorKey);
+            return MaterialApp.router(
+              debugShowCheckedModeBanner: false,
+              title: 'Uzaapp',
+              theme: UzaTheme.lightTheme,
+              darkTheme: ThemeData.dark().copyWith(
+                primaryColor: UzaColors.primary,
+                colorScheme: ColorScheme.fromSeed(
+                  seedColor: UzaColors.primary,
+                  brightness: Brightness.dark,
+                ),
               ),
-            ),
-            themeMode: settings.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-            locale: Locale(settings.language),
-            navigatorKey: _rootNavigatorKey,
-            // Go directly to HomeScreen - skip BiometricGuard for faster startup
-            home: const HomeScreen(),
-            onGenerateRoute: (settings) {
-              // Deep link handling for uzaapp.com (#/shop/1 or #/product/1)
-              final uri = Uri.parse(settings.name ?? '');
-              if (uri.pathSegments.length >= 2) {
-                final id = int.tryParse(uri.pathSegments[1]);
-                if (id != null) {
-                  if (uri.pathSegments[0] == 'shop') {
-                    return MaterialPageRoute(
-                      builder: (context) => FutureBuilder<Shop?>(
-                        future: context.read<ShopRepository>().getShopById(id),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
-                            return const Scaffold(
-                              body: Center(child: CircularProgressIndicator()),
-                            );
-                          }
-                          if (!snapshot.hasData || snapshot.data == null) {
-                            return Scaffold(
-                              body: Center(
-                                child: Text(tr(context, 'shop_not_found')),
-                              ),
-                            );
-                          }
-                          return ShopProfileScreen(shop: snapshot.data!);
-                        },
-                      ),
-                    );
-                  } else if (uri.pathSegments[0] == 'product') {
-                    return MaterialPageRoute(
-                      builder: (context) => FutureBuilder<Product?>(
-                        future: context
-                            .read<ProductRepository>()
-                            .getProductById(id),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
-                            return const Scaffold(
-                              body: Center(child: CircularProgressIndicator()),
-                            );
-                          }
-                          if (!snapshot.hasData || snapshot.data == null) {
-                            return Scaffold(
-                              body: Center(
-                                child: Text(tr(context, 'product_not_found')),
-                              ),
-                            );
-                          }
-                          return ProductDetailScreen(product: snapshot.data!);
-                        },
-                      ),
-                    );
-                  }
+              themeMode: settings.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+              locale: Locale(settings.language),
+              routerConfig: router,
+              builder: (context, child) {
+                if (settings.biometricEnabled) {
+                  return BiometricGuard(
+                    child: child ?? const HomeScreen(),
+                  );
                 }
-              }
-              return null;
-            },
-          );
-        },
+                return child ?? const HomeScreen();
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -603,6 +593,7 @@ class _UzaAppState extends State<UzaApp> {
 class _UzaServices {
   final UzaDatabase database;
   final NotificationService notificationService;
+  final ConnectivityService connectivityService;
   final ApiService apiService;
   final StoryRepository storyRepository;
   final SyncService syncService;
@@ -611,12 +602,15 @@ class _UzaServices {
   final ShopRepository shopRepository;
   final ProductRepository productRepository;
   final CartRepository cartRepository;
+  final OrderRepository orderRepository;
+  final MessageRepository messageRepository;
   final ContactService contactService;
   final SettingsService settingsService;
 
   _UzaServices({
     required this.database,
     required this.notificationService,
+    required this.connectivityService,
     required this.apiService,
     required this.storyRepository,
     required this.syncService,
@@ -625,6 +619,8 @@ class _UzaServices {
     required this.shopRepository,
     required this.productRepository,
     required this.cartRepository,
+    required this.orderRepository,
+    required this.messageRepository,
     required this.contactService,
     required this.settingsService,
   });

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io' as io;
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'connectivity/browser_online.dart';
 
 enum ConnectivityType { wifi, mobile, none }
 
@@ -20,8 +22,16 @@ class ConnectivityService extends ChangeNotifier {
 
   /// Initialize and start periodic connectivity monitoring.
   Future<void> initialize() async {
+    if (kIsWeb) {
+      listenBrowserConnectivity((online) {
+        if (!online) {
+          setConnectivity(online: false);
+        } else {
+          checkConnectivity();
+        }
+      });
+    }
     await checkConnectivity();
-    // Check every 30 seconds
     _monitorTimer?.cancel();
     _monitorTimer = Timer.periodic(
       const Duration(seconds: 30),
@@ -73,18 +83,31 @@ class ConnectivityService extends ChangeNotifier {
     }
   }
 
-  /// Web-based connectivity check using dart:html or a simple approach.
-  /// On web, we can't use dart:io, so we skip the check
-  /// and assume online (browsers handle connectivity differently).
+  /// Web: navigator.onLine + ping API when browser reports online.
   Future<void> _checkConnectivityWeb() async {
-    // On web, we assume online since the browser manages connectivity.
-    // A more robust approach would use dart:html's HttpRequest,
-    // but that adds web-specific imports.
     final wasOnline = _isOnline;
-    _isOnline = true;
-    _type = ConnectivityType.mobile;
-
-    if (!wasOnline) {
+    if (!getBrowserOnline()) {
+      _isOnline = false;
+      _type = ConnectivityType.none;
+      if (wasOnline != _isOnline) notifyListeners();
+      return;
+    }
+    try {
+      final response = await http
+          .head(Uri.parse(_healthCheckUrl))
+          .timeout(const Duration(seconds: 5));
+      final reachable =
+          response.statusCode >= 200 && response.statusCode < 400;
+      _isOnline = reachable;
+      _type = reachable ? ConnectivityType.mobile : ConnectivityType.none;
+    } catch (_) {
+      _isOnline = false;
+      _type = ConnectivityType.none;
+    }
+    if (wasOnline != _isOnline) {
+      debugPrint(
+        'ConnectivityService (web): ${_isOnline ? "online" : "offline"}',
+      );
       notifyListeners();
     }
   }

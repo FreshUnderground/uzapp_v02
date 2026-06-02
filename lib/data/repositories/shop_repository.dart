@@ -37,6 +37,11 @@ class ShopRepository {
         .watch();
   }
 
+  Stream<Shop?> watchShopById(int id) {
+    return (db.select(db.shops)..where((t) => t.id.equals(id)))
+        .watchSingleOrNull();
+  }
+
   Future<Shop?> getShopById(int id) {
     return (db.select(
       db.shops,

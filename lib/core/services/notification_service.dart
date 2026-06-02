@@ -5,12 +5,16 @@ class NotificationModel {
   final String message;
   final DateTime timestamp;
   bool isRead;
+  final String? linkType;
+  final int? linkId;
 
   NotificationModel({
     required this.title,
     required this.message,
     required this.timestamp,
     this.isRead = false,
+    this.linkType,
+    this.linkId,
   });
 }
 
@@ -31,7 +35,12 @@ class NotificationService extends ChangeNotifier {
     _enabled = value;
   }
 
-  void addNotification(String title, String message) {
+  void addNotification(
+    String title,
+    String message, {
+    String? linkType,
+    int? linkId,
+  }) {
     if (!_enabled) return;
 
     final now = DateTime.now();
@@ -47,6 +56,8 @@ class NotificationService extends ChangeNotifier {
         title: title,
         message: message,
         timestamp: DateTime.now(),
+        linkType: linkType,
+        linkId: linkId,
       ),
     );
     notifyListeners();

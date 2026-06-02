@@ -5,6 +5,7 @@ import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/services/sync_service.dart';
 import '../../core/l10n/tr.dart';
+import '../../core/services/auth_service.dart';
 import 'package:drift/drift.dart' as drift;
 
 class AdminValidationScreen extends StatelessWidget {
@@ -12,6 +13,13 @@ class AdminValidationScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final user = context.watch<AuthService>().user;
+    if (user == null || !user.isAdmin) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: Center(child: Text(tr(context, 'access_denied'))),
+      );
+    }
     return DefaultTabController(
       length: 3,
       child: Scaffold(

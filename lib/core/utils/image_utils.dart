@@ -197,10 +197,41 @@ class ImageUtils {
     if (decrypted.trim().startsWith('[') && decrypted.trim().endsWith(']')) {
       try {
         final List<dynamic> decoded = jsonDecode(decrypted);
-        return decoded.map((e) => _getProxiedUrl(e.toString())).toList();
+        return decoded
+            .map((e) => _getProxiedUrl(e.toString().trim()))
+            .where((s) => s.isNotEmpty)
+            .toList();
       } catch (e) {
         debugPrint('Error decoding image JSON: $e');
       }
+    }
+
+    // Handle double-encoded JSON arrays, e.g. "\"[\\\"https://...\\\"]\""
+    if (decrypted.trim().startsWith('"') && decrypted.trim().endsWith('"')) {
+      try {
+        final normalized = jsonDecode(decrypted).toString();
+        if (normalized.trim().startsWith('[') &&
+            normalized.trim().endsWith(']')) {
+          final List<dynamic> decoded = jsonDecode(normalized);
+          return decoded
+              .map((e) => _getProxiedUrl(e.toString().trim()))
+              .where((s) => s.isNotEmpty)
+              .toList();
+        }
+      } catch (e) {
+        debugPrint('Error decoding double-encoded image JSON: $e');
+      }
+    }
+
+    // Fallback: extract URL-like values from corrupted CSV/JSON payloads.
+    final extractedUrls = RegExp(
+      r'(https?:\/\/[^,\s"\]]+|data:image\/[^,\s]+,[^,\s"\]]+)',
+      caseSensitive: false,
+    ).allMatches(decrypted).map((m) => m.group(0)?.trim() ?? '').where((s) {
+      return s.isNotEmpty;
+    }).toList();
+    if (extractedUrls.isNotEmpty) {
+      return extractedUrls.map(_getProxiedUrl).toList();
     }
 
     return decrypted

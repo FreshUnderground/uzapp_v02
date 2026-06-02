@@ -68,4 +68,50 @@ class UzaTheme {
       ),
     );
   }
+
+  static ThemeData get darkTheme {
+    const surface = Color(0xFF1E1E1E);
+    const background = Color(0xFF121212);
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: UzaColors.primary,
+        brightness: Brightness.dark,
+        primary: UzaColors.primary,
+        secondary: UzaColors.secondary,
+        surface: surface,
+        onPrimary: Colors.white,
+        onSurface: Colors.white,
+      ),
+      scaffoldBackgroundColor: background,
+      textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: surface,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: UzaColors.primary,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(double.infinity, 56),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          elevation: 0,
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFF2C2C2C),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+    );
+  }
 }

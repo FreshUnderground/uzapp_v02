@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
+import '../../core/l10n/tr.dart';
 import '../components/product_card.dart';
+import '../components/skeletons.dart';
 import 'product_detail_screen.dart';
 import '../../core/res/uza_colors.dart';
 
@@ -15,18 +17,33 @@ class B2BHubScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('OFFRES B2B', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+          tr(context, 'b2b_hub_title'),
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: UzaColors.secondary,
         foregroundColor: Colors.white,
       ),
       body: StreamBuilder<List<Product>>(
-        // In a real app, we would filtering by B2B category or wholesale flag
-        // For now, let's just show all products from wholesalers
-        stream: productRepo.watchArrivals(), // Placeholder
+        stream: productRepo.watchWholesaleProducts(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('Aucune offre B2B pour le moment.'));
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return GridView.builder(
+              padding: const EdgeInsets.all(16),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 0.65,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+              ),
+              itemCount: 6,
+              itemBuilder: (_, __) => const ProductCardSkeleton(),
+            );
           }
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return Center(child: Text(tr(context, 'b2b_empty')));
+          }
+          final products = snapshot.data!;
           return GridView.builder(
             padding: const EdgeInsets.all(16),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -35,12 +52,17 @@ class B2BHubScreen extends StatelessWidget {
               crossAxisSpacing: 16,
               mainAxisSpacing: 16,
             ),
-            itemCount: snapshot.data!.length,
+            itemCount: products.length,
             itemBuilder: (context, index) {
-              final product = snapshot.data![index];
+              final product = products[index];
               return ProductCard(
                 product: product,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProductDetailScreen(product: product))),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProductDetailScreen(product: product),
+                  ),
+                ),
               );
             },
           );

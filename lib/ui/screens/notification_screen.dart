@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/res/uza_colors.dart';
+import '../../data/repositories/product_repository.dart';
+import '../../data/repositories/shop_repository.dart';
+import 'product_detail_screen.dart';
+import 'shop_profile_screen.dart';
 import 'package:intl/intl.dart';
+import '../../core/l10n/tr.dart';
 
 class NotificationScreen extends StatelessWidget {
   const NotificationScreen({super.key});
@@ -13,16 +19,16 @@ class NotificationScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: Text(tr(context, 'notifications')),
         actions: [
           TextButton(
             onPressed: () => notificationService.clearAll(),
-            child: const Text('Tout effacer'),
+            child: Text(tr(context, 'clear_all')),
           ),
         ],
       ),
       body: notifications.isEmpty
-          ? const Center(child: Text('Aucune notification.'))
+          ? Center(child: Text(tr(context, 'no_notifications')))
           : ListView.builder(
               itemCount: notifications.length,
               itemBuilder: (context, index) {
@@ -31,10 +37,10 @@ class NotificationScreen extends StatelessWidget {
                   leading: CircleAvatar(
                     backgroundColor: notification.isRead
                         ? Colors.grey[200]
-                        : Colors.teal.withValues(alpha: 0.1),
+                        : UzaColors.secondary.withValues(alpha: 0.1),
                     child: Icon(
                       Icons.notifications,
-                      color: notification.isRead ? Colors.grey : Colors.teal,
+                      color: notification.isRead ? Colors.grey : UzaColors.secondary,
                     ),
                   ),
                   title: Text(
@@ -61,7 +67,40 @@ class NotificationScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  onTap: () => notificationService.markAsRead(index),
+                  onTap: () async {
+                    notificationService.markAsRead(index);
+                    final linkType = notification.linkType;
+                    final linkId = notification.linkId;
+                    if (linkType == null || linkId == null || !context.mounted) {
+                      return;
+                    }
+                    if (linkType == 'shop') {
+                      final shop = await context
+                          .read<ShopRepository>()
+                          .getShopById(linkId);
+                      if (shop != null && context.mounted) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ShopProfileScreen(shop: shop),
+                          ),
+                        );
+                      }
+                    } else if (linkType == 'product') {
+                      final product = await context
+                          .read<ProductRepository>()
+                          .getProductById(linkId);
+                      if (product != null && context.mounted) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ProductDetailScreen(product: product),
+                          ),
+                        );
+                      }
+                    }
+                  },
                 );
               },
             ),

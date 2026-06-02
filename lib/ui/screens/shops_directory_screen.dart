@@ -9,6 +9,9 @@ import '../../core/utils/crypto_utils.dart';
 import '../../core/services/location_service.dart';
 import '../../core/l10n/tr.dart';
 import '../components/verification_badge.dart';
+import '../components/responsive_layout.dart';
+import '../components/skeletons.dart';
+import '../components/empty_state.dart';
 import '../utils/page_transitions.dart';
 import 'shop_profile_screen.dart';
 
@@ -25,6 +28,15 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
   _ShopFilter _filter = _ShopFilter.all;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _requestedGuestSync = false;
+
+  void _maybeBootstrapSync(List<Shop> shops, SyncService syncService) {
+    if (_requestedGuestSync) return;
+    if (shops.isNotEmpty) return;
+    if (!syncService.isOnline || syncService.isSyncing) return;
+    _requestedGuestSync = true;
+    syncService.syncNow();
+  }
 
   @override
   void dispose() {
@@ -37,8 +49,12 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
     final shopRepo = context.watch<ShopRepository>();
     final syncService = context.watch<SyncService>();
 
+    final crossAxisCount = ResponsiveLayout.isDesktop(context)
+        ? 4
+        : (ResponsiveLayout.isTablet(context) ? 3 : 2);
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: RefreshIndicator(
         onRefresh: () async {
           await context.read<SyncService>().syncNow();
@@ -57,7 +73,7 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                   });
                 },
                 decoration: InputDecoration(
-                  hintText: 'Rechercher une boutique...',
+                  hintText: tr(context, 'search_shop_hint'),
                   prefixIcon: const Icon(
                     Icons.search,
                     color: UzaColors.textSecondary,
@@ -117,10 +133,21 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting &&
                       !snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
+                    return GridView.builder(
+                      padding: const EdgeInsets.all(16),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        childAspectRatio: 0.82,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                      ),
+                      itemCount: 6,
+                      itemBuilder: (_, __) => const ShopCardSkeleton(),
+                    );
                   }
 
                   final allShops = snapshot.data ?? [];
+                  _maybeBootstrapSync(allShops, syncService);
                   final filteredByType = _applyFilter(allShops);
                   final shops = _applySearch(filteredByType);
 
@@ -133,13 +160,12 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
 
                   return GridView.builder(
                     padding: const EdgeInsets.all(16),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          childAspectRatio: 0.82,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                        ),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossAxisCount,
+                      childAspectRatio: 0.82,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
                     itemCount: shops.length,
                     itemBuilder: (context, index) {
                       return _ShopDirectoryCard(shop: shops[index]);
@@ -352,7 +378,7 @@ class _ShopDirectoryCard extends StatelessWidget {
                       top: 8,
                       right: 8,
                       child: Material(
-                        color: Colors.teal,
+                        color: UzaColors.secondary,
                         borderRadius: BorderRadius.circular(20),
                         elevation: 2,
                         child: InkWell(

@@ -7,19 +7,18 @@ import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/services/sync_service.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/res/uza_colors.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../data/repositories/cart_repository.dart';
 import 'shop_profile_screen.dart';
 import 'cart_screen.dart';
 import '../../core/utils/image_utils.dart';
-import '../../core/utils/crypto_utils.dart';
 import '../components/product_card.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import '../components/product_metadata_display.dart';
 import '../../core/utils/category_helper.dart';
+import '../../core/l10n/tr.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final Product product;
@@ -298,6 +297,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   Widget _buildImageSection() {
+    if (_images.isEmpty) {
+      return ImageUtils.buildErrorWidget();
+    }
+
     return Stack(
       children: [
         Positioned.fill(
@@ -414,8 +417,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(6),
-              child: CachedNetworkImage(
-                imageUrl: entry.value,
+              child: ImageUtils.buildCachedImage(
+                entry.value,
                 width: 60,
                 height: 60,
                 fit: BoxFit.cover,
@@ -840,19 +843,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     CircleAvatar(
                       radius: 24,
                       backgroundColor: UzaColors.primary,
-                      backgroundImage: () {
-                        if (shop.logoUrl == null || shop.logoUrl!.isEmpty) {
-                          return null;
-                        }
-                        final decrypted = CryptoUtils.decrypt(shop.logoUrl!);
-                        if (decrypted.isEmpty ||
-                            (!decrypted.startsWith('http://') &&
-                                !decrypted.startsWith('https://'))) {
-                          return null;
-                        }
-                        return CachedNetworkImageProvider(decrypted)
-                            as ImageProvider;
-                      }(),
+                      backgroundImage: ImageUtils.getImageProvider(shop.logoUrl),
                       child: shop.logoUrl == null
                           ? Text(
                               shop.name[0].toUpperCase(),
@@ -1285,9 +1276,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Les clients qui ont vu ceci ont aussi aimé',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        Text(
+          tr(context, 'similar_products'),
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 16),
         SizedBox(
@@ -1298,10 +1289,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             ),
             builder: (context, snapshot) {
               if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                return const Center(
+                return Center(
                   child: Text(
-                    'D\'autres pépites arrivent bientôt !',
-                    style: TextStyle(color: Colors.grey),
+                    tr(context, 'similar_products_empty'),
+                    style: TextStyle(color: Colors.grey[600]),
                   ),
                 );
               }
@@ -1435,7 +1426,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal,
+                    backgroundColor: UzaColors.secondary,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(
                       vertical: 16,

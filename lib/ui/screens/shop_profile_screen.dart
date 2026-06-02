@@ -11,8 +11,6 @@ import 'product_detail_screen.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/services/auth_service.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import '../components/uza_bottom_nav.dart';
-import 'home_screen.dart';
 import '../../core/utils/image_utils.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../components/responsive_layout.dart';
@@ -30,6 +28,29 @@ class ShopProfileScreen extends StatefulWidget {
 class _ShopProfileScreenState extends State<ShopProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+
+  String? _shopLocationText(Shop shop) {
+    final fullAddress = shop.address?.trim();
+    if (fullAddress != null && fullAddress.isNotEmpty) {
+      return fullAddress;
+    }
+
+    final city = shop.city?.trim();
+    final commune = shop.commune?.trim();
+    if (city != null &&
+        city.isNotEmpty &&
+        commune != null &&
+        commune.isNotEmpty) {
+      return '$commune, $city';
+    }
+    if (city != null && city.isNotEmpty) {
+      return city;
+    }
+    if (commune != null && commune.isNotEmpty) {
+      return commune;
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -99,24 +120,6 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
             ],
           ),
           body: _buildBody(productRepo, contactService),
-          bottomNavigationBar: UzaBottomNav(
-            currentIndex: 2, // Boutiques tab (index 2)
-            onTap: (index) {
-              if (index == 2) {
-                // Already on shop profile, do nothing
-                return;
-              } else if (index == 0) {
-                Navigator.of(context).popUntil((route) => route.isFirst);
-              } else {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(
-                    builder: (context) => HomeScreen(initialIndex: index),
-                  ),
-                  (route) => false,
-                );
-              }
-            },
-          ),
         ),
         desktop: Scaffold(
           appBar: AppBar(
@@ -207,28 +210,41 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                                         ],
                                       ],
                                     ),
-                                    if (shop.address != null) ...[
-                                      const SizedBox(height: 8),
-                                      Row(
-                                        children: [
-                                          const Icon(
-                                            Icons.location_on,
-                                            size: 18,
-                                            color: Colors.grey,
-                                          ),
-                                          const SizedBox(width: 3),
-                                          Expanded(
-                                            child: Text(
-                                              shop.address!,
-                                              style: const TextStyle(
-                                                fontSize: 16,
-                                                color: Colors.grey,
+                                    const SizedBox(height: 8),
+                                    Builder(
+                                      builder: (_) {
+                                        final locationText =
+                                            _shopLocationText(shop);
+                                        final hasLocation =
+                                            locationText != null &&
+                                            locationText.isNotEmpty;
+                                        return Row(
+                                          children: [
+                                            Icon(
+                                              Icons.location_on,
+                                              size: 18,
+                                              color: hasLocation
+                                                  ? Colors.grey
+                                                  : Colors.orange,
+                                            ),
+                                            const SizedBox(width: 3),
+                                            Expanded(
+                                              child: Text(
+                                                hasLocation
+                                                    ? locationText
+                                                    : 'Localisation non renseignée',
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  color: hasLocation
+                                                      ? Colors.grey
+                                                      : Colors.orange[800],
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                          ],
+                                        );
+                                      },
+                                    ),
                                     // Itinerary button - compact single line
                                     _buildUpdateLocationButton(context, shop),
                                     const SizedBox(height: 12),
@@ -317,26 +333,41 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                                   ],
                                 ],
                               ),
-                              if (shop.address != null) ...[
-                                const SizedBox(height: 4),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(
-                                      Icons.location_on,
-                                      size: 16,
-                                      color: Colors.grey,
-                                    ),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      shop.address!,
-                                      style: const TextStyle(
-                                        color: Colors.grey,
+                              const SizedBox(height: 4),
+                              Builder(
+                                builder: (_) {
+                                  final locationText = _shopLocationText(shop);
+                                  final hasLocation =
+                                      locationText != null &&
+                                      locationText.isNotEmpty;
+                                  return Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.location_on,
+                                        size: 16,
+                                        color: hasLocation
+                                            ? Colors.grey
+                                            : Colors.orange,
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                      const SizedBox(width: 3),
+                                      Flexible(
+                                        child: Text(
+                                          hasLocation
+                                              ? locationText
+                                              : 'Localisation non renseignée',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: hasLocation
+                                                ? Colors.grey
+                                                : Colors.orange[800],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
                               // Itinerary button - compact single line
                               _buildUpdateLocationButton(context, shop),
                               const SizedBox(height: 8),
@@ -1052,27 +1083,27 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                Colors.teal.withValues(alpha: 0.1),
-                Colors.teal.withValues(alpha: 0.05),
+                UzaColors.secondary.withValues(alpha: 0.1),
+                UzaColors.secondary.withValues(alpha: 0.05),
               ],
             ),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: Colors.teal.withValues(alpha: 0.3),
+              color: UzaColors.secondary.withValues(alpha: 0.3),
               width: 1,
             ),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.navigation, color: Colors.teal, size: 18),
+              const Icon(Icons.navigation, color: UzaColors.secondary, size: 18),
               const SizedBox(width: 8),
               const Text(
                 'Aller à la Boutique',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
-                  color: Colors.teal,
+                  color: UzaColors.secondary,
                 ),
               ),
             ],

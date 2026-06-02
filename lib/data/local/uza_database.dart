@@ -156,6 +156,8 @@ class UserProfiles extends Table {
   TextColumn get passwordHash => text().nullable()();
   BoolColumn get isPhoneVerified =>
       boolean().withDefault(const Constant(false))();
+  TextColumn get role =>
+      text().withDefault(const Constant('user'))(); // user | admin
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 
   @override
@@ -216,6 +218,29 @@ class ShopFollows extends Table {
   IntColumn get synced => integer().withDefault(const Constant(0))();
 }
 
+/// Local purchase requests (WhatsApp negotiation off-app).
+class Orders extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get buyerPhone => text()();
+  IntColumn get shopId => integer().references(Shops, #id)();
+  TextColumn get status => text().withDefault(const Constant('requested'))();
+  TextColumn get itemsJson => text()();
+  TextColumn get note => text().nullable()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+class ChatMessages extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get senderPhone => text()();
+  TextColumn get receiverPhone => text()();
+  IntColumn get shopId => integer().nullable().references(Shops, #id)();
+  IntColumn get productId => integer().nullable().references(Products, #id)();
+  TextColumn get body => text()();
+  BoolColumn get isRead => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
 class AppPreferences extends Table {
   IntColumn get id => integer().withDefault(const Constant(1))();
   BoolColumn get isDarkMode => boolean().withDefault(const Constant(false))();
@@ -252,13 +277,15 @@ class AppPreferences extends Table {
     StoryMedia,
     ProductLikes,
     ShopFollows,
+    Orders,
+    ChatMessages,
   ],
 )
 class UzaDatabase extends _$UzaDatabase {
   UzaDatabase() : super(ensureConnection());
 
   @override
-  int get schemaVersion => 24;
+  int get schemaVersion => 26;
 
   @override
   MigrationStrategy get migration {
@@ -375,6 +402,13 @@ class UzaDatabase extends _$UzaDatabase {
         if (from < 24) {
           await m.createTable(productLikes);
           await m.createTable(shopFollows);
+        }
+        if (from < 25) {
+          await m.addColumn(userProfiles, userProfiles.role);
+        }
+        if (from < 26) {
+          await m.createTable(orders);
+          await m.createTable(chatMessages);
         }
       },
     );

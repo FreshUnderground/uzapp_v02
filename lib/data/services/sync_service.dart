@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
 import '../../core/services/api_service.dart';
+import '../../core/services/connectivity_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../repositories/story_repository.dart';
@@ -124,9 +125,71 @@ class SyncService extends ChangeNotifier {
 
   final StoryRepository? storyRepository;
 
-  void startAutoSync({Duration interval = const Duration(minutes: 5)}) {
+  ConnectivityService? _connectivity;
+  VoidCallback? _connectivityListener;
+
+  /// Binds network state; pauses sync when offline and resumes when online.
+  void bindConnectivity(ConnectivityService connectivity) {
+    _connectivity?.removeListener(_connectivityListener ?? () {});
+    _connectivity = connectivity;
+    _connectivityListener = () {
+      if (connectivity.isOnline) {
+        if (_syncStatus == SyncStatus.offline) {
+          _syncStatus = SyncStatus.idle;
+          notifyListeners();
+        }
+        _restartAutoSyncTimer();
+        syncNow();
+      } else {
+        _syncStatus = SyncStatus.offline;
+        _syncTimer?.cancel();
+        notifyListeners();
+      }
+    };
+    connectivity.addListener(_connectivityListener!);
+    if (!connectivity.isOnline) {
+      _syncStatus = SyncStatus.offline;
+    }
+  }
+
+  bool get isOnline => _connectivity?.isOnline ?? true;
+
+  Duration get _autoSyncInterval {
+    if (_connectivity == null) return const Duration(seconds: 30);
+    switch (_connectivity!.type) {
+      case ConnectivityType.wifi:
+        return const Duration(seconds: 30);
+      case ConnectivityType.mobile:
+        return const Duration(minutes: 3);
+      case ConnectivityType.none:
+        return const Duration(minutes: 5);
+    }
+  }
+
+  void _restartAutoSyncTimer() {
+    if (_connectivity != null && !_connectivity!.isOnline) return;
+    startAutoSync(interval: _autoSyncInterval);
+  }
+
+  void startAutoSync({Duration? interval}) {
     _syncTimer?.cancel();
-    _syncTimer = Timer.periodic(interval, (_) => syncNow());
+    final effective = interval ?? _autoSyncInterval;
+    _syncTimer = Timer.periodic(effective, (_) => syncNow());
+  }
+
+  /// Forces a full catalog pull (deletion detection included).
+  Future<void> forceFullSync() async {
+    _isFirstSync = true;
+    await syncNow();
+  }
+
+  @override
+  void dispose() {
+    if (_connectivityListener != null) {
+      _connectivity?.removeListener(_connectivityListener!);
+    }
+    _syncTimer?.cancel();
+    super.dispose();
   }
 
   /// Trigger an immediate sync (push + pull) for real-time updates.
@@ -147,6 +210,12 @@ class SyncService extends ChangeNotifier {
   Future<void> syncNow() async {
     if (_isSyncing) {
       debugPrint("Sync already in progress, skipping...");
+      return;
+    }
+
+    if (!isOnline) {
+      _syncStatus = SyncStatus.offline;
+      notifyListeners();
       return;
     }
 
@@ -387,6 +456,75 @@ class SyncService extends ChangeNotifier {
     await syncNow();
   }
 
+  /// Remote IDs with pending local edits in [SyncQueue] — skip server overwrite on pull.
+  Future<Set<String>> _pendingRemoteIds(String entityType) async {
+    final queue = await db.select(db.syncQueue).get();
+    final pending = <String>{};
+    for (final item in queue) {
+      if (item.entityType != entityType) continue;
+      try {
+        final data = jsonDecode(item.entityData) as Map<String, dynamic>;
+        final remoteId = data['id']?.toString();
+        if (remoteId != null && remoteId.isNotEmpty) {
+          pending.add(remoteId);
+        }
+        final localId = data['local_id'] as int?;
+        if (localId != null) {
+          if (entityType == 'products') {
+            final row = await (db.select(
+              db.products,
+            )..where((t) => t.id.equals(localId))).getSingleOrNull();
+            if (row?.remoteId != null && row!.remoteId!.isNotEmpty) {
+              pending.add(row.remoteId!);
+            }
+          } else if (entityType == 'shops') {
+            final row = await (db.select(
+              db.shops,
+            )..where((t) => t.id.equals(localId))).getSingleOrNull();
+            if (row?.remoteId != null && row!.remoteId!.isNotEmpty) {
+              pending.add(row.remoteId!);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return pending;
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchAllProductsPaginated() async {
+    final all = <Map<String, dynamic>>[];
+    var page = 1;
+    while (true) {
+      final result = await api
+          .fetchProductsPaginated(page: page, perPage: 100)
+          .timeout(_requestTimeout);
+      final data =
+          (result['data'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      all.addAll(data);
+      final meta = result['meta'] as Map<String, dynamic>?;
+      if (meta?['has_more'] != true || data.isEmpty) break;
+      page++;
+    }
+    return all;
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchAllShopsPaginated() async {
+    final all = <Map<String, dynamic>>[];
+    var page = 1;
+    while (true) {
+      final result = await api
+          .fetchShopsPaginated(page: page, perPage: 100)
+          .timeout(_requestTimeout);
+      final data =
+          (result['data'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      all.addAll(data);
+      final meta = result['meta'] as Map<String, dynamic>?;
+      if (meta?['has_more'] != true || data.isEmpty) break;
+      page++;
+    }
+    return all;
+  }
+
   Future<void> pullRemoteUpdates() async {
     try {
       final prefs = await db.select(db.appPreferences).getSingleOrNull();
@@ -400,13 +538,19 @@ class SyncService extends ChangeNotifier {
       }
 
       final DateTime? lastSyncTime = prefs?.lastSync;
+      final bool fullSync = _isFirstSync || lastSyncTime == null;
+      final DateTime? updatedSince =
+          fullSync ? null : lastSyncTime.subtract(const Duration(minutes: 1));
+
+      final pendingProductRemoteIds = await _pendingRemoteIds('products');
+      final pendingShopRemoteIds = await _pendingRemoteIds('shops');
 
       // ── PHASE 1: categories & products (most critical for display) ──────
       List<Map<String, dynamic>> remoteCategories = [];
       List<Map<String, dynamic>> remoteProducts = [];
 
       try {
-        // Fetch ALL categories (not incremental) to detect deletions
+        // Categories: always full fetch (small payload, deletion detection)
         remoteCategories = await api.fetchCategories().timeout(_requestTimeout);
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: categories');
@@ -415,8 +559,17 @@ class SyncService extends ChangeNotifier {
       }
 
       try {
-        // Fetch ALL products (not incremental) to detect deletions
-        remoteProducts = await api.fetchProducts().timeout(_requestTimeout);
+        if (fullSync) {
+          remoteProducts = await _fetchAllProductsPaginated();
+        } else {
+          remoteProducts = await api
+              .fetchProducts(updatedSince: updatedSince)
+              .timeout(_requestTimeout);
+        }
+        debugPrint(
+          'PULL: products (${fullSync ? "full" : "incremental"}) '
+          '→ ${remoteProducts.length}',
+        );
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: products');
       } catch (e) {
@@ -510,8 +663,8 @@ class SyncService extends ChangeNotifier {
 
       // Batch-insert categories & products immediately so the UI can render
       if (remoteCategories.isNotEmpty || remoteProducts.isNotEmpty) {
-        // Delete local categories that no longer exist on the server
-        if (remoteCategories.isNotEmpty) {
+        // Deletion sync only on full pull (incremental lists are partial)
+        if (fullSync && remoteCategories.isNotEmpty) {
           final serverCategoryRemoteIds = <String>{};
           for (var cat in remoteCategories) {
             final dynamic rawRemoteId = cat['remote_id'];
@@ -538,8 +691,7 @@ class SyncService extends ChangeNotifier {
           }
         }
 
-        // Delete local products that no longer exist on the server
-        if (remoteProducts.isNotEmpty) {
+        if (fullSync && remoteProducts.isNotEmpty) {
           final serverProductRemoteIds = <String>{};
           for (var p in remoteProducts) {
             final dynamic rawRemoteId = p['remote_id'];
@@ -608,6 +760,9 @@ class SyncService extends ChangeNotifier {
                 rawRemoteId != null && rawRemoteId.toString().isNotEmpty
                 ? rawRemoteId.toString()
                 : (p['id']?.toString() ?? '');
+            if (rId.isNotEmpty && pendingProductRemoteIds.contains(rId)) {
+              continue;
+            }
             final String rawName = p['name'] as String? ?? '';
             final String sanitizedName = rawName.trim().isEmpty
                 ? 'Produit'
@@ -677,7 +832,17 @@ class SyncService extends ChangeNotifier {
       List<Map<String, dynamic>> remoteStories = [];
 
       try {
-        remoteShops = await api.fetchShops().timeout(_requestTimeout);
+        if (fullSync) {
+          remoteShops = await _fetchAllShopsPaginated();
+        } else {
+          remoteShops = await api
+              .fetchShops(updatedSince: updatedSince)
+              .timeout(_requestTimeout);
+        }
+        debugPrint(
+          'PULL: shops (${fullSync ? "full" : "incremental"}) '
+          '→ ${remoteShops.length}',
+        );
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: shops');
       } catch (e) {
@@ -685,8 +850,9 @@ class SyncService extends ChangeNotifier {
       }
 
       try {
-        // Fetch ALL stories (not incremental) to detect deletions
-        remoteStories = await api.fetchStories().timeout(_requestTimeout);
+        remoteStories = await api
+            .fetchStories(updatedSince: updatedSince)
+            .timeout(_requestTimeout);
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: stories');
       } catch (e) {
@@ -735,8 +901,7 @@ class SyncService extends ChangeNotifier {
           }
         }
 
-        // Delete local shops that no longer exist on the server
-        // (shops whose remoteId is not in the server's list)
+        if (fullSync) {
         final allLocalShops = await db.select(db.shops).get();
         for (var localShop in allLocalShops) {
           if (localShop.remoteId != null &&
@@ -751,6 +916,7 @@ class SyncService extends ChangeNotifier {
             );
           }
         }
+        }
 
         // Now insert or update shops from server
         await db.batch((batch) {
@@ -761,6 +927,9 @@ class SyncService extends ChangeNotifier {
                 rawRemoteId != null && rawRemoteId.toString().isNotEmpty
                 ? rawRemoteId.toString()
                 : (s['id']?.toString() ?? '');
+            if (rId.isNotEmpty && pendingShopRemoteIds.contains(rId)) {
+              continue;
+            }
             final String rawName = s['name'] as String? ?? '';
             final String sanitizedName = rawName.trim().isEmpty
                 ? 'Boutique'
@@ -864,8 +1033,7 @@ class SyncService extends ChangeNotifier {
           }
         }
 
-        // SOFT DELETE: Mark expired stories instead of hard deleting
-        // This prevents UI flickering - expired stories won't show in watch queries anyway
+        if (fullSync) {
         final allLocalStories = await db.select(db.stories).get();
         for (var localStory in allLocalStories) {
           if (localStory.remoteId != null &&
@@ -886,6 +1054,7 @@ class SyncService extends ChangeNotifier {
               'Sync: Soft-deleted expired story (remoteId: ${localStory.remoteId})',
             );
           }
+        }
         }
 
         // INCREMENTAL UPSERT: Only insert/update new or changed stories

@@ -221,12 +221,24 @@ class _SearchScreenState extends State<SearchScreen> {
                           Icons.center_focus_weak,
                           color: UzaColors.primary,
                         ),
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const ProductScannerScreen(),
-                          ),
-                        ),
+                        onPressed: () async {
+                          final code = await Navigator.push<String>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const ProductScannerScreen(),
+                            ),
+                          );
+                          if (code != null && context.mounted) {
+                            final delegate =
+                                ProductSearchDelegate(productRepo);
+                            delegate.query = code;
+                            await showSearch(
+                              context: context,
+                              delegate: delegate,
+                            );
+                          }
+                        },
                       ),
                     ),
                   ],

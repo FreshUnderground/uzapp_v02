@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
@@ -35,6 +36,7 @@ import '../utils/page_transitions.dart';
 import '../../core/l10n/tr.dart';
 import '../../core/l10n/app_translations.dart';
 import '../../core/services/settings_service.dart';
+import '../components/pwa_install_banner.dart';
 
 class HomeScreen extends StatefulWidget {
   final int initialIndex;
@@ -52,18 +54,27 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Clamp to valid range for 4-tab layout
     _selectedIndex = widget.initialIndex.clamp(0, 3);
 
-    // Ensure categories are synced from server on first load
+    if (kIsWeb) {
+      final shortcut = Uri.base.queryParameters['shortcut'];
+      if (shortcut == 'shops') _selectedIndex = 2;
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      if (kIsWeb && Uri.base.queryParameters['shortcut'] == 'search') {
+        Navigator.push(
+          context,
+          SlideUpRoute(page: const SearchScreen()),
+        );
+      }
       try {
-        final syncService = context.read<SyncService>();
-        syncService.ensureCategoriesSynced();
-        debugPrint('HomeScreen: triggered ensureCategoriesSynced');
+        final sync = context.read<SyncService>();
+        sync.ensureCategoriesSynced();
+        sync.syncNow();
       } catch (e) {
-        debugPrint('HomeScreen: failed to trigger ensureCategoriesSynced: $e');
+        debugPrint('HomeScreen: sync bootstrap failed: $e');
       }
     });
   }

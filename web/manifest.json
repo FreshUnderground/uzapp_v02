@@ -4,10 +4,26 @@
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FFFFFF",
-    "theme_color": "#008080",
+    "theme_color": "#FE3E00",
     "description": "Uzaapp - Votre hub de commerce local.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
+    "shortcuts": [
+        {
+            "name": "Rechercher",
+            "short_name": "Recherche",
+            "description": "Trouver un produit",
+            "url": "/?shortcut=search",
+            "icons": [{ "src": "icons/Icon-192.png", "sizes": "192x192" }]
+        },
+        {
+            "name": "Boutiques",
+            "short_name": "Boutiques",
+            "description": "Explorer les boutiques",
+            "url": "/?shortcut=shops",
+            "icons": [{ "src": "icons/Icon-192.png", "sizes": "192x192" }]
+        }
+    ],
     "icons": [
         {
             "src": "icons/Icon-192.png",

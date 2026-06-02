@@ -6,6 +6,7 @@ import '../../core/res/uza_colors.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/l10n/tr.dart';
 import '../../core/l10n/app_translations.dart';
+import 'legal_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -29,12 +30,14 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsService>();
 
+    final surface = Theme.of(context).scaffoldBackgroundColor;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: surface,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: UzaColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
+        foregroundColor: Theme.of(context).appBarTheme.foregroundColor,
         title: Text(
           tr(context, 'settings'),
           style: const TextStyle(fontWeight: FontWeight.w600),
@@ -46,6 +49,7 @@ class SettingsScreen extends StatelessWidget {
           // Language Section with Dropdown
           _buildSectionHeader(Icons.language, tr(context, 'language')),
           _buildCard(
+            context,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: DropdownButtonHideUnderline(
@@ -95,6 +99,7 @@ class SettingsScreen extends StatelessWidget {
           // Security Section
           _buildSectionHeader(Icons.security, tr(context, 'security')),
           _buildCard(
+            context,
             child: SwitchListTile(
               secondary: const Icon(
                 Icons.fingerprint,
@@ -119,6 +124,7 @@ class SettingsScreen extends StatelessWidget {
           // Preferences Section
           _buildSectionHeader(Icons.tune, tr(context, 'preferences')),
           _buildCard(
+            context,
             child: Column(
               children: [
                 SwitchListTile(
@@ -164,6 +170,7 @@ class SettingsScreen extends StatelessWidget {
           // More Section
           _buildSectionHeader(Icons.more_horiz, tr(context, 'more')),
           _buildCard(
+            context,
             child: Column(
               children: [
                 _buildTile(
@@ -193,6 +200,14 @@ class SettingsScreen extends StatelessWidget {
                   Icons.info_outline,
                   tr(context, 'terms'),
                   null,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LegalScreen(
+                        type: LegalDocumentType.terms,
+                      ),
+                    ),
+                  ),
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 _buildTile(
@@ -200,6 +215,14 @@ class SettingsScreen extends StatelessWidget {
                   Icons.privacy_tip_outlined,
                   tr(context, 'privacy'),
                   null,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LegalScreen(
+                        type: LegalDocumentType.privacy,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -262,11 +285,11 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildCard({required Widget child}) {
+  Widget _buildCard(BuildContext context, {required Widget child}) {
     return Card(
       elevation: 0.5,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: Colors.white,
+      color: Theme.of(context).cardColor,
       child: child,
     );
   }

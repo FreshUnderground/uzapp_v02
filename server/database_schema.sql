@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `avatar_url` TEXT NULL,
   `password_hash` VARCHAR(255) NULL,
   `is_phone_verified` TINYINT(1) DEFAULT 0,
+  `role` VARCHAR(20) NOT NULL DEFAULT 'user',
   `otp_code` VARCHAR(10) NULL,
   `otp_expires_at` DATETIME NULL,
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,

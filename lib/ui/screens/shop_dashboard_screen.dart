@@ -14,7 +14,10 @@ import 'package:drift/drift.dart' as drift;
 import '../components/analytics_tab.dart';
 
 class ShopDashboardScreen extends StatefulWidget {
-  const ShopDashboardScreen({super.key});
+  /// Optional local shop id; when null, resolves via logged-in user's shop.
+  final int? shopId;
+
+  const ShopDashboardScreen({super.key, this.shopId});
 
   @override
   State<ShopDashboardScreen> createState() => _ShopDashboardScreenState();
@@ -26,8 +29,12 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
     final userId = context.read<AuthService>().user?.uid;
     final shopRepo = context.read<ShopRepository>();
 
+    final shopStream = widget.shopId != null
+        ? shopRepo.watchShopById(widget.shopId!)
+        : shopRepo.watchUserShop(userId ?? '');
+
     return StreamBuilder<Shop?>(
-      stream: shopRepo.watchUserShop(userId ?? ''),
+      stream: shopStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
@@ -95,7 +102,33 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                 unselectedLabelColor: Colors.grey,
               ),
             ),
-            body: TabBarView(
+            body: Column(
+              children: [
+                Consumer<SyncService>(
+                  builder: (context, sync, _) {
+                    if (sync.pendingChangesCount <= 0) {
+                      return const SizedBox.shrink();
+                    }
+                    return MaterialBanner(
+                      content: Text(
+                        tr(context, 'sync_pending_banner').replaceAll(
+                          '{count}',
+                          '${sync.pendingChangesCount}',
+                        ),
+                      ),
+                      leading: const Icon(Icons.cloud_upload_outlined),
+                      actions: [
+                        TextButton(
+                          onPressed:
+                              sync.isSyncing ? null : () => sync.syncNow(),
+                          child: Text(tr(context, 'sync_now')),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                Expanded(
+                  child: TabBarView(
               children: [
                 // Tab 1: Gestion
                 Center(
@@ -121,6 +154,9 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                 ),
                 // Tab 2: Analytics
                 AnalyticsTab(shopId: shop.id),
+              ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -628,24 +664,24 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              Colors.teal.withValues(alpha: 0.1),
-              Colors.teal.withValues(alpha: 0.05),
+              UzaColors.secondary.withValues(alpha: 0.1),
+              UzaColors.secondary.withValues(alpha: 0.05),
             ],
           ),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.teal.withValues(alpha: 0.3)),
+          border: Border.all(color: UzaColors.secondary.withValues(alpha: 0.3)),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.teal.withValues(alpha: 0.2),
+                color: UzaColors.secondary.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Icon(
                 Icons.edit_location,
-                color: Colors.teal,
+                color: UzaColors.secondary,
                 size: 28,
               ),
             ),
@@ -659,7 +695,7 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
-                      color: Colors.teal,
+                      color: UzaColors.secondary,
                     ),
                   ),
                   Text(
@@ -669,7 +705,7 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: Colors.teal, size: 28),
+            const Icon(Icons.chevron_right, color: UzaColors.secondary, size: 28),
           ],
         ),
       ),

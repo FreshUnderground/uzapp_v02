@@ -16,6 +16,7 @@ import '../../data/repositories/story_repository.dart'
     show StoryRepository, ArrivageMediaItem;
 import '../../data/services/sync_service.dart';
 import '../components/shop_video_player.dart';
+import '../components/skeletons.dart';
 import '../utils/page_transitions.dart';
 import 'product_detail_screen.dart';
 import 'shop_profile_screen.dart';
@@ -37,6 +38,19 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
   // Cache to prevent UI flickering during sync
   List<dynamic> _cachedFeed = [];
   bool _isFirstBuild = true;
+  bool _requestedGuestSync = false;
+
+  void _maybeBootstrapSync(
+    List<Product> products,
+    List<ArrivageMediaItem> mediaItems,
+    SyncService syncService,
+  ) {
+    if (_requestedGuestSync) return;
+    if (products.isNotEmpty || mediaItems.isNotEmpty) return;
+    if (!syncService.isOnline || syncService.isSyncing) return;
+    _requestedGuestSync = true;
+    syncService.syncNow();
+  }
 
   @override
   void dispose() {
@@ -152,6 +166,7 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
               builder: (context, mediaSnap) {
                 final products = productSnap.data ?? [];
                 final mediaItems = mediaSnap.data ?? [];
+                _maybeBootstrapSync(products, mediaItems, syncService);
 
                 // Show loading when: streams still loading, OR sync is running with no data
                 final streamsLoading =
@@ -164,8 +179,12 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
                     mediaItems.isEmpty;
 
                 if (streamsLoading || syncRunningNoData) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: Colors.white),
+                  return ListView.builder(
+                    itemCount: 3,
+                    itemBuilder: (_, __) => const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: ProductCardSkeleton(),
+                    ),
                   );
                 }
 

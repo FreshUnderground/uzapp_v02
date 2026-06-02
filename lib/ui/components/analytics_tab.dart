@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/res/uza_colors.dart';
 import '../../data/repositories/shop_repository.dart';
 import 'package:provider/provider.dart';
 
@@ -179,7 +180,7 @@ class AnalyticsTab extends StatelessWidget {
           'SMS envoyés',
           stats['contact_sms'] ?? 0,
           Icons.sms,
-          Colors.teal,
+          UzaColors.secondary,
         ),
         const Divider(height: 32),
 

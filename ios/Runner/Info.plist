@@ -49,6 +49,12 @@
 	<string>Uzaapp utilise votre position pour trouver les produits et boutiques proches de vous.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Uzaapp utilise votre position pour trouver les produits et boutiques proches de vous.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Uzaapp utilise la caméra pour scanner des codes-barres et photographier vos produits.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Uzaapp accède à vos photos pour ajouter des images à vos produits et stories.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Uzaapp utilise Face ID pour sécuriser l'accès à votre compte.</string>
 	<!-- Allow querying map apps -->
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
