@@ -39,19 +39,16 @@ class ShopCard extends StatelessWidget {
                       borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(24),
                       ),
-                      child: shop.logoUrl != null
-                          ? ImageUtils.buildCachedImage(
-                              shop.logoUrl!,
-                              fit: BoxFit.cover,
-                            )
-                          : Container(
-                              color: UzaColors.primary.withValues(alpha: 0.1),
-                              child: const Icon(
-                                Icons.store,
-                                size: 40,
-                                color: UzaColors.primary,
-                              ),
-                            ),
+                      child: _buildShopCover(),
+                    ),
+                  ),
+                  Center(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                      child: ImageUtils.getLogoWidget(shop.logoUrl, size: 56),
                     ),
                   ),
                   Positioned(
@@ -125,6 +122,39 @@ class ShopCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildShopCover() {
+    final coverSource = ImageUtils.getShopCoverSource(
+      shop.bannerUrl,
+      shop.logoUrl,
+    );
+    if (coverSource != null) {
+      return ImageUtils.buildCachedImage(
+        coverSource,
+        fit: BoxFit.cover,
+        errorWidget: _shopCoverFallback(),
+      );
+    }
+    return _shopCoverFallback();
+  }
+
+  Widget _shopCoverFallback() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            UzaColors.primary.withValues(alpha: 0.85),
+            UzaColors.secondary.withValues(alpha: 0.75),
+          ],
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.storefront, size: 40, color: Colors.white70),
       ),
     );
   }

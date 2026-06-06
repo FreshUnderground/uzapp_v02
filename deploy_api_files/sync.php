@@ -13,7 +13,7 @@ $ALLOWED_COLUMNS = [
                    'created_at', 'updated_at', 'latitude', 'longitude', 'city', 'commune'],
     'products' => ['id', 'shop_id', 'category_id', 'name', 'description', 'price', 'image_urls',
                    'is_arrival', 'is_promotion', 'boost_status', 'hide_price', 'show_stock', 'stock_count',
-                   'views_count', 'shares_count', 'ratings_count', 'rating_avg', 'created_at', 'updated_at'],
+                   'views_count', 'shares_count', 'ratings_count', 'rating_avg', 'metadata', 'updated_at'],
     'stories'  => ['id', 'shop_id', 'media_url', 'media_type', 'is_arrivage', 'expires_at', 'created_at'],
 ];
 
@@ -200,9 +200,6 @@ try {
                  echo json_encode(['success' => true, 'id' => $id, 'action' => 'UPDATE']);
                  exit;
              } else {
-                 if (!isset($data['created_at'])) {
-                     $data['created_at'] = date('Y-m-d H:i:s');
-                 }
                  $keys = array_keys($data);
                  $values = array_values($data);
                  $placeholders = array_fill(0, count($keys), '?');

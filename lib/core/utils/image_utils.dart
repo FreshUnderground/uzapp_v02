@@ -1,43 +1,196 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'crypto_utils.dart';
+
+class UzaImageCache {
+  static final CacheManager instance = CacheManager(
+    Config(
+      'uza_image_cache_v1',
+      stalePeriod: const Duration(days: 30),
+      maxNrOfCacheObjects: 800,
+    ),
+  );
+}
 
 class ImageUtils {
   // Proxy URL for external images (to avoid CORS on web)
   static const String _proxyBaseUrl = 'https://uzaapp.com/api/proxy.php?url=';
 
-  /// Convert external URLs to proxy URLs (only on web platform)
+  /// Prefer banner/cover, then logo for shop cards and headers.
+  static String? getShopCoverSource(String? bannerUrl, String? logoUrl) {
+    if (bannerUrl != null && bannerUrl.isNotEmpty) {
+      if (resolveImageUrl(bannerUrl) != null) return bannerUrl;
+    }
+    if (logoUrl != null && logoUrl.isNotEmpty) {
+      if (resolveImageUrl(logoUrl) != null) return logoUrl;
+    }
+    return null;
+  }
+
+  /// First product image widget from encrypted/plain image_urls field.
+  static Widget buildCachedFirstProductImage(
+    String? imageUrls, {
+    BoxFit fit = BoxFit.cover,
+    double? height,
+    double? width,
+    BorderRadius? borderRadius,
+    String? thumbnailUrl,
+    int? memCacheWidth,
+    Widget? placeholder,
+    Widget? errorWidget,
+  }) {
+    final resolved = getDecryptedList(imageUrls);
+    if (resolved.isEmpty) {
+      return placeholder ?? buildPlaceholder(height: height, width: width);
+    }
+    return buildCachedImage(
+      resolved.first,
+      fit: fit,
+      height: height,
+      width: width,
+      borderRadius: borderRadius,
+      thumbnailUrl: thumbnailUrl,
+      memCacheWidth: memCacheWidth,
+      placeholder: placeholder,
+      errorWidget: errorWidget,
+      fromResolvedUrl: true,
+    );
+  }
+
+  /// Warm disk cache after sync so images survive app restarts.
+  /// Remove cached files for encrypted/plain media URLs (after delete).
+  static Future<void> evictCachedSources(Iterable<String?> sources) async {
+    final seen = <String>{};
+    for (final source in sources) {
+      final resolved = resolveImageUrl(source);
+      if (resolved == null || resolved.isEmpty || !seen.add(resolved)) {
+        continue;
+      }
+      try {
+        await UzaImageCache.instance.removeFile(resolved);
+      } catch (e) {
+        debugPrint('Image cache evict failed for $resolved: $e');
+      }
+    }
+  }
+
+  static Future<void> prefetchUrls(Iterable<String?> sources) async {
+    final urls = <String>{};
+    for (final source in sources) {
+      final resolved = resolveImageUrl(source);
+      if (resolved != null && resolved.isNotEmpty) {
+        urls.add(resolved);
+      }
+    }
+
+    for (final url in urls) {
+      try {
+        await UzaImageCache.instance.downloadFile(url);
+      } catch (e) {
+        debugPrint('Image prefetch failed for $url: $e');
+      }
+    }
+  }
+
+  static String _stripWrappingQuotes(String value) {
+    var v = value.trim();
+    while ((v.startsWith('"') && v.endsWith('"')) ||
+        (v.startsWith("'") && v.endsWith("'"))) {
+      v = v.substring(1, v.length - 1).trim();
+    }
+    return v;
+  }
+
+  static bool isEmptyMediaValue(String? value) {
+    if (value == null) return true;
+    final trimmed = value.trim();
+    return trimmed.isEmpty || trimmed == '[]' || trimmed == 'null';
+  }
+
+  static String? _normalizeDecryptedUrl(String decrypted) {
+    var value = _stripWrappingQuotes(decrypted);
+    if (value.isEmpty) return null;
+
+    if (value.contains(r'\/')) {
+      value = value.replaceAll(r'\/', '/');
+    }
+
+    if (value.startsWith('data:image')) {
+      return value;
+    }
+
+    if (value.startsWith('/uploads/')) {
+      value = 'https://uzaapp.com$value';
+    } else if (value.startsWith('uploads/')) {
+      value = 'https://uzaapp.com/$value';
+    } else if (!value.startsWith('http://') && !value.startsWith('https://')) {
+      if (RegExp(r'uzaapp\.com/', caseSensitive: false).hasMatch(value)) {
+        value = 'https://$value';
+      } else {
+        return null;
+      }
+    }
+
+    if (value.startsWith('http://') && value.contains('uzaapp.com')) {
+      value = value.replaceFirst('http://', 'https://');
+    }
+
+    return _getProxiedUrl(value);
+  }
+
+  /// Normalize encrypted/plain/legacy image sources into a loadable URL.
+  static String? resolveImageUrl(String? source) {
+    if (source == null || source.isEmpty) return null;
+
+    final trimmed = source.trim();
+    if (trimmed.contains('proxy.php')) {
+      return trimmed;
+    }
+
+    if (trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://') ||
+        trimmed.startsWith('data:image')) {
+      return _normalizeDecryptedUrl(trimmed);
+    }
+
+    var decrypted = CryptoUtils.decrypt(trimmed).trim();
+    if (decrypted.isEmpty) return null;
+
+    // Some records store a JSON array instead of a single URL.
+    if (decrypted.startsWith('[') && decrypted.contains('http')) {
+      final urls = getDecryptedList(source);
+      if (urls.isEmpty) return null;
+      return urls.first;
+    }
+
+    return _normalizeDecryptedUrl(decrypted);
+  }
+
+  /// Route external/legacy storage URLs through the server proxy when needed.
   static String _getProxiedUrl(String url) {
-    if (!kIsWeb) return url; // No proxy needed for mobile
     if (url.isEmpty) return url;
 
-    // Don't proxy if already proxied
     if (url.contains('proxy.php')) return url;
 
-    // Don't proxy if it's already our server URL
-    if (url.contains('uzaapp.com')) return url;
+    if (url.contains('uzaapp.com') &&
+        !url.contains('firebasestorage.googleapis.com')) {
+      return url;
+    }
 
-    // Only proxy external storage URLs
     if (url.contains('firebasestorage.googleapis.com') ||
         url.contains('storage.googleapis.com')) {
-      // Legacy: some image data still contains Firebase Storage URLs
       return '$_proxyBaseUrl${Uri.encodeComponent(url)}';
     }
     return url;
   }
 
   static ImageProvider? getImageProvider(String? encryptedSource) {
-    if (encryptedSource == null || encryptedSource.isEmpty) return null;
-
-    var source = CryptoUtils.decrypt(encryptedSource);
-    if (source.isEmpty) return null;
-
-    // Unescape slashes for legacy URLs
-    if (source.contains(r'\/')) {
-      source = source.replaceAll(r'\/', '/');
-    }
+    final source = resolveImageUrl(encryptedSource);
+    if (source == null || source.isEmpty) return null;
 
     if (source.startsWith('data:image')) {
       try {
@@ -49,7 +202,7 @@ class ImageUtils {
       }
     }
 
-    return NetworkImage(_getProxiedUrl(source));
+    return NetworkImage(source);
   }
 
   static Widget getLogoWidget(
@@ -57,9 +210,9 @@ class ImageUtils {
     double size = 50,
     IconData fallbackIcon = Icons.store,
   }) {
-    final String decrypted = CryptoUtils.decrypt(encryptedSource ?? '');
+    final resolved = resolveImageUrl(encryptedSource);
 
-    if (decrypted.isEmpty) {
+    if (resolved == null) {
       return CircleAvatar(
         radius: size / 2,
         backgroundColor: Colors.grey[200],
@@ -68,7 +221,7 @@ class ImageUtils {
     }
 
     return buildCachedImage(
-      decrypted,
+      encryptedSource,
       height: size,
       width: size,
       borderRadius: BorderRadius.circular(size / 2),
@@ -88,37 +241,26 @@ class ImageUtils {
     BoxFit fit = BoxFit.cover,
     BorderRadius? borderRadius,
     Widget? placeholder,
+    Widget? errorWidget,
     String? thumbnailUrl,
     int? memCacheWidth,
+    bool fromResolvedUrl = false,
+    VoidCallback? onImageLoaded,
   }) {
-    if (source == null || source.isEmpty) {
-      return buildErrorWidget(
-        height: height,
-        width: width,
-        borderRadius: borderRadius,
-      );
-    }
-
-    // Decrypt if the URL was stored encrypted (AES-encrypted strings from sync)
-    source = CryptoUtils.decrypt(source);
-    if (source.isEmpty) {
-      return buildErrorWidget(
-        height: height,
-        width: width,
-        borderRadius: borderRadius,
-      );
-    }
-
-    // Unescape slashes for legacy URLs (e.g. from older data)
-    if (source.contains(r'\/')) {
-      source = source.replaceAll(r'\/', '/');
-      debugPrint('Legacy URL detected and fixed: $source');
+    final resolved = fromResolvedUrl ? source : resolveImageUrl(source);
+    if (resolved == null) {
+      return errorWidget ??
+          buildErrorWidget(
+            height: height,
+            width: width,
+            borderRadius: borderRadius,
+          );
     }
 
     // Handle base64
-    if (source.startsWith('data:image')) {
+    if (resolved.startsWith('data:image')) {
       try {
-        final base64String = source.split(',').last;
+        final base64String = resolved.split(',').last;
         return ClipRRect(
           borderRadius: borderRadius ?? BorderRadius.zero,
           child: Image.memory(
@@ -126,36 +268,99 @@ class ImageUtils {
             height: height,
             width: width,
             fit: fit,
-            errorBuilder: (context, error, stackTrace) => buildErrorWidget(
-              height: height,
-              width: width,
-              borderRadius: borderRadius,
-              error: error,
-            ),
+            errorBuilder: (context, error, stackTrace) =>
+                errorWidget ??
+                buildErrorWidget(
+                  height: height,
+                  width: width,
+                  borderRadius: borderRadius,
+                  error: error,
+                ),
           ),
         );
       } catch (e) {
-        return buildErrorWidget(
-          height: height,
-          width: width,
-          borderRadius: borderRadius,
-          error: e,
-        );
+        return errorWidget ??
+            buildErrorWidget(
+              height: height,
+              width: width,
+              borderRadius: borderRadius,
+              error: e,
+            );
       }
     }
 
-    // Apply proxy for external URLs on web
-    final String imageUrl = _getProxiedUrl(source);
-
     return _RetryCachedImage(
-      imageUrl: imageUrl,
+      imageUrl: resolved,
       height: height,
       width: width,
       fit: fit,
       borderRadius: borderRadius,
       placeholder: placeholder,
+      errorWidget: errorWidget,
       thumbnailUrl: thumbnailUrl,
       memCacheWidth: memCacheWidth,
+      onImageLoaded: onImageLoaded,
+    );
+  }
+
+  /// Full-screen media: blurred backdrop + [BoxFit.contain] so tall/wide
+  /// images stay fully visible (Découvrir, stories, arrivages).
+  static Widget buildFullscreenContainedImage(
+    String? source, {
+    Key? key,
+    VoidCallback? onImageLoaded,
+    Widget? placeholder,
+    Widget? errorWidget,
+  }) {
+    final resolved = resolveImageUrl(source);
+    if (resolved == null) {
+      return errorWidget ??
+          Container(
+            key: key,
+            color: Colors.black,
+            child: buildErrorWidget(),
+          );
+    }
+
+    final loading = placeholder ??
+        const Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        );
+    final error = errorWidget ??
+        Container(
+          color: Colors.grey[900],
+          child: const Center(
+            child: Icon(Icons.broken_image, color: Colors.white54, size: 48),
+          ),
+        );
+
+    return Container(
+      key: key,
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          buildCachedImage(
+            source,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+          ),
+          BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: Container(color: Colors.black.withValues(alpha: 0.45)),
+          ),
+          buildCachedImage(
+            source,
+            fit: BoxFit.contain,
+            width: double.infinity,
+            height: double.infinity,
+            onImageLoaded: onImageLoaded,
+            placeholder: loading,
+            errorWidget: error,
+          ),
+        ],
+      ),
     );
   }
 
@@ -184,9 +389,17 @@ class ImageUtils {
   }
 
   static List<String> getDecryptedList(String? encryptedSource) {
-    if (encryptedSource == null || encryptedSource.isEmpty) return [];
+    if (isEmptyMediaValue(encryptedSource)) return [];
 
-    var decrypted = CryptoUtils.decrypt(encryptedSource);
+    final trimmed = encryptedSource!.trim();
+
+    // Single plain/encrypted URL (not a JSON array).
+    if (!trimmed.startsWith('[')) {
+      final single = resolveImageUrl(trimmed);
+      if (single != null) return [single];
+    }
+
+    var decrypted = CryptoUtils.decrypt(trimmed);
     if (decrypted.isEmpty) return [];
 
     // Unescape slashes for legacy JSON or lists
@@ -198,8 +411,8 @@ class ImageUtils {
       try {
         final List<dynamic> decoded = jsonDecode(decrypted);
         return decoded
-            .map((e) => _getProxiedUrl(e.toString().trim()))
-            .where((s) => s.isNotEmpty)
+            .map((e) => _normalizeDecryptedUrl(e.toString().trim()))
+            .whereType<String>()
             .toList();
       } catch (e) {
         debugPrint('Error decoding image JSON: $e');
@@ -214,8 +427,8 @@ class ImageUtils {
             normalized.trim().endsWith(']')) {
           final List<dynamic> decoded = jsonDecode(normalized);
           return decoded
-              .map((e) => _getProxiedUrl(e.toString().trim()))
-              .where((s) => s.isNotEmpty)
+              .map((e) => _normalizeDecryptedUrl(e.toString().trim()))
+              .whereType<String>()
               .toList();
         }
       } catch (e) {
@@ -231,13 +444,16 @@ class ImageUtils {
       return s.isNotEmpty;
     }).toList();
     if (extractedUrls.isNotEmpty) {
-      return extractedUrls.map(_getProxiedUrl).toList();
+      return extractedUrls
+          .map((url) => _normalizeDecryptedUrl(url))
+          .whereType<String>()
+          .toList();
     }
 
     return decrypted
         .split(',')
-        .map((s) => _getProxiedUrl(s.trim()))
-        .where((s) => s.isNotEmpty)
+        .map((s) => _normalizeDecryptedUrl(s.trim()))
+        .whereType<String>()
         .toList();
   }
 
@@ -325,8 +541,10 @@ class _RetryCachedImage extends StatefulWidget {
   final BoxFit fit;
   final BorderRadius? borderRadius;
   final Widget? placeholder;
+  final Widget? errorWidget;
   final String? thumbnailUrl;
   final int? memCacheWidth;
+  final VoidCallback? onImageLoaded;
 
   const _RetryCachedImage({
     required this.imageUrl,
@@ -335,8 +553,10 @@ class _RetryCachedImage extends StatefulWidget {
     this.fit = BoxFit.cover,
     this.borderRadius,
     this.placeholder,
+    this.errorWidget,
     this.thumbnailUrl,
     this.memCacheWidth,
+    this.onImageLoaded,
   });
 
   @override
@@ -356,22 +576,36 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
     }
   }
 
+  void _notifyLoaded() {
+    if (widget.onImageLoaded == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.onImageLoaded?.call();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return CachedNetworkImage(
+    final image = CachedNetworkImage(
       key: ValueKey('${widget.imageUrl}_$_retryCount'),
       imageUrl: widget.imageUrl,
+      cacheManager: UzaImageCache.instance,
       height: widget.height,
       width: widget.width,
       fit: widget.fit,
       memCacheWidth: widget.memCacheWidth,
       fadeInDuration: const Duration(milliseconds: 200),
-      imageBuilder: (context, imageProvider) => Container(
-        decoration: BoxDecoration(
-          borderRadius: widget.borderRadius ?? BorderRadius.zero,
-          image: DecorationImage(image: imageProvider, fit: widget.fit),
-        ),
-      ),
+      httpHeaders: const {'Accept': 'image/*'},
+      imageBuilder: widget.onImageLoaded == null
+          ? null
+          : (context, imageProvider) {
+              _notifyLoaded();
+              return Image(
+                image: imageProvider,
+                height: widget.height,
+                width: widget.width,
+                fit: widget.fit,
+              );
+            },
       placeholder: (context, url) {
         if (widget.thumbnailUrl != null && widget.thumbnailUrl!.isNotEmpty) {
           return Container(
@@ -384,6 +618,7 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
               borderRadius: widget.borderRadius ?? BorderRadius.zero,
               child: CachedNetworkImage(
                 imageUrl: widget.thumbnailUrl!,
+                cacheManager: UzaImageCache.instance,
                 fit: BoxFit.cover,
                 width: widget.width,
                 height: widget.height,
@@ -422,13 +657,19 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
                 borderRadius: widget.borderRadius,
               );
         }
-        return ImageUtils.buildErrorWidget(
-          height: widget.height,
-          width: widget.width,
-          borderRadius: widget.borderRadius,
-          error: error,
-        );
+        return widget.errorWidget ??
+            ImageUtils.buildErrorWidget(
+              height: widget.height,
+              width: widget.width,
+              borderRadius: widget.borderRadius,
+              error: error,
+            );
       },
     );
+
+    if (widget.borderRadius != null) {
+      return ClipRRect(borderRadius: widget.borderRadius!, child: image);
+    }
+    return image;
   }
 }

@@ -64,5 +64,16 @@
 		<string>tel</string>
 		<string>sms</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.investeegroup.uzaapp</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>uzaapp</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

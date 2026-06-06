@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 class ApiService {
   static const String _apiKey =
@@ -399,6 +400,15 @@ class ApiService {
           headers: {..._commonHeaders, 'Content-Type': 'application/json'},
           body: payload,
         );
+      } else if (entityType == 'stories' && action == 'DELETE') {
+        final uri = Uri.parse('$baseUrl/stories.php?api_key=$_apiKey');
+        final payload = jsonEncode(data);
+        debugPrint('PUSH → stories.php DELETE  uri=$uri');
+        response = await http.delete(
+          uri,
+          headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+          body: payload,
+        );
       } else {
         final String endpoint = '$entityType.php';
         final uri = Uri.parse('$baseUrl/$endpoint?api_key=$_apiKey');
@@ -457,6 +467,76 @@ class ApiService {
     return null;
   }
 
+  /// Report a product for moderation.
+  Future<bool> reportProduct({
+    required int productId,
+    required String reason,
+    String? details,
+    required String reporterPhone,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/reports.php?api_key=$_apiKey');
+      final response = await http.post(
+        uri,
+        headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'product_id': productId,
+          'reason': reason,
+          'details': details,
+          'reporter_phone': reporterPhone,
+        }),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final body = jsonDecode(response.body);
+        return body is Map && (body['success'] == true || body['id'] != null);
+      }
+      debugPrint('reportProduct HTTP ${response.statusCode}: ${response.body}');
+    } catch (e) {
+      debugPrint('reportProduct error: $e');
+    }
+    return false;
+  }
+
+  static MediaType? _mediaTypeForFileName(String fileName) {
+    final ext = fileName.split('.').last.toLowerCase();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return MediaType('image', 'jpeg');
+      case 'png':
+        return MediaType('image', 'png');
+      case 'gif':
+        return MediaType('image', 'gif');
+      case 'webp':
+        return MediaType('image', 'webp');
+      case 'heic':
+        return MediaType('image', 'heic');
+      case 'heif':
+      case 'hif':
+        return MediaType('image', 'heif');
+      case 'mp4':
+        return MediaType('video', 'mp4');
+      case 'mov':
+        return MediaType('video', 'quicktime');
+      case 'webm':
+        return MediaType('video', 'webm');
+      case 'avi':
+        return MediaType('video', 'x-msvideo');
+      default:
+        return null;
+    }
+  }
+
+  String? _parseUploadError(String body) {
+    try {
+      final data = jsonDecode(body);
+      if (data is Map) {
+        return data['error']?.toString();
+      }
+    } catch (_) {}
+    return null;
+  }
+
   // File upload (Image or Video)
   Future<String?> uploadFile(
     Uint8List bytes,
@@ -465,14 +545,19 @@ class ApiService {
     Duration? timeout,
   }) async {
     try {
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$baseUrl/upload.php'),
+      final uri = Uri.parse('$baseUrl/upload.php').replace(
+        queryParameters: {'api_key': _apiKey},
       );
+      final request = http.MultipartRequest('POST', uri);
       request.headers['X-API-Key'] = _apiKey;
       request.fields['folder'] = folder;
       request.files.add(
-        http.MultipartFile.fromBytes('file', bytes, filename: fileName),
+        http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: fileName,
+          contentType: _mediaTypeForFileName(fileName),
+        ),
       );
 
       final streamedResponse = timeout != null
@@ -484,11 +569,65 @@ class ApiService {
         final data = jsonDecode(response.body);
         return data['url'] as String?;
       }
+
+      final serverError = _parseUploadError(response.body);
+      debugPrint(
+        'API ERROR (uploadFile): HTTP ${response.statusCode} '
+        '${serverError ?? response.body}',
+      );
     } on TimeoutException {
       rethrow;
     } catch (e) {
       debugPrint("API ERROR (uploadFile): $e");
     }
     return null;
+  }
+
+  /// Upload with a human-readable error when the server rejects the file.
+  Future<String> uploadFileOrThrow(
+    Uint8List bytes,
+    String fileName, {
+    String folder = 'boutiques/profil',
+    Duration? timeout,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/upload.php').replace(
+        queryParameters: {'api_key': _apiKey},
+      );
+      final request = http.MultipartRequest('POST', uri);
+      request.headers['X-API-Key'] = _apiKey;
+      request.fields['folder'] = folder;
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: fileName,
+          contentType: _mediaTypeForFileName(fileName),
+        ),
+      );
+
+      final streamedResponse = timeout != null
+          ? await request.send().timeout(timeout)
+          : await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final url = data['url'] as String?;
+        if (url != null && url.isNotEmpty) return url;
+        throw Exception('Réponse serveur invalide');
+      }
+
+      final serverError = _parseUploadError(response.body);
+      if (response.statusCode == 401) {
+        throw Exception('Non autorisé. Vérifiez votre connexion.');
+      }
+      throw Exception(
+        serverError ??
+            'Échec de l\'upload (HTTP ${response.statusCode})',
+      );
+    } on TimeoutException {
+      rethrow;
+    }
   }
 }

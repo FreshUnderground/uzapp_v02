@@ -11,13 +11,19 @@ class AnalyticsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final shopRepo = context.read<ShopRepository>();
 
-    return FutureBuilder<Map<String, int>>(
-      future: shopRepo.getShopStats(shopId),
+    return FutureBuilder<List<dynamic>>(
+      future: Future.wait([
+        shopRepo.getShopStats(shopId),
+        shopRepo.getWeeklyStats(shopId),
+        shopRepo.getDailyViewsBreakdown(shopId),
+      ]),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        final stats = snapshot.data ?? {};
+        final stats = (snapshot.data?[0] as Map<String, int>?) ?? {};
+        final weekly = (snapshot.data?[1] as Map<String, int>?) ?? {};
+        final dailyViews = (snapshot.data?[2] as List<int>?) ?? List.filled(7, 0);
 
         return ListView(
           padding: const EdgeInsets.all(24),
@@ -27,19 +33,24 @@ class AnalyticsTab extends StatelessWidget {
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Suivez l\'engagement de vos clients en temps réel.',
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
             ),
             const SizedBox(height: 32),
 
-            // Engagement Summary Cards (top row)
+            _buildSectionTitle('7 derniers jours'),
+            const SizedBox(height: 16),
+            _buildWeeklyKpiRow(weekly),
+            const SizedBox(height: 16),
+            _buildViewsChart(context, dailyViews),
+            const SizedBox(height: 32),
+
             _buildSectionTitle('Engagement Total'),
             const SizedBox(height: 16),
             _buildEngagementSummary(stats),
             const SizedBox(height: 32),
 
-            // Detailed Metrics
             _buildSectionTitle('Détails des Statistiques'),
             const SizedBox(height: 16),
             _buildDetailedStats(stats),
@@ -53,6 +64,97 @@ class AnalyticsTab extends StatelessWidget {
     return Text(
       title,
       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+    );
+  }
+
+  Widget _buildWeeklyKpiRow(Map<String, int> weekly) {
+    return Row(
+      children: [
+        Expanded(
+          child: _summaryCard(
+            'Vues (7j)',
+            '${weekly['weeklyViews'] ?? 0}',
+            Icons.visibility,
+            Colors.blue,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _summaryCard(
+            'Contacts (7j)',
+            '${weekly['weeklyContacts'] ?? 0}',
+            Icons.chat,
+            Colors.green,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _summaryCard(
+            'Partages (7j)',
+            '${weekly['weeklyShares'] ?? 0}',
+            Icons.share,
+            Colors.orange,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildViewsChart(BuildContext context, List<int> dailyViews) {
+    final maxVal = dailyViews.reduce((a, b) => a > b ? a : b);
+    final labels = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+    final startDay = DateTime.now().subtract(const Duration(days: 6)).weekday;
+    final dayLabels = List.generate(7, (i) {
+      final day = (startDay + i - 1) % 7;
+      return labels[day];
+    });
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.2),
+        ),
+      ),
+      height: 160,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: List.generate(7, (i) {
+          final val = dailyViews[i];
+          final heightFactor = maxVal > 0 ? val / maxVal : 0.0;
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text('$val', style: const TextStyle(fontSize: 10)),
+                  const SizedBox(height: 4),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: FractionallySizedBox(
+                        heightFactor: heightFactor.clamp(0.05, 1.0),
+                        child: Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: UzaColors.primary.withValues(alpha: 0.8),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(dayLabels[i], style: const TextStyle(fontSize: 11)),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
     );
   }
 

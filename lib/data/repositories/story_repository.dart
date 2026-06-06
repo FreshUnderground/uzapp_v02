@@ -2,6 +2,7 @@ import 'dart:developer' as developer;
 import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
 import '../services/sync_service.dart';
+import '../../core/utils/image_utils.dart';
 
 /// One feed entry = one media item of an active arrivage.
 /// Stories with no StoryMedia row fall back to their own mediaUrl.
@@ -30,6 +31,39 @@ class StoryRepository {
 
   /// 4-day expiry for arrivages
   static const Duration arrivageExpiry = Duration(days: 4);
+
+  Future<List<String?>> _collectStoryMediaUrls(int storyId) async {
+    final story = await (db.select(db.stories)
+          ..where((t) => t.id.equals(storyId)))
+        .getSingleOrNull();
+    if (story == null) return [];
+
+    final mediaRows = await (db.select(db.storyMedia)
+          ..where((t) => t.storyId.equals(storyId)))
+        .get();
+
+    return [
+      story.mediaUrl,
+      ...mediaRows.map((m) => m.mediaUrl),
+    ];
+  }
+
+  Future<void> _hardDeleteStoryLocally(int storyId) async {
+    await db.transaction(() async {
+      await (db.delete(db.storyMedia)
+            ..where((t) => t.storyId.equals(storyId)))
+          .go();
+      await (db.delete(db.stories)..where((t) => t.id.equals(storyId))).go();
+    });
+  }
+
+  int? _serverStoryId(Story story) {
+    if (story.remoteId != null && story.remoteId!.isNotEmpty) {
+      return int.tryParse(story.remoteId!) ??
+          (story.remoteId == story.id.toString() ? story.id : null);
+    }
+    return story.id;
+  }
 
   /// Watch active regular stories (isArrivage=false, 24h expiry).
   Stream<List<Story>> watchActiveStories() {
@@ -153,36 +187,33 @@ class StoryRepository {
     if (expiredStories.isEmpty) return 0;
 
     final expiredIds = expiredStories.map((s) => s.id).toList();
+    final mediaUrls = <String?>[];
+    for (final id in expiredIds) {
+      mediaUrls.addAll(await _collectStoryMediaUrls(id));
+    }
 
-    return await db.transaction(() async {
-      // Delete story_media rows for expired stories
+    final count = await db.transaction(() async {
       await (db.delete(
         db.storyMedia,
       )..where((t) => t.storyId.isIn(expiredIds))).go();
 
-      // Delete the expired stories
-      final count = await (db.delete(
+      return await (db.delete(
         db.stories,
       )..where((t) => t.id.isIn(expiredIds))).go();
-
-      return count;
     });
+
+    await ImageUtils.evictCachedSources(mediaUrls);
+    return count;
   }
 
   /// Delete a specific story by ID (for shop owners)
   Future<void> deleteStory(int storyId) async {
-    await db.transaction(() async {
-      // Delete story_media rows first
-      await (db.delete(
-        db.storyMedia,
-      )..where((t) => t.storyId.equals(storyId))).go();
-
-      // Delete the story
-      await (db.delete(db.stories)..where((t) => t.id.equals(storyId))).go();
-    });
+    final mediaUrls = await _collectStoryMediaUrls(storyId);
+    await _hardDeleteStoryLocally(storyId);
+    await ImageUtils.evictCachedSources(mediaUrls);
   }
 
-  /// Delete a story and sync the deletion to server (propagates to all users)
+  /// Hard-delete locally, push DELETE to server, evict images, full reset sync.
   Future<void> deleteStoryWithSync(int storyId) async {
     final story = await (db.select(
       db.stories,
@@ -193,31 +224,23 @@ class StoryRepository {
       return;
     }
 
-    // Delete locally first
-    await db.transaction(() async {
-      // Delete story_media rows first
-      await (db.delete(
-        db.storyMedia,
-      )..where((t) => t.storyId.equals(storyId))).go();
+    final mediaUrls = await _collectStoryMediaUrls(storyId);
+    final serverId = _serverStoryId(story);
 
-      // Delete the story
-      await (db.delete(db.stories)..where((t) => t.id.equals(storyId))).go();
-    });
+    await _hardDeleteStoryLocally(storyId);
+    await ImageUtils.evictCachedSources(mediaUrls);
 
-    // Queue DELETE sync if story has remoteId
-    if (syncService != null &&
-        story.remoteId != null &&
-        story.remoteId!.isNotEmpty) {
-      await syncService!.addToQueue('DELETE', 'stories', {
-        'id': story.remoteId,
-      });
+    if (syncService != null && serverId != null) {
+      await syncService!.addToQueue('DELETE', 'stories', {'id': serverId});
       developer.log(
-        'Queued story deletion for sync: remoteId=${story.remoteId}',
+        'Queued story deletion for sync: serverId=$serverId',
         name: 'StoryRepo',
       );
+      await syncService!.forcePush();
+      await syncService!.fullResetAndSync();
     } else {
       developer.log(
-        'Story deletion NOT queued - missing syncService or remoteId',
+        'Story deletion NOT synced - missing syncService or serverId',
         name: 'StoryRepo',
       );
     }
@@ -285,14 +308,12 @@ class StoryRepository {
   /// Watch active regular stories (isArrivage=false) for a specific shop.
   Stream<List<Story>> watchStoriesByShop(int shopId) {
     final now = DateTime.now();
-    final cutoff = now.subtract(storyExpiry);
     return (db.select(db.stories)
           ..where(
             (t) =>
                 t.shopId.equals(shopId) &
                 t.isArrivage.equals(false) &
-                t.expiresAt.isBiggerThanValue(now) &
-                t.createdAt.isBiggerThanValue(cutoff),
+                t.expiresAt.isBiggerThanValue(now),
           )
           ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
         .watch();
@@ -301,17 +322,41 @@ class StoryRepository {
   /// Watch active arrivages (isArrivage=true) for a specific shop.
   Stream<List<Story>> watchArrivagesByShop(int shopId) {
     final now = DateTime.now();
-    final cutoff = now.subtract(arrivageExpiry);
     return (db.select(db.stories)
           ..where(
             (t) =>
                 t.shopId.equals(shopId) &
                 t.isArrivage.equals(true) &
-                t.expiresAt.isBiggerThanValue(now) &
-                t.createdAt.isBiggerThanValue(cutoff),
+                t.expiresAt.isBiggerThanValue(now),
           )
           ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
         .watch();
+  }
+
+  Future<Story?> getStoryById(int id) {
+    return (db.select(db.stories)..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
+  }
+
+  Future<Story?> findStoryByAnyId(int id) async {
+    final byLocal = await getStoryById(id);
+    if (byLocal != null) return byLocal;
+    return (db.select(db.stories)
+          ..where((t) => t.remoteId.equals(id.toString())))
+        .getSingleOrNull();
+  }
+
+  Future<List<Story>> getActiveArrivagesByShop(int shopId) {
+    final now = DateTime.now();
+    return (db.select(db.stories)
+          ..where(
+            (t) =>
+                t.shopId.equals(shopId) &
+                t.isArrivage.equals(true) &
+                t.expiresAt.isBiggerThanValue(now),
+          )
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .get();
   }
 
   /// Watch active arrivages grouped by shopId.

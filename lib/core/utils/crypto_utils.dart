@@ -14,10 +14,12 @@ class CryptoUtils {
   static String decrypt(String encryptedText) {
     if (encryptedText.isEmpty) return '';
 
-    // If it's already a plain URL, return as-is
+    // If it's already a plain URL or server path, return as-is
     if (encryptedText.startsWith('http://') ||
         encryptedText.startsWith('https://') ||
-        encryptedText.startsWith('data:image')) {
+        encryptedText.startsWith('data:image') ||
+        encryptedText.startsWith('/uploads/') ||
+        encryptedText.startsWith('uploads/')) {
       return encryptedText;
     }
 

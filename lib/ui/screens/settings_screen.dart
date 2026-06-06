@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/res/uza_colors.dart';
@@ -63,12 +62,12 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   iconSize: 24,
                   elevation: 8,
-                  style: const TextStyle(
-                    color: UzaColors.textPrimary,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
                   ),
-                  dropdownColor: Colors.white,
+                  dropdownColor: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
                   items: AppTranslations.supportedLocales.map((String code) {
                     final languageName =
@@ -92,31 +91,6 @@ class SettingsScreen extends StatelessWidget {
                   },
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Security Section
-          _buildSectionHeader(Icons.security, tr(context, 'security')),
-          _buildCard(
-            context,
-            child: SwitchListTile(
-              secondary: const Icon(
-                Icons.fingerprint,
-                color: UzaColors.primary,
-              ),
-              title: Text(
-                tr(context, 'biometric_lock'),
-                style: const TextStyle(fontWeight: FontWeight.w500),
-              ),
-              subtitle: Text(
-                settings.biometricEnabled
-                    ? tr(context, 'biometric_enabled')
-                    : tr(context, 'biometric_disabled'),
-                style: const TextStyle(fontSize: 13),
-              ),
-              value: settings.biometricEnabled,
-              onChanged: (val) => _onBiometricToggle(context, settings, val),
             ),
           ),
           const SizedBox(height: 24),
@@ -231,37 +205,6 @@ class SettingsScreen extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  Future<void> _onBiometricToggle(
-    BuildContext context,
-    SettingsService settings,
-    bool value,
-  ) async {
-    if (!value) {
-      // Turning off - no need to check biometrics
-      await settings.toggleBiometric(false);
-      return;
-    }
-
-    // Turning on - check if device supports biometrics
-    final localAuth = LocalAuthentication();
-    final isSupported = await localAuth.isDeviceSupported();
-    final canCheck = await localAuth.canCheckBiometrics;
-
-    if (!isSupported || !canCheck) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(tr(context, 'biometric_not_supported')),
-            backgroundColor: UzaColors.error,
-          ),
-        );
-      }
-      return;
-    }
-
-    await settings.toggleBiometric(true);
   }
 
   Widget _buildSectionHeader(IconData icon, String title) {

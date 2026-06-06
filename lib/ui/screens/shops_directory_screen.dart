@@ -5,13 +5,11 @@ import '../../data/repositories/shop_repository.dart';
 import '../../data/services/sync_service.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/utils/image_utils.dart';
-import '../../core/utils/crypto_utils.dart';
 import '../../core/services/location_service.dart';
 import '../../core/l10n/tr.dart';
 import '../components/verification_badge.dart';
 import '../components/responsive_layout.dart';
 import '../components/skeletons.dart';
-import '../components/empty_state.dart';
 import '../utils/page_transitions.dart';
 import 'shop_profile_screen.dart';
 
@@ -28,14 +26,25 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
   _ShopFilter _filter = _ShopFilter.all;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  String? _selectedCity;
+  String? _selectedCommune;
+  bool _showFilters = false;
   bool _requestedGuestSync = false;
+
+  bool get _hasActiveFilters =>
+      _filter != _ShopFilter.all ||
+      _selectedCity != null ||
+      _selectedCommune != null;
 
   void _maybeBootstrapSync(List<Shop> shops, SyncService syncService) {
     if (_requestedGuestSync) return;
     if (shops.isNotEmpty) return;
     if (!syncService.isOnline || syncService.isSyncing) return;
     _requestedGuestSync = true;
-    syncService.syncNow();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      syncService.syncNow();
+    });
   }
 
   @override
@@ -48,6 +57,8 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
   Widget build(BuildContext context) {
     final shopRepo = context.watch<ShopRepository>();
     final syncService = context.watch<SyncService>();
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     final crossAxisCount = ResponsiveLayout.isDesktop(context)
         ? 4
@@ -61,70 +72,180 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
         },
         child: Column(
           children: [
-            // Search bar
+            // Search bar + filter toggle
             Container(
-              color: Colors.white,
+              color: theme.colorScheme.surface,
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: TextField(
-                controller: _searchController,
-                onChanged: (value) {
-                  setState(() {
-                    _searchQuery = value.toLowerCase().trim();
-                  });
-                },
-                decoration: InputDecoration(
-                  hintText: tr(context, 'search_shop_hint'),
-                  prefixIcon: const Icon(
-                    Icons.search,
-                    color: UzaColors.textSecondary,
-                  ),
-                  suffixIcon: _searchQuery.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() {
-                              _searchQuery = '';
-                            });
-                          },
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
-            ),
-            // Filter chips
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               child: Row(
                 children: [
-                  _buildFilterChip(
-                    context,
-                    tr(context, 'all_shops'),
-                    _ShopFilter.all,
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      style: TextStyle(color: theme.colorScheme.onSurface),
+                      onChanged: (value) {
+                        setState(() {
+                          _searchQuery = value.toLowerCase().trim();
+                        });
+                      },
+                      decoration: InputDecoration(
+                        hintText: tr(context, 'search_shop_hint'),
+                        hintStyle: TextStyle(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.5,
+                          ),
+                        ),
+                        prefixIcon: Icon(
+                          Icons.search,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.5,
+                          ),
+                        ),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 20),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() {
+                                    _searchQuery = '';
+                                  });
+                                },
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: isDark
+                            ? theme.colorScheme.surfaceContainerHighest
+                            : Colors.grey[100],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                        ),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 8),
-                  _buildFilterChip(
-                    context,
-                    tr(context, 'verified_shops'),
-                    _ShopFilter.verified,
-                  ),
-                  const SizedBox(width: 8),
-                  _buildFilterChip(
-                    context,
-                    tr(context, 'unverified_shops'),
-                    _ShopFilter.unverified,
-                  ),
+                  _buildFilterToggleButton(theme, isDark),
                 ],
               ),
             ),
+            if (_showFilters) ...[
+              // Filter chips (certification)
+              Container(
+                color: theme.colorScheme.surface,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: Row(
+                  children: [
+                    _buildFilterChip(
+                      context,
+                      tr(context, 'all_shops'),
+                      _ShopFilter.all,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildFilterChip(
+                      context,
+                      tr(context, 'verified_shops'),
+                      _ShopFilter.verified,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildFilterChip(
+                      context,
+                      tr(context, 'unverified_shops'),
+                      _ShopFilter.unverified,
+                    ),
+                  ],
+                ),
+              ),
+              // Geo filter chips (ville / commune)
+              StreamBuilder<List<Shop>>(
+                stream: shopRepo.watchAllShops(),
+                builder: (context, snapshot) {
+                  final allShops = snapshot.data ?? [];
+                  final cities = allShops
+                      .map((s) => s.city)
+                      .where((c) => c != null && c!.isNotEmpty)
+                      .map((c) => c!)
+                      .toSet()
+                      .toList()
+                    ..sort();
+                  final communes = allShops
+                      .where((s) =>
+                          _selectedCity == null ||
+                          s.city == _selectedCity)
+                      .map((s) => s.commune)
+                      .where((c) => c != null && c!.isNotEmpty)
+                      .map((c) => c!)
+                      .toSet()
+                      .toList()
+                    ..sort();
+                  if (cities.isEmpty && communes.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  return Container(
+                    color: theme.colorScheme.surface,
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (cities.isNotEmpty)
+                          SizedBox(
+                            height: 36,
+                            child: ListView(
+                              scrollDirection: Axis.horizontal,
+                              children: [
+                                _buildGeoChip(
+                                  'Toutes villes',
+                                  _selectedCity == null,
+                                  () {
+                                    setState(() {
+                                      _selectedCity = null;
+                                      _selectedCommune = null;
+                                    });
+                                  },
+                                ),
+                                ...cities.map((city) => _buildGeoChip(
+                                  city,
+                                  _selectedCity == city,
+                                  () => setState(() {
+                                    _selectedCity = city;
+                                    _selectedCommune = null;
+                                  }),
+                                )),
+                              ],
+                            ),
+                          ),
+                        if (communes.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          SizedBox(
+                            height: 36,
+                            child: ListView(
+                              scrollDirection: Axis.horizontal,
+                              children: [
+                                _buildGeoChip(
+                                  'Toutes communes',
+                                  _selectedCommune == null,
+                                  () {
+                                    setState(() => _selectedCommune = null);
+                                  },
+                                ),
+                                ...communes.map((commune) => _buildGeoChip(
+                                  commune,
+                                  _selectedCommune == commune,
+                                  () => setState(
+                                    () => _selectedCommune = commune,
+                                  ),
+                                )),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
             const Divider(height: 1),
             // Shop grid
             Expanded(
@@ -149,7 +270,8 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                   final allShops = snapshot.data ?? [];
                   _maybeBootstrapSync(allShops, syncService);
                   final filteredByType = _applyFilter(allShops);
-                  final shops = _applySearch(filteredByType);
+                  final filteredByGeo = _applyGeoFilter(filteredByType);
+                  final shops = _applySearch(filteredByGeo);
 
                   if (shops.isEmpty) {
                     return _buildEmptyState(
@@ -180,26 +302,104 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
     );
   }
 
+  Widget _buildFilterToggleButton(ThemeData theme, bool isDark) {
+    final isActive = _showFilters || _hasActiveFilters;
+    return Material(
+      color: isActive
+          ? UzaColors.primary.withValues(alpha: 0.12)
+          : (isDark
+                ? theme.colorScheme.surfaceContainerHighest
+                : Colors.grey[100]),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: () => setState(() => _showFilters = !_showFilters),
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Icon(
+                _showFilters ? Icons.filter_list_off : Icons.filter_list,
+                color: isActive ? UzaColors.primary : theme.colorScheme.onSurface
+                    .withValues(alpha: 0.6),
+              ),
+              if (_hasActiveFilters && !_showFilters)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: UzaColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGeoChip(String label, bool isSelected, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label, style: const TextStyle(fontSize: 12)),
+        selected: isSelected,
+        onSelected: (_) => onTap(),
+        selectedColor: UzaColors.primary.withValues(alpha: 0.15),
+        checkmarkColor: UzaColors.primary,
+      ),
+    );
+  }
+
+  List<Shop> _applyGeoFilter(List<Shop> shops) {
+    return shops.where((shop) {
+      if (_selectedCity != null &&
+          (shop.city ?? '').toLowerCase() != _selectedCity!.toLowerCase()) {
+        return false;
+      }
+      if (_selectedCommune != null &&
+          (shop.commune ?? '').toLowerCase() != _selectedCommune!.toLowerCase()) {
+        return false;
+      }
+      return true;
+    }).toList();
+  }
+
   Widget _buildFilterChip(
     BuildContext context,
     String label,
     _ShopFilter filter,
   ) {
     final isSelected = _filter == filter;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => _filter = filter),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected ? UzaColors.primary : Colors.grey[100],
+            color: isSelected
+                ? UzaColors.primary
+                : (isDark
+                      ? theme.colorScheme.surfaceContainerHighest
+                      : Colors.grey[100]),
             borderRadius: BorderRadius.circular(20),
           ),
           alignment: Alignment.center,
           child: Text(
             label,
             style: TextStyle(
-              color: isSelected ? Colors.white : UzaColors.textSecondary,
+              color: isSelected
+                  ? Colors.white
+                  : theme.colorScheme.onSurface.withValues(alpha: 0.7),
               fontSize: 13,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
             ),
@@ -253,6 +453,9 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
   Widget _buildEmptyState(bool trulyEmpty, bool isSearch) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final theme = Theme.of(context);
+        final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+        final subtle = theme.colorScheme.onSurface.withValues(alpha: 0.45);
         return SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: ConstrainedBox(
@@ -266,7 +469,7 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                     Icon(
                       isSearch ? Icons.search_off : Icons.storefront_outlined,
                       size: 64,
-                      color: Colors.grey[300],
+                      color: subtle,
                     ),
                     const SizedBox(height: 16),
                     Text(
@@ -278,7 +481,7 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 16,
-                        color: Colors.grey[600],
+                        color: muted,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -290,7 +493,7 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                           ? tr(context, 'sync_shops_hint')
                           : tr(context, 'try_other_filter'),
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                      style: TextStyle(fontSize: 13, color: subtle),
                     ),
                   ],
                 ),
@@ -312,6 +515,8 @@ class _ShopDirectoryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final location = _formatLocation();
     final hasCoordinates = shop.latitude != null && shop.longitude != null;
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
 
     return InkWell(
       onTap: () {
@@ -323,7 +528,7 @@ class _ShopDirectoryCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
@@ -346,7 +551,23 @@ class _ShopDirectoryCard extends StatelessWidget {
                       borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(16),
                       ),
-                      child: _buildShopImage(),
+                      child: _buildShopCover(),
+                    ),
+                  ),
+                  Center(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.12),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: ImageUtils.getLogoWidget(shop.logoUrl, size: 52),
                     ),
                   ),
                   // Type badge
@@ -434,9 +655,10 @@ class _ShopDirectoryCard extends StatelessWidget {
                         Expanded(
                           child: Text(
                             shop.name.toUpperCase(),
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
+                              color: theme.colorScheme.onSurface,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -456,7 +678,7 @@ class _ShopDirectoryCard extends StatelessWidget {
                           Icon(
                             Icons.location_on_outlined,
                             size: 12,
-                            color: Colors.grey[500],
+                            color: muted,
                           ),
                           const SizedBox(width: 2),
                           Expanded(
@@ -464,7 +686,7 @@ class _ShopDirectoryCard extends StatelessWidget {
                               location,
                               style: TextStyle(
                                 fontSize: 11,
-                                color: Colors.grey[600],
+                                color: muted,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -475,7 +697,7 @@ class _ShopDirectoryCard extends StatelessWidget {
                     if (location == null)
                       Text(
                         shop.description ?? 'Boutique locale',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 11, color: muted),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -489,18 +711,37 @@ class _ShopDirectoryCard extends StatelessWidget {
     );
   }
 
-  Widget _buildShopImage() {
-    final raw = shop.logoUrl ?? '';
-    final decrypted = raw.isNotEmpty ? CryptoUtils.decrypt(raw) : '';
-    if (decrypted.isEmpty) {
-      return Container(
-        color: UzaColors.primary.withValues(alpha: 0.08),
-        child: const Center(
-          child: Icon(Icons.store, size: 40, color: UzaColors.primary),
-        ),
+  Widget _buildShopCover() {
+    final coverSource = ImageUtils.getShopCoverSource(
+      shop.bannerUrl,
+      shop.logoUrl,
+    );
+    if (coverSource != null) {
+      return ImageUtils.buildCachedImage(
+        coverSource,
+        fit: BoxFit.cover,
+        errorWidget: _shopCoverFallback(),
       );
     }
-    return ImageUtils.buildCachedImage(decrypted, fit: BoxFit.cover);
+    return _shopCoverFallback();
+  }
+
+  Widget _shopCoverFallback() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            UzaColors.primary.withValues(alpha: 0.85),
+            UzaColors.secondary.withValues(alpha: 0.75),
+          ],
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.storefront, size: 40, color: Colors.white70),
+      ),
+    );
   }
 
   String? _formatLocation() {

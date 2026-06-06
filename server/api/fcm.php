@@ -19,6 +19,17 @@ try {
         $shopId = isset($input['shop_id']) ? (int)$input['shop_id'] : null;
         $platform = isset($input['platform']) ? $input['platform'] : 'android';
 
+        // Resolve user_id from phone if provided
+        if ($userId === null && !empty($input['user_phone'])) {
+            $phone = trim($input['user_phone']);
+            $phoneStmt = $db->prepare("SELECT id FROM users WHERE phone = ? LIMIT 1");
+            $phoneStmt->execute([$phone]);
+            $row = $phoneStmt->fetch();
+            if ($row) {
+                $userId = (int)$row['id'];
+            }
+        }
+
         // Validate platform
         $allowedPlatforms = ['android', 'ios', 'web'];
         if (!in_array($platform, $allowedPlatforms, true)) {

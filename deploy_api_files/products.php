@@ -86,10 +86,7 @@ try {
             $stmt->execute($params);
             echo json_encode(['success' => true, 'id' => $id, 'action' => 'UPDATE']);
         } else {
-            // INSERT — ensure created_at is set
-            if (!isset($input['created_at'])) {
-                $input['created_at'] = date('Y-m-d H:i:s');
-            }
+            // INSERT — no created_at column in products table; MySQL handles updated_at via DEFAULT
             $keys = array_keys($input);
             $values = array_values($input);
             $placeholders = array_fill(0, count($keys), '?');
@@ -105,11 +102,12 @@ try {
     $updatedSince = isset($_GET['updated_since']) ? $_GET['updated_since'] : null;
 
     if ($updatedSince) {
-        $query = "SELECT * FROM products WHERE updated_at > ? ORDER BY id DESC";
+        $query = "SELECT * FROM products WHERE updated_at >= ? ORDER BY id DESC";
         $stmt = $db->prepare($query);
         $stmt->execute([$updatedSince]);
         $products = $stmt->fetchAll();
     } else {
+        // No filter: return last 7 days first page, then paginate
         $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
         $perPage = min(max(1, (int)($_GET['per_page'] ?? 20)), 100);
         $offset = ($page - 1) * $perPage;

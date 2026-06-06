@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../core/utils/image_utils.dart';
 
 /// Wrap product images in Hero for smooth list-to-detail transitions
 class HeroProductImage extends StatelessWidget {
@@ -22,16 +22,16 @@ class HeroProductImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final image = CachedNetworkImage(
-      imageUrl: imageUrl,
+    final image = ImageUtils.buildCachedImage(
+      imageUrl,
       width: width,
       height: height,
       fit: fit,
-      placeholder: (_, _) => Container(
+      placeholder: Container(
         color: Colors.grey.withValues(alpha: 0.1),
         child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
       ),
-      errorWidget: (_, _, _) => Container(
+      errorWidget: Container(
         color: Colors.grey.withValues(alpha: 0.1),
         child: const Icon(
           Icons.image_not_supported_outlined,

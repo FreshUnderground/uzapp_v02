@@ -9,14 +9,11 @@ class SettingsService extends ChangeNotifier {
   String _language = 'fr';
   bool _notificationsEnabled = true;
   bool _isLiteMode = false;
-  bool _biometricEnabled = false;
-
   bool get isDarkMode => _isDarkMode;
   String get language => _language;
   String get currentLanguage => _language;
   bool get notificationsEnabled => _notificationsEnabled;
   bool get isLiteMode => _isLiteMode;
-  bool get biometricEnabled => _biometricEnabled;
 
   SettingsService(this._db) {
     _loadSettings();
@@ -32,7 +29,12 @@ class SettingsService extends ChangeNotifier {
       _language = prefs.language;
       _notificationsEnabled = prefs.notificationsEnabled;
       _isLiteMode = prefs.isLiteMode;
-      _biometricEnabled = prefs.biometricEnabled;
+      if (prefs.biometricEnabled) {
+        await (_db.update(_db.appPreferences)..where((t) => t.id.equals(1)))
+            .write(const AppPreferencesCompanion(
+          biometricEnabled: Value(false),
+        ));
+      }
       notifyListeners();
     } else {
       // First time initialization
@@ -75,12 +77,6 @@ class SettingsService extends ChangeNotifier {
     await _updateDb();
   }
 
-  Future<void> toggleBiometric(bool value) async {
-    _biometricEnabled = value;
-    notifyListeners();
-    await _updateDb();
-  }
-
   Future<void> _updateDb() async {
     await (_db.update(_db.appPreferences)..where((t) => t.id.equals(1))).write(
       AppPreferencesCompanion(
@@ -88,7 +84,7 @@ class SettingsService extends ChangeNotifier {
         language: Value(_language),
         notificationsEnabled: Value(_notificationsEnabled),
         isLiteMode: Value(_isLiteMode),
-        biometricEnabled: Value(_biometricEnabled),
+        biometricEnabled: const Value(false),
       ),
     );
   }

@@ -78,24 +78,11 @@ class _ProductCardState extends State<ProductCard> {
                         tag: 'product_card_${widget.product.id}',
                         child: AspectRatio(
                           aspectRatio: 1.2,
-                          child: Builder(
-                            builder: (context) {
-                              final images = ImageUtils.getDecryptedList(
-                                widget.product.imageUrls,
-                              );
-                              final firstImage = images.isNotEmpty
-                                  ? images.first
-                                  : '';
-                              if (firstImage.isEmpty) {
-                                return ImageUtils.buildPlaceholder();
-                              }
-                              return ImageUtils.buildCachedImage(
-                                firstImage,
-                                fit: BoxFit.cover,
-                                thumbnailUrl: widget.thumbnailUrl,
-                                memCacheWidth: 150,
-                              );
-                            },
+                          child: ImageUtils.buildCachedFirstProductImage(
+                            widget.product.imageUrls,
+                            fit: BoxFit.cover,
+                            thumbnailUrl: widget.thumbnailUrl,
+                            memCacheWidth: 150,
                           ),
                         ),
                       ),

@@ -121,14 +121,14 @@ class AuthService extends ChangeNotifier {
       }
 
       final profile = await _repository.getCurrentUser();
-      if (profile != null) {
+      if (profile != null &&
+          profile.remoteId != null &&
+          profile.remoteId!.isNotEmpty) {
         _isPhoneVerified = profile.isPhoneVerified;
-        // Use remoteId first; fall back to phone number as uid.
-        // The phone number IS the uid in this system — shops store
-        // ownerId = phone, so this ensures reassociation after updates.
-        final uid = (profile.remoteId != null && profile.remoteId!.isNotEmpty)
-            ? profile.remoteId!
-            : profile.phone;
+        // remoteId is only set after a real login or shop creation flow.
+        // After logout it is cleared — do not auto-restore a session from
+        // the preserved phone/name row alone.
+        final uid = profile.remoteId!;
         _currentUser = MockUser(
           uid: uid,
           phoneNumber: profile.phone,
@@ -142,19 +142,7 @@ class AuthService extends ChangeNotifier {
       if (kDebugMode) {
         debugPrint('AuthService: Error loading session: $e');
       }
-      // Try to recover from stored phone number if profile read failed
-      try {
-        final profile = await _repository.getCurrentUser();
-        if (profile != null && profile.phone.isNotEmpty) {
-          _currentUser = MockUser(
-            uid: profile.phone,
-            phoneNumber: profile.phone,
-          );
-          notifyListeners();
-        }
-      } catch (_) {
-        // Give up — user will need to log in again
-      }
+      // Give up — user will need to log in again
     }
   }
 
@@ -472,6 +460,30 @@ class AuthService extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  void updatePhotoUrl(String? url) {
+    if (_currentUser == null) return;
+    _currentUser = MockUser(
+      uid: _currentUser!.uid,
+      phoneNumber: _currentUser!.phoneNumber,
+      displayName: _currentUser!.displayName,
+      photoURL: url,
+      role: _currentUser!.role,
+    );
+    notifyListeners();
+  }
+
+  void updateDisplayName(String? name) {
+    if (_currentUser == null) return;
+    _currentUser = MockUser(
+      uid: _currentUser!.uid,
+      phoneNumber: _currentUser!.phoneNumber,
+      displayName: name,
+      photoURL: _currentUser!.photoURL,
+      role: _currentUser!.role,
+    );
+    notifyListeners();
   }
 
   Future<void> signOut() async {

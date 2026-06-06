@@ -18,6 +18,7 @@ import 'orders_screen.dart';
 import 'messages_screen.dart';
 import 'auth/login_screen.dart';
 import 'admin_validation_screen.dart';
+import 'cash_management_screen.dart';
 import '../components/responsive_layout.dart';
 import '../components/modern_card.dart';
 import '../components/tap_animator.dart';
@@ -27,14 +28,16 @@ import '../../data/repositories/recently_viewed_repository.dart';
 import 'edit_product_screen.dart';
 import 'product_detail_screen.dart';
 import 'create_story_screen.dart';
+import 'edit_shop_screen.dart';
 import 'story_view_screen.dart';
 import 'shop_profile_screen.dart';
 import '../../data/repositories/story_repository.dart';
-import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
+import '../../core/utils/picker_utils.dart';
+import '../../core/utils/image_prepare_utils.dart';
+import '../../core/utils/profile_shop_sync.dart';
+import 'dart:async';
 import 'dart:typed_data';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:image_picker/image_picker.dart';
 import '../../core/services/api_service.dart';
 import '../../core/l10n/tr.dart';
 import 'dart:convert';
@@ -64,8 +67,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Uint8List? _avatarBytes;
   String? _avatarUrl;
   bool _isUploadingAvatar = false;
+  final Set<String> _failedAvatarUrls = {};
+  Uint8List? _coverBytes;
+  bool _isUploadingCover = false;
   late RecentlyViewedRepository _recentlyViewed;
   late AuthService _authService;
+  StreamSubscription<UserProfile?>? _profileSubscription;
 
   @override
   void initState() {
@@ -74,6 +81,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _recentlyViewed.load();
     _authService = context.read<AuthService>();
     _authService.addListener(_onAuthChanged);
+    _profileSubscription = context
+        .read<AuthRepository>()
+        .watchCurrentUser()
+        .listen((profile) {
+          if (profile != null && mounted && !_isUploadingAvatar) {
+            setState(() => _avatarUrl = profile.avatarUrl);
+          }
+        });
     _loadUserData();
   }
 
@@ -110,6 +125,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
+    _profileSubscription?.cancel();
     _authService.removeListener(_onAuthChanged);
     _recentlyViewed.dispose();
     _nameController.dispose();
@@ -141,14 +157,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<void> _saveProfile() async {
+  Future<void> _saveProfile({Shop? shop}) async {
     setState(() => _isSaving = true);
     await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
+
+    final name = _nameController.text.trim();
     await context.read<AuthRepository>().updateProfile(
-      name: _nameController.text,
+      name: name,
       phone: _phoneController.text,
     );
+    context.read<AuthService>().updateDisplayName(name);
+
+    if (shop != null) {
+      await ProfileShopSync.syncToShop(context, shop: shop, name: name);
+    }
+
     if (mounted) {
       setState(() {
         _isEditing = false;
@@ -340,20 +364,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildDesktopLayout(AuthService authService) {
     return Container(
-      color: Colors.grey[50],
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 800),
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildGradientHeader(authService),
-                const SizedBox(height: 24),
-                _buildContentForUser(authService),
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
+          child: _buildProfileWithShop(authService, isMobile: false),
         ),
       ),
     );
@@ -362,48 +377,253 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ─── Mobile Layout ───────────────────────────────────────────────
 
   Widget _buildMobileLayout(AuthService authService) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildGradientHeader(authService),
-          Transform.translate(
-            offset: const Offset(0, -24),
-            child: _buildContentForUser(authService),
+    return _buildProfileWithShop(authService, isMobile: true);
+  }
+
+  Widget _buildProfileWithShop(AuthService authService, {required bool isMobile}) {
+    final user = authService.user;
+    if (user == null) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 100),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildGradientHeader(authService),
+            if (isMobile)
+              Transform.translate(
+                offset: const Offset(0, -24),
+                child: _buildContentForUser(authService),
+              )
+            else ...[
+              const SizedBox(height: 24),
+              _buildContentForUser(authService),
+              const SizedBox(height: 24),
+            ],
+          ],
+        ),
+      );
+    }
+
+    return StreamBuilder<Shop?>(
+      stream: context.read<ShopRepository>().watchUserShop(user.uid),
+      builder: (context, snapshot) {
+        final shop = snapshot.data;
+        return SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 100),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildGradientHeader(authService, shop: shop),
+              if (isMobile)
+                Transform.translate(
+                  offset: const Offset(0, -24),
+                  child: _buildContentForUser(authService),
+                )
+              else ...[
+                const SizedBox(height: 24),
+                _buildContentForUser(authService),
+                const SizedBox(height: 24),
+              ],
+              if (isMobile) const SizedBox(height: 16),
+            ],
           ),
-          const SizedBox(height: 16),
-        ],
+        );
+      },
+    );
+  }
+
+  /// Sources avatar : logo boutique, profil, puis couverture si le logo est cassé.
+  List<String?> _avatarSourceCandidates(Shop? shop, MockUser? user) {
+    if (shop != null) {
+      return [shop.logoUrl, _avatarUrl, user?.photoURL, shop.bannerUrl];
+    }
+    return [_avatarUrl, user?.photoURL];
+  }
+
+  String? _pickAvatarSource(Shop? shop, MockUser? user) {
+    for (final candidate in _avatarSourceCandidates(shop, user)) {
+      if (candidate == null || candidate.isEmpty) continue;
+      final resolved = ImageUtils.resolveImageUrl(candidate);
+      if (resolved != null && !_failedAvatarUrls.contains(resolved)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  Widget _buildAvatarIconFallback({required bool hasShopProfile}) {
+    return CircleAvatar(
+      radius: 48,
+      backgroundColor: Colors.white.withValues(alpha: 0.25),
+      child: Icon(
+        hasShopProfile ? Icons.store : Icons.person,
+        size: 48,
+        color: Colors.white.withValues(alpha: 0.9),
+      ),
+    );
+  }
+
+  Widget _buildProfileAvatar({
+    required Shop? shop,
+    required MockUser? user,
+    required bool hasShopProfile,
+  }) {
+    if (_isUploadingAvatar) {
+      return CircleAvatar(
+        radius: 48,
+        backgroundColor: Colors.white.withValues(alpha: 0.25),
+        child: const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation(Colors.white),
+          ),
+        ),
+      );
+    }
+
+    if (_avatarBytes != null) {
+      return CircleAvatar(
+        radius: 48,
+        backgroundColor: Colors.white.withValues(alpha: 0.25),
+        backgroundImage: MemoryImage(_avatarBytes!),
+      );
+    }
+
+    final avatarSource = _pickAvatarSource(shop, user);
+    if (avatarSource == null) {
+      return _buildAvatarIconFallback(hasShopProfile: hasShopProfile);
+    }
+
+    final resolved = ImageUtils.resolveImageUrl(avatarSource)!;
+    return ClipOval(
+      child: SizedBox(
+        width: 96,
+        height: 96,
+        child: ImageUtils.buildCachedImage(
+          avatarSource,
+          width: 96,
+          height: 96,
+          fit: BoxFit.cover,
+          placeholder: CircleAvatar(
+            radius: 48,
+            backgroundColor: Colors.white.withValues(alpha: 0.25),
+            child: const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation(Colors.white),
+              ),
+            ),
+          ),
+          errorWidget: Builder(
+            builder: (context) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && _failedAvatarUrls.add(resolved)) {
+                  setState(() {});
+                }
+              });
+              return _buildAvatarIconFallback(hasShopProfile: hasShopProfile);
+            },
+          ),
+        ),
       ),
     );
   }
 
   // ─── Gradient Header ─────────────────────────────────────────────
 
-  Widget _buildGradientHeader(AuthService authService) {
+  Widget _buildGradientHeader(AuthService authService, {Shop? shop}) {
     final user = authService.user;
-    final displayName = user?.displayName ?? _nameController.text;
+    final hasShopProfile = shop != null;
+    final displayName = hasShopProfile
+        ? shop.name
+        : (user?.displayName ?? _nameController.text);
     final phoneNumber = user?.phoneNumber ?? _phoneController.text;
+    final hasBanner = hasShopProfile &&
+        shop.bannerUrl != null &&
+        shop.bannerUrl!.isNotEmpty &&
+        ImageUtils.resolveImageUrl(shop.bannerUrl) != null;
+    final canEditCover =
+        hasShopProfile && user != null && !_isUploadingCover;
 
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [UzaColors.primary, Color(0xFFD84315)],
-        ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
-        ),
+    return ClipRRect(
+      borderRadius: const BorderRadius.only(
+        bottomLeft: Radius.circular(32),
+        bottomRight: Radius.circular(32),
       ),
-      padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 12,
-        left: 16,
-        right: 16,
-        bottom: 48,
-      ),
-      child: Column(
-        children: [
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: hasShopProfile ? 240 : 200,
+        ),
+        child: Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: canEditCover ? _showCoverSourceSheet : null,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (_coverBytes != null)
+                      Image.memory(_coverBytes!, fit: BoxFit.cover)
+                    else if (hasBanner)
+                      ImageUtils.buildCachedImage(
+                        shop.bannerUrl,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                      )
+                    else
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [UzaColors.primary, Color(0xFFD84315)],
+                          ),
+                        ),
+                      ),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.15),
+                            Colors.black.withValues(
+                              alpha: hasBanner ? 0.45 : 0.1,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (_isUploadingCover)
+                      Container(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        child: const Center(
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation(Colors.white),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.only(
+                top: MediaQuery.of(context).padding.top + 12,
+                left: 16,
+                right: 16,
+                bottom: 48,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
           // Top row: back + edit/save
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -415,75 +635,119 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     )
                   : const SizedBox(width: 48),
               if (_isEditing && user != null)
-                TextButton.icon(
-                  onPressed: _isSaving ? null : _saveProfile,
-                  icon: _isSaving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation(Colors.white),
-                          ),
-                        )
-                      : const Icon(Icons.check, color: Colors.white, size: 18),
-                  label: Text(
-                    _isSaving ? tr(context, 'saving') : tr(context, 'save'),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hasShopProfile)
+                      IconButton(
+                        icon: const Icon(
+                          Icons.photo_camera_outlined,
+                          color: Colors.white,
+                        ),
+                        tooltip: 'Modifier la couverture',
+                        onPressed: _isUploadingCover
+                            ? null
+                            : _showCoverSourceSheet,
+                      ),
+                    TextButton.icon(
+                      onPressed:
+                          _isSaving ? null : () => _saveProfile(shop: shop),
+                      icon: _isSaving
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                    AlwaysStoppedAnimation(Colors.white),
+                              ),
+                            )
+                          : const Icon(Icons.check, color: Colors.white, size: 18),
+                      label: Text(
+                        _isSaving ? tr(context, 'saving') : tr(context, 'save'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 )
               else if (user != null)
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined, color: Colors.white),
-                  onPressed: () => setState(() => _isEditing = true),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hasShopProfile)
+                      IconButton(
+                        icon: const Icon(
+                          Icons.photo_camera_outlined,
+                          color: Colors.white,
+                        ),
+                        tooltip: 'Modifier la couverture',
+                        onPressed: _isUploadingCover
+                            ? null
+                            : _showCoverSourceSheet,
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, color: Colors.white),
+                      onPressed: () {
+                        if (shop != null) {
+                          _nameController.text = shop.name;
+                        }
+                        setState(() => _isEditing = true);
+                      },
+                    ),
+                  ],
                 )
               else
                 const SizedBox(width: 48),
             ],
           ),
+          if (canEditCover) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: GestureDetector(
+                onTap: _showCoverSourceSheet,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.photo_camera_outlined,
+                          color: Colors.white, size: 16),
+                      SizedBox(width: 6),
+                      Text(
+                        'Modifier la couverture',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 4),
           // Avatar with camera overlay
           GestureDetector(
-            onTap: (_isEditing && user != null && !_isUploadingAvatar)
-                ? _showImageSourceSheet
+            onTap: (user != null && !_isUploadingAvatar)
+                ? _pickAvatarImage
                 : null,
             child: Stack(
               children: [
-                CircleAvatar(
-                  radius: 48,
-                  backgroundColor: Colors.white.withValues(alpha: 0.25),
-                  backgroundImage: _isUploadingAvatar
-                      ? null
-                      : (_avatarBytes != null
-                            ? MemoryImage(_avatarBytes!)
-                            : (_avatarUrl != null
-                                  ? CachedNetworkImageProvider(_avatarUrl!)
-                                  : (user?.photoURL != null
-                                        ? CachedNetworkImageProvider(
-                                            user!.photoURL!,
-                                          )
-                                        : null))),
-                  child: _isUploadingAvatar
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation(Colors.white),
-                          ),
-                        )
-                      : (_avatarBytes == null &&
-                                _avatarUrl == null &&
-                                user?.photoURL == null
-                            ? const Icon(
-                                Icons.person,
-                                size: 48,
-                                color: Colors.white,
-                              )
-                            : null),
+                _buildProfileAvatar(
+                  shop: shop,
+                  user: user,
+                  hasShopProfile: hasShopProfile,
                 ),
                 if (_isEditing && user != null)
                   Positioned(
@@ -520,7 +784,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 textAlign: TextAlign.center,
                 decoration: InputDecoration(
-                  labelText: tr(context, 'full_name'),
+                  labelText: hasShopProfile
+                      ? 'Nom de la boutique'
+                      : tr(context, 'full_name'),
                   labelStyle: TextStyle(
                     color: Colors.white.withValues(alpha: 0.7),
                   ),
@@ -584,7 +850,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 fontSize: 14,
               ),
             ),
-        ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -615,23 +885,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _buildSectionTitle(tr(context, 'my_shops')),
               _buildShopCard(shop!),
               const SizedBox(height: 12),
+              _buildEditShopEntry(shop),
+              const SizedBox(height: 12),
               if (!shop.isVerified) ...[
                 _buildVerifyShopBanner(shop),
                 const SizedBox(height: 12),
               ],
               _buildSellerQuickActions(shop),
               const SizedBox(height: 12),
-              _buildSectionTitle(tr(context, 'my_products')),
               _buildMyProducts(shop),
-              const SizedBox(height: 16),
-              _buildSectionTitle(tr(context, 'my_stories')),
               _buildMyStories(shop),
-              const SizedBox(height: 16),
-              _buildSectionTitle(tr(context, 'my_arrivages')),
               _buildMyArrivages(shop),
-              const SizedBox(height: 16),
             ] else ...[
-              _buildCreateShopCTA(),
+              _buildShopOnboardingSection(),
               const SizedBox(height: 16),
               _buildFollowedShops(),
               const SizedBox(height: 16),
@@ -645,7 +911,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 16),
             _buildSectionTitle(tr(context, 'account')),
             _buildAccountSection(authService),
-            const SizedBox(height: 24),
+            const SizedBox(height: 100),
           ],
         );
       },
@@ -736,10 +1002,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String label,
     required Widget valueWidget,
   }) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -755,7 +1022,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 6),
           valueWidget,
           const SizedBox(height: 2),
-          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
         ],
       ),
     );
@@ -768,10 +1041,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           fontWeight: FontWeight.bold,
           fontSize: 16,
-          color: UzaColors.textPrimary,
+          color: Theme.of(context).colorScheme.onSurface,
         ),
       ),
     );
@@ -784,17 +1057,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       onTap: () => Navigator.push(
         context,
-        SlideUpRoute(page: ShopDashboardScreen(shopId: shop.id)),
+        SlideUpRoute(page: ShopProfileScreen(shop: shop)),
       ),
       child: ListTile(
-        leading: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: UzaColors.primary.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(Icons.store, color: UzaColors.primary),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: ImageUtils.getLogoWidget(shop.logoUrl, size: 44),
         ),
         title: Row(
           children: [
@@ -813,6 +1081,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Icon(Icons.verified, size: 16, color: UzaColors.secondary),
             ],
           ],
+        ),
+        trailing: const Icon(Icons.chevron_right, size: 20),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      ),
+    );
+  }
+
+  Widget _buildEditShopEntry(Shop shop) {
+    return ModernCard(
+      padding: EdgeInsets.zero,
+      onTap: () => Navigator.push(
+        context,
+        SlideUpRoute(page: EditShopScreen(shop: shop)),
+      ),
+      child: ListTile(
+        leading: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: UzaColors.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(
+            Icons.photo_library_outlined,
+            color: UzaColors.primary,
+          ),
+        ),
+        title: const Text(
+          'Modifier ma boutique',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        subtitle: Text(
+          'Logo, couverture, description, réseaux sociaux',
+          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
         ),
         trailing: const Icon(Icons.chevron_right, size: 20),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
@@ -916,7 +1218,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: TapAnimator(
               onTap: () => Navigator.push(
                 context,
-                SlideUpRoute(page: ShopDashboardScreen(shopId: shop.id)),
+                SlideUpRoute(page: ShopProfileScreen(shop: shop)),
               ),
               child: _quickActionChip(
                 icon: Icons.storefront_outlined,
@@ -965,25 +1267,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ─── My Products (Seller) ───────────────────────────────────────
 
   Widget _buildMyProducts(Shop shop) {
-    return ModernCard(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-      child: StreamBuilder<List<Product>>(
-        stream: context.read<ProductRepository>().watchProductsByShop(shop.id),
-        builder: (context, snapshot) {
-          final products = snapshot.data ?? [];
-          if (products.isEmpty) {
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: Text(
-                  tr(context, 'no_products_yet'),
-                  style: TextStyle(color: Colors.grey[500]),
+    return StreamBuilder<List<Product>>(
+      stream: context.read<ProductRepository>().watchProductsByShop(shop.id),
+      builder: (context, snapshot) {
+        final products = snapshot.data ?? [];
+        if (products.isEmpty) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionTitle(tr(context, 'my_products')),
+              ModernCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Text(
+                      tr(context, 'no_products_yet'),
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: () =>
+                          context.read<SyncService>().syncNow(),
+                      icon: const Icon(Icons.refresh),
+                      label: Text(tr(context, 'retry')),
+                    ),
+                  ],
                 ),
               ),
-            );
-          }
-          final display = products.take(4).toList();
-          return SizedBox(
+              const SizedBox(height: 12),
+            ],
+          );
+        }
+        final display = products.take(4).toList();
+        final theme = Theme.of(context);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionTitle(tr(context, 'my_products')),
+            ModernCard(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: SizedBox(
             height: 130,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
@@ -1003,7 +1326,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     width: 110,
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.grey[50],
+                      color: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.5),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
@@ -1090,33 +1414,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 );
               },
             ),
-          );
-        },
-      ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        );
+      },
     );
   }
 
   // ─── My Stories (Seller) ──────────────────────────────────────────
 
   Widget _buildMyStories(Shop shop) {
-    return ModernCard(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-      child: StreamBuilder<List<Story>>(
-        stream: context.read<StoryRepository>().watchStoriesByShop(shop.id),
-        builder: (context, snapshot) {
-          final stories = snapshot.data ?? [];
-          if (stories.isEmpty) {
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: Text(
-                  tr(context, 'no_stories_yet'),
-                  style: TextStyle(color: Colors.grey[500]),
-                ),
-              ),
-            );
-          }
-          return SizedBox(
+    return StreamBuilder<List<Story>>(
+      stream: context.read<StoryRepository>().watchStoriesByShop(shop.id),
+      builder: (context, snapshot) {
+        final stories = snapshot.data ?? [];
+        if (stories.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionTitle(tr(context, 'my_stories')),
+            ModernCard(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: SizedBox(
             height: 100,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
@@ -1125,7 +1446,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               separatorBuilder: (_, __) => const SizedBox(width: 10),
               itemBuilder: (context, index) {
                 final story = stories[index];
-                final decryptedUrl = CryptoUtils.decrypt(story.mediaUrl);
                 return Stack(
                   children: [
                     TapAnimator(
@@ -1158,9 +1478,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(14),
                               child: ImageUtils.buildCachedImage(
-                                decryptedUrl,
-                                fit: BoxFit.contain,
+                                story.mediaUrl,
+                                fit: BoxFit.cover,
                                 placeholder: Container(
+                                  color: Colors.grey[200],
+                                  child: Icon(
+                                    Icons.auto_awesome,
+                                    color: Colors.purple[300],
+                                    size: 24,
+                                  ),
+                                ),
+                                errorWidget: Container(
                                   color: Colors.grey[200],
                                   child: Icon(
                                     Icons.auto_awesome,
@@ -1174,7 +1502,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           const SizedBox(height: 4),
                           Text(
                             story.mediaType == 'video' ? 'Vidéo' : 'Photo',
-                            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.6),
+                            ),
                           ),
                         ],
                       ),
@@ -1202,33 +1536,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 );
               },
             ),
-          );
-        },
-      ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        );
+      },
     );
   }
 
   // ─── My Arrivages (Seller) ──────────────────────────────────────────
 
   Widget _buildMyArrivages(Shop shop) {
-    return ModernCard(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-      child: StreamBuilder<List<Story>>(
-        stream: context.read<StoryRepository>().watchArrivagesByShop(shop.id),
-        builder: (context, snapshot) {
-          final arrivages = snapshot.data ?? [];
-          if (arrivages.isEmpty) {
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: Text(
-                  tr(context, 'no_arrivages_yet'),
-                  style: TextStyle(color: Colors.grey[500]),
-                ),
-              ),
-            );
-          }
-          return SizedBox(
+    return StreamBuilder<List<Story>>(
+      stream: context.read<StoryRepository>().watchArrivagesByShop(shop.id),
+      builder: (context, snapshot) {
+        final arrivages = snapshot.data ?? [];
+        if (arrivages.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionTitle(tr(context, 'my_arrivages')),
+            ModernCard(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: SizedBox(
             height: 100,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
@@ -1237,7 +1568,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               separatorBuilder: (_, __) => const SizedBox(width: 10),
               itemBuilder: (context, index) {
                 final arrivage = arrivages[index];
-                final decryptedUrl = CryptoUtils.decrypt(arrivage.mediaUrl);
                 return Stack(
                   children: [
                     TapAnimator(
@@ -1270,9 +1600,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(14),
                               child: ImageUtils.buildCachedImage(
-                                decryptedUrl,
-                                fit: BoxFit.contain,
+                                arrivage.mediaUrl,
+                                fit: BoxFit.cover,
                                 placeholder: Container(
+                                  color: Colors.grey[200],
+                                  child: Icon(
+                                    Icons.local_shipping,
+                                    color: UzaColors.secondary.withValues(
+                                      alpha: 0.6,
+                                    ),
+                                    size: 24,
+                                  ),
+                                ),
+                                errorWidget: Container(
                                   color: Colors.grey[200],
                                   child: Icon(
                                     Icons.local_shipping,
@@ -1316,58 +1656,59 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 );
               },
             ),
-          );
-        },
-      ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        );
+      },
     );
   }
 
-  // ─── Create Shop CTA (Buyer) ────────────────────────────────────
+  // ─── Shop onboarding (guest + logged-in without shop) ───────────
 
-  Widget _buildCreateShopCTA() {
-    return ModernCard(
-      backgroundColor: UzaColors.secondary.withValues(alpha: 0.08),
-      hasBorder: true,
-      padding: const EdgeInsets.all(20),
-      onTap: () =>
-          Navigator.push(context, SlideUpRoute(page: const CreateShopScreen())),
-      child: Row(
+  Widget _buildShopOnboardingSection() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Column(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: UzaColors.secondary.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(
-              Icons.storefront,
-              color: UzaColors.secondary,
-              size: 28,
+          Icon(Icons.storefront, size: 72, color: Colors.grey[300]),
+          const SizedBox(height: 12),
+          Text(
+            tr(context, 'sell_on_uzaapp'),
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 15, color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.push(
+                context,
+                SlideUpRoute(page: const CreateShopScreen()),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: UzaColors.secondary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(
+                tr(context, 'create_shop'),
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  tr(context, 'create_shop'),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: UzaColors.secondary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  tr(context, 'sell_on_uzaapp'),
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                ),
-              ],
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: () => Navigator.push(
+              context,
+              SlideUpRoute(page: const LoginScreen()),
             ),
+            child: const Text('J\'ai déjà un compte'),
           ),
-          const Icon(Icons.arrow_forward, color: UzaColors.secondary),
         ],
       ),
     );
@@ -1766,38 +2107,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             activeThumbColor: UzaColors.primary,
             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
           ),
-          const Divider(height: 1, indent: 12, endIndent: 12),
-          // Biometric
-          TapAnimator(
-            onTap: () => Navigator.push(
-              context,
-              SlideUpRoute(page: const SettingsScreen()),
-            ),
-            child: ListTile(
-              leading: Icon(Icons.fingerprint, color: Colors.grey[700]),
-              title: Text(
-                tr(context, 'biometric_lock'),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    settings.biometricEnabled
-                        ? tr(context, 'enabled_f')
-                        : tr(context, 'disabled_f'),
-                    style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.chevron_right, size: 20),
-                ],
-              ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-            ),
-          ),
           // Admin section (conditional)
           if (authService.user?.isAdmin == true) ...[
             const Divider(height: 1, indent: 12, endIndent: 12),
@@ -1822,6 +2131,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 title: Text(
                   tr(context, 'promo_validation'),
                   style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                trailing: const Icon(Icons.chevron_right, size: 20),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+            ),
+            const Divider(height: 1, indent: 12, endIndent: 12),
+            TapAnimator(
+              onTap: () => Navigator.push(
+                context,
+                SlideUpRoute(page: const CashManagementScreen()),
+              ),
+              child: ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: UzaColors.secondary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.account_balance_wallet_outlined,
+                    color: UzaColors.secondary,
+                    size: 20,
+                  ),
+                ),
+                title: const Text(
+                  'Gestion Caisse',
+                  style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
                   ),
@@ -2035,7 +2374,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              await context.read<StoryRepository>().deleteStory(story.id);
+              await context.read<StoryRepository>().deleteStoryWithSync(
+                story.id,
+              );
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -2054,58 +2395,128 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // ─── Avatar Image Picker ───────────────────────────────────────
 
-  Future<void> _showImageSourceSheet() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: Text(tr(context, 'gallery')),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: Text(tr(context, 'camera')),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (source != null && mounted) {
-      await _pickAvatarImage(source);
+  Future<void> _showCoverSourceSheet() async {
+    await _pickCoverImage();
+  }
+
+  Future<void> _pickCoverImage() async {
+    try {
+      final bytes = await PickerUtils.pickImage(context);
+      if (bytes == null || !mounted) return;
+
+      setState(() {
+        _coverBytes = bytes;
+        _isUploadingCover = true;
+      });
+
+      final authService = context.read<AuthService>();
+      final userId = authService.user?.uid;
+      if (userId == null) {
+        _showSnackBar('Connectez-vous pour modifier la couverture', isError: true);
+        return;
+      }
+
+      final shop = await context.read<ShopRepository>().getUserShop(userId);
+      if (shop == null || !mounted) {
+        _showSnackBar('Boutique introuvable', isError: true);
+        return;
+      }
+
+      final prepared = await ImagePrepareUtils.prepareForUpload(
+        bytes,
+        prefix: 'shop_banner_${shop.id}',
+      );
+      final uploadedUrl = await context.read<ApiService>().uploadFile(
+        prepared.bytes,
+        prepared.fileName,
+        folder: 'boutiques',
+      );
+
+      if (!mounted) return;
+      if (uploadedUrl != null) {
+        await ProfileShopSync.syncToShop(
+          context,
+          shop: shop,
+          bannerUrl: uploadedUrl,
+        );
+        setState(() => _coverBytes = null);
+        _showSnackBar('Couverture mise à jour');
+      } else {
+        _showSnackBar(tr(context, 'upload_error'), isError: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('${tr(context, 'upload_error')}: $e', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingCover = false);
+      }
     }
   }
 
-  Future<void> _pickAvatarImage(ImageSource source) async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: source, imageQuality: 70);
-    if (pickedFile == null || !mounted) return;
-
-    final bytes = await pickedFile.readAsBytes();
-    if (!mounted) return;
-
-    setState(() {
-      _avatarBytes = bytes;
-      _isUploadingAvatar = true;
-    });
-
+  Future<void> _pickAvatarImage() async {
     try {
-      final fileName = 'avatar_${DateTime.now().millisecondsSinceEpoch}.png';
-      final apiService = context.read<ApiService>();
-      final uploadedUrl = await apiService.uploadFile(bytes, fileName);
+      final bytes = await PickerUtils.pickImage(context);
+      if (bytes == null || !mounted) return;
 
-      if (uploadedUrl != null && mounted) {
-        await context.read<AuthRepository>().updateProfile(
+      setState(() {
+        _avatarBytes = bytes;
+        _isUploadingAvatar = true;
+      });
+
+      final prepared = await ImagePrepareUtils.prepareForUpload(
+        bytes,
+        prefix: 'avatar',
+      );
+      final apiService = context.read<ApiService>();
+      final authService = context.read<AuthService>();
+      final uploadedUrl = await apiService.uploadFile(
+        prepared.bytes,
+        prepared.fileName,
+        folder: 'boutiques',
+      );
+
+      if (!mounted) return;
+      if (uploadedUrl != null) {
+        final previousUrl = _avatarUrl ?? authService.user?.photoURL;
+        if (previousUrl != null) {
+          final resolvedPrevious = ImageUtils.resolveImageUrl(previousUrl);
+          if (resolvedPrevious != null) {
+            try {
+              await UzaImageCache.instance.removeFile(resolvedPrevious);
+            } catch (_) {}
+          }
+        }
+
+        await ProfileShopSync.syncToProfile(
+          context,
           avatarUrl: uploadedUrl,
         );
-        setState(() {
-          _avatarUrl = uploadedUrl;
-          _avatarBytes = null;
-        });
+
+        final userId = authService.user?.uid;
+        if (userId != null) {
+          final shop = await context.read<ShopRepository>().getUserShop(userId);
+          if (shop != null && mounted) {
+            await ProfileShopSync.syncToShop(
+              context,
+              shop: shop,
+              logoUrl: uploadedUrl,
+            );
+          }
+        }
+
+        await ImageUtils.prefetchUrls([uploadedUrl]);
+        if (mounted) {
+          setState(() {
+            _avatarUrl = uploadedUrl;
+            _avatarBytes = null;
+            _failedAvatarUrls.clear();
+          });
+        }
+        _showSnackBar(tr(context, 'profile_updated'));
+      } else {
+        _showSnackBar(tr(context, 'upload_error'), isError: true);
       }
     } catch (e) {
       if (mounted) {
@@ -2124,54 +2535,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            children: [
-              const SizedBox(height: 40),
-              Icon(Icons.storefront, size: 80, color: Colors.grey[300]),
-              const SizedBox(height: 16),
-              Text(
-                'Explorez librement et créez votre boutique quand vous êtes prêt.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    SlideUpRoute(page: const CreateShopScreen()),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: UzaColors.secondary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    'Créer ma boutique',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  SlideUpRoute(page: const LoginScreen()),
-                ),
-                child: const Text('J\'ai déjà un compte'),
-              ),
-            ],
-          ),
-        ),
+        const SizedBox(height: 8),
+        _buildShopOnboardingSection(),
         _buildSectionTitle(tr(context, 'settings')),
         _buildGuestSettingsSection(),
-        const SizedBox(height: 24),
+        const SizedBox(height: 100),
       ],
     );
   }

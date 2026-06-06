@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../screens/story_view_screen.dart';
 import '../../core/res/uza_colors.dart';
-import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
 import '../../data/services/sync_service.dart';
 import '../components/skeletons.dart';
@@ -210,21 +208,19 @@ class _CompactStoryFeed extends StatelessWidget {
   }
 
   Widget _buildStoryPreview(Story story, Shop? shop) {
-    final storyUrl = story.mediaUrl.isNotEmpty
-        ? CryptoUtils.decrypt(story.mediaUrl)
-        : '';
-    final hasRemoteMedia =
-        storyUrl.startsWith('http://') || storyUrl.startsWith('https://');
+    final storyUrl = ImageUtils.resolveImageUrl(
+      story.mediaUrl.isNotEmpty ? story.mediaUrl : null,
+    );
 
-    if (!hasRemoteMedia) {
+    if (storyUrl == null) {
       return _buildShopFallback(shop);
     }
 
-    return CachedNetworkImage(
-      imageUrl: storyUrl,
+    return ImageUtils.buildCachedImage(
+      story.mediaUrl,
       fit: BoxFit.cover,
-      placeholder: (_, __) => _buildShopFallback(shop),
-      errorWidget: (_, __, ___) => _buildShopFallback(shop),
+      placeholder: _buildShopFallback(shop),
+      errorWidget: _buildShopFallback(shop),
     );
   }
 
@@ -555,13 +551,11 @@ class _FullStoryFeed extends StatelessWidget {
   }
 
   Widget _buildStoryCardBackground(Story story, Shop? shop) {
-    final storyUrl = story.mediaUrl.isNotEmpty
-        ? CryptoUtils.decrypt(story.mediaUrl)
-        : '';
-    final hasRemoteMedia =
-        storyUrl.startsWith('http://') || storyUrl.startsWith('https://');
+    final storyUrl = ImageUtils.resolveImageUrl(
+      story.mediaUrl.isNotEmpty ? story.mediaUrl : null,
+    );
 
-    if (!hasRemoteMedia) {
+    if (storyUrl == null) {
       return Container(
         color: Colors.grey[200],
         child: Center(
@@ -574,10 +568,10 @@ class _FullStoryFeed extends StatelessWidget {
       );
     }
 
-    return CachedNetworkImage(
-      imageUrl: storyUrl,
+    return ImageUtils.buildCachedImage(
+      story.mediaUrl,
       fit: BoxFit.cover,
-      placeholder: (_, __) => Container(
+      placeholder: Container(
         color: Colors.grey[200],
         child: Center(
           child: ImageUtils.getLogoWidget(
@@ -587,7 +581,7 @@ class _FullStoryFeed extends StatelessWidget {
           ),
         ),
       ),
-      errorWidget: (_, __, ___) => Container(
+      errorWidget: Container(
         color: Colors.grey[200],
         child: Center(
           child: ImageUtils.getLogoWidget(

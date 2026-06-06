@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/res/uza_colors.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/local/uza_database.dart';
-import '../../core/utils/crypto_utils.dart';
+import '../../core/utils/image_utils.dart';
 
 class AdBanner extends StatefulWidget {
   const AdBanner({super.key});
@@ -68,7 +67,7 @@ class _AdBannerState extends State<AdBanner> {
             currentAds.add({
               'title': shop.name,
               'subtitle': shop.bannerText ?? 'Visitez notre boutique',
-              'image': CryptoUtils.decrypt(shop.bannerUrl ?? ''),
+              'image': shop.bannerUrl ?? '',
               'tag': 'BOUTIQUE',
             });
           }
@@ -137,10 +136,13 @@ class _AdBannerState extends State<AdBanner> {
         child: Stack(
           children: [
             Positioned.fill(
-              child: CachedNetworkImage(
-                imageUrl: ad['image']!,
+              child: ImageUtils.buildCachedImage(
+                ad['image'],
                 fit: BoxFit.cover,
-                errorWidget: (context, url, error) => Container(color: Colors.grey[300], child: const Icon(Icons.error)),
+                errorWidget: Container(
+                  color: Colors.grey[300],
+                  child: const Icon(Icons.error),
+                ),
               ),
             ),
             Positioned.fill(

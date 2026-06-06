@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../core/utils/image_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../data/repositories/cart_repository.dart';
 import '../../../core/res/uza_colors.dart';
@@ -9,6 +9,7 @@ import '../../core/l10n/tr.dart';
 import '../../core/services/auth_service.dart';
 import '../../data/repositories/order_repository.dart';
 import '../../data/repositories/shop_repository.dart';
+import '../components/mobile_money_sheet.dart';
 
 class CartScreen extends StatefulWidget {
   final bool showAppBar;
@@ -91,10 +92,8 @@ class _CartScreenState extends State<CartScreen> {
                           children: [
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: CachedNetworkImage(
-                                imageUrl: item.product.imageUrls
-                                    .split(',')
-                                    .first,
+                              child: ImageUtils.buildCachedFirstProductImage(
+                                item.product.imageUrls,
                                 width: 80,
                                 height: 80,
                                 fit: BoxFit.cover,
@@ -203,7 +202,17 @@ class _CartScreenState extends State<CartScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: () => _showMobileMoney(context, items),
+                      icon: const Icon(Icons.account_balance_wallet_outlined),
+                      label: const Text('Mobile Money'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 48),
+                        foregroundColor: UzaColors.secondary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     ElevatedButton.icon(
                       onPressed: () => _validateOnWhatsApp(context, items),
                       icon: const Icon(Icons.chat_outlined),
@@ -230,6 +239,43 @@ class _CartScreenState extends State<CartScreen> {
           );
         },
       ),
+    );
+  }
+
+  Future<void> _showMobileMoney(
+    BuildContext context,
+    List<CartItemWithProduct> items,
+  ) async {
+    if (items.isEmpty) return;
+    final shopIds = items.map((i) => i.product.shopId).toSet();
+    if (shopIds.length > 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Une seule boutique à la fois pour le paiement.'),
+        ),
+      );
+      return;
+    }
+    final shop = await context.read<ShopRepository>().getShopById(shopIds.first);
+    final phone = shop?.whatsapp?.trim().isNotEmpty == true
+        ? shop!.whatsapp!.trim()
+        : (shop?.phone?.trim() ?? '');
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Numéro vendeur indisponible.')),
+      );
+      return;
+    }
+    final total = items.fold<double>(
+      0,
+      (sum, i) => sum + (i.product.price ?? 0) * i.cartItem.quantity,
+    );
+    await MobileMoneySheet.show(
+      context,
+      amount: total > 0 ? total : items.length * 1000,
+      productNames: items.map((i) => i.product.name).toList(),
+      whatsAppPhone: phone,
+      buyerPhone: context.read<AuthService>().user?.phoneNumber,
     );
   }
 

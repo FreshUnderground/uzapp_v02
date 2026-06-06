@@ -7,6 +7,47 @@ header('Content-Type: application/json');
 // Allowed columns for stories to prevent SQL errors from unknown fields
 $ALLOWED_STORY_COLUMNS = ['id', 'shop_id', 'media_url', 'media_type', 'is_arrivage', 'expires_at', 'created_at'];
 
+/**
+ * Collect media URLs for a story (main + story_media rows).
+ */
+function story_collect_media_urls(PDO $db, $storyId) {
+    $urls = [];
+    $stmt = $db->prepare("SELECT media_url FROM stories WHERE id = ?");
+    $stmt->execute([$storyId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($row && !empty($row['media_url'])) {
+        $urls[] = $row['media_url'];
+    }
+    $mediaStmt = $db->prepare("SELECT media_url FROM story_media WHERE story_id = ?");
+    $mediaStmt->execute([$storyId]);
+    while ($media = $mediaStmt->fetch(PDO::FETCH_ASSOC)) {
+        if (!empty($media['media_url'])) {
+            $urls[] = $media['media_url'];
+        }
+    }
+    return $urls;
+}
+
+/**
+ * Delete uploaded files referenced by story media URLs.
+ */
+function story_delete_media_files(array $urls) {
+    $baseDir = dirname(__DIR__);
+    foreach ($urls as $url) {
+        if (!is_string($url) || $url === '') continue;
+        if (!preg_match('#/uploads/(.+)$#', $url, $matches)) continue;
+        $relative = $matches[1];
+        $path = $baseDir . '/uploads/' . $relative;
+        if (is_file($path)) {
+            @unlink($path);
+        }
+        $thumbPath = preg_replace('#^(.*)/([^/]+)$#', '$1/thumbnails/$2', $path);
+        if (is_string($thumbPath) && is_file($thumbPath)) {
+            @unlink($thumbPath);
+        }
+    }
+}
+
 try {
     $db = DB::getInstance();
 
@@ -30,12 +71,16 @@ try {
             exit;
         }
 
+        $mediaUrls = story_collect_media_urls($db, $id);
+
         // Delete story_media first, then the story
         $mediaStmt = $db->prepare("DELETE FROM story_media WHERE story_id = ?");
         $mediaStmt->execute([$id]);
         
         $storyStmt = $db->prepare("DELETE FROM stories WHERE id = ?");
         $storyStmt->execute([$id]);
+
+        story_delete_media_files($mediaUrls);
         
         error_log("Stories DELETE success: id=$id");
         echo json_encode(['success' => true, 'action' => 'DELETE', 'id' => $id]);
@@ -141,13 +186,13 @@ try {
                 $shop = $shopStmt->fetch();
                 $shopName = $shop ? $shop['name'] : 'Une boutique';
 
-                // Find tokens for users who follow this shop
-                // (followed_shops links user -> shop; we look up fcm_tokens by user_id)
+                // Find tokens for users who follow this shop (shop_follows.user_phone -> users.id -> fcm_tokens)
                 $tokenStmt = $db->prepare("
-                    SELECT ft.token 
+                    SELECT ft.token
                     FROM fcm_tokens ft
-                    INNER JOIN followed_shops fs ON fs.user_id = ft.user_id
-                    WHERE fs.shop_id = ?
+                    INNER JOIN users u ON u.id = ft.user_id
+                    INNER JOIN shop_follows sf ON sf.user_phone = u.phone
+                    WHERE sf.shop_id = ?
                 ");
                 $tokenStmt->execute([$shopId]);
                 $tokens = $tokenStmt->fetchAll(PDO::FETCH_COLUMN);

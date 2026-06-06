@@ -13,12 +13,16 @@ import '../../data/repositories/cart_repository.dart';
 import 'shop_profile_screen.dart';
 import 'cart_screen.dart';
 import '../../core/utils/image_utils.dart';
+import '../../core/utils/phone_utils.dart';
+import '../../core/utils/product_price_utils.dart';
 import '../components/product_card.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import '../components/product_metadata_display.dart';
 import '../../core/utils/category_helper.dart';
 import '../../core/l10n/tr.dart';
+import '../../core/services/api_service.dart';
+import '../components/report_dialog.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final Product product;
@@ -236,7 +240,57 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             MaterialPageRoute(builder: (_) => const CartScreen()),
           ),
         ),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          onSelected: (value) {
+            if (value == 'report') _showReportDialog();
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'report',
+              child: Row(
+                children: [
+                  Icon(Icons.flag_outlined, size: 20, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('Signaler'),
+                ],
+              ),
+            ),
+          ],
+        ),
       ],
+    );
+  }
+
+  void _showReportDialog() {
+    final userPhone = context.read<AuthService>().user?.phoneNumber;
+    if (userPhone == null || userPhone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Connectez-vous pour signaler un produit')),
+      );
+      return;
+    }
+    final serverId = int.tryParse(widget.product.remoteId ?? '') ?? widget.product.id;
+    ReportDialog.show(
+      context,
+      productId: serverId.toString(),
+      productName: widget.product.name,
+      onReport: (reason, details) async {
+        final ok = await context.read<ApiService>().reportProduct(
+          productId: serverId,
+          reason: reason,
+          details: details,
+          reporterPhone: userPhone,
+        );
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              ok ? 'Signalement envoyé. Merci.' : 'Échec du signalement. Réessayez.',
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -606,9 +660,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              'Prix sur demande',
-              style: TextStyle(
+            Text(
+              ProductPriceUtils.displayLabel(widget.product),
+              style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: UzaColors.primary,
@@ -1169,7 +1223,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       color: const Color(0xFF1877F2),
                       onTap: () => context.read<ContactService>().launchSocial(
                         urlString:
-                            'https://www.facebook.com/sharer/sharer.php?u=${Uri.encodeComponent('https://uzaapp.com/#/product/${widget.product.id}')}',
+                            'https://www.facebook.com/sharer/sharer.php?u=${Uri.encodeComponent('https://uzaapp.com/product/${widget.product.id}')}',
                         entityType: 'product',
                         entityId: widget.product.id,
                       ),
@@ -1185,7 +1239,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         Clipboard.setData(
                           ClipboardData(
                             text:
-                                'https://uzaapp.com/#/product/${widget.product.id}',
+                                'https://uzaapp.com/product/${widget.product.id}',
                           ),
                         );
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1485,7 +1539,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     FontAwesomeIcons.whatsapp,
                     color: Colors.green,
                   ),
-                  title: const Text('WhatsApp'),
+                  title: Text(
+                    'WhatsApp (${PhoneUtils.formatForDisplay(effectivePhone)})',
+                  ),
                   onTap: () {
                     _onContactClicked('whatsapp');
                     Navigator.pop(context);
@@ -1502,6 +1558,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       productUrl:
                           "https://uzaapp.com/product/${widget.product.id}",
                       price: widget.product.price,
+                      hidePrice: widget.product.hidePrice,
                       condition: widget.product.condition,
                     );
                   },

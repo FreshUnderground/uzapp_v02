@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/repositories/cart_repository.dart';
@@ -19,7 +20,6 @@ import 'story_feed_screen.dart';
 import 'discover_feed_screen.dart';
 import 'arrivages_screen.dart';
 import '../../core/services/auth_service.dart';
-import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
 import 'create_shop_screen.dart';
 import '../components/responsive_layout.dart';
@@ -40,7 +40,12 @@ import '../components/pwa_install_banner.dart';
 
 class HomeScreen extends StatefulWidget {
   final int initialIndex;
-  const HomeScreen({super.key, this.initialIndex = 0});
+  final StatefulNavigationShell? navigationShell;
+  const HomeScreen({
+    super.key,
+    this.initialIndex = 0,
+    this.navigationShell,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -58,7 +63,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (kIsWeb) {
       final shortcut = Uri.base.queryParameters['shortcut'];
-      if (shortcut == 'shops') _selectedIndex = 2;
+      if (shortcut == 'shops') {
+        _selectedIndex = 2;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          widget.navigationShell?.goBranch(2);
+        });
+      }
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -93,10 +103,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    final shell = widget.navigationShell;
+    if (shell != null) {
+      shell.goBranch(index, initialLocation: index == shell.currentIndex);
+    } else {
+      setState(() => _selectedIndex = index);
+    }
   }
+
+  int get _activeIndex =>
+      widget.navigationShell?.currentIndex ?? _selectedIndex;
 
   List<Widget> _getActions() {
     List<Widget> actions = [];
@@ -211,7 +227,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 4-tab layout: Accueil, Explorer, Boutiques, Profil
     final List<Widget> pages = [
       _HomeContent(onOpenStory: _openOverlayStory),
       const DiscoverFeedScreen(),
@@ -230,6 +245,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: AppBar(
                 backgroundColor: Colors.white.withValues(alpha: 0.8),
                 elevation: 0,
+                automaticallyImplyLeading: false,
                 leading: Padding(
                   padding: const EdgeInsets.all(8.0),
                   child: Image.asset('assets/logo.png', fit: BoxFit.contain),
@@ -276,7 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         bottomNavigationBar: AnimatedBottomNav(
-          currentIndex: _selectedIndex,
+          currentIndex: _activeIndex,
           onTap: _onItemTapped,
         ),
       ),
@@ -285,7 +301,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             NavigationRail(
               extended: true,
-              selectedIndex: _selectedIndex,
+              selectedIndex: _activeIndex,
               onDestinationSelected: _onItemTapped,
               leading: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 32),
@@ -324,7 +340,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                       child: AppBar(
                         elevation: 0,
+                        automaticallyImplyLeading: false,
                         backgroundColor: Colors.white.withValues(alpha: 0.8),
+                        leading: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Image.asset(
+                            'assets/logo.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
                         actions: _getActions(),
                       ),
                     ),
@@ -380,7 +404,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildBody(List<Widget> pages) {
     return Stack(
       children: [
-        IndexedStack(index: _selectedIndex, children: pages),
+        IndexedStack(index: _activeIndex, children: pages),
         if (_overlayStories != null)
           Positioned.fill(
             bottom: 0,
@@ -399,7 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_overlayStories != null) return null;
 
     // Show FAB only on Accueil (0) tab
-    if (_selectedIndex != 0) return null;
+    if (_activeIndex != 0) return null;
 
     final authService = context.watch<AuthService>();
     final shopRepo = context.read<ShopRepository>();
@@ -414,7 +438,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final hasShop = snapshot.hasData && snapshot.data != null;
 
         // Home Tab (0)
-        if (_selectedIndex == 0) {
+        if (_activeIndex == 0) {
           if (!hasShop) {
             return FloatingActionButton(
               onPressed: () => Navigator.push(
@@ -649,23 +673,6 @@ class _HomeContentState extends State<_HomeContent> {
       await syncService.ensureCategoriesSynced();
       // Then do a full sync
       await syncService.syncNow();
-
-      // Show success message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Sync completed - Categories updated'),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
     } catch (e) {
       debugPrint('Error during refresh sync: $e');
       if (mounted) {
@@ -722,7 +729,7 @@ class _HomeContentState extends State<_HomeContent> {
     final cardWidth = screenWidth * 0.65;
     final responsiveCardWidth = cardWidth.clamp(180.0, 250.0);
     final storyHeight = MediaQuery.of(context).size.height * 0.12;
-    final responsiveStoryHeight = storyHeight.clamp(110.0, 140.0);
+    final responsiveStoryHeight = storyHeight.clamp(95.0, 115.0);
     final hPad = screenWidth < 360 ? 12.0 : 16.0;
     final hPadWide = screenWidth < 360 ? 12.0 : 20.0;
 
@@ -741,6 +748,7 @@ class _HomeContentState extends State<_HomeContent> {
                 SliverAppBar(
                   floating: true,
                   pinned: false,
+                  automaticallyImplyLeading: false,
                   backgroundColor: Colors.transparent,
                   elevation: 0,
                   toolbarHeight: 70,
@@ -809,16 +817,7 @@ class _HomeContentState extends State<_HomeContent> {
                   ),
                 ),
 
-                // 2. Category Shortcuts
-                SliverToBoxAdapter(child: _buildCategoryShortcuts()),
-
-                // 3. Stories
-                SliverToBoxAdapter(
-                  child: _buildSectionHeader(
-                    tr(context, 'my_stories'),
-                    topPadding: 12,
-                  ),
-                ),
+                // 2. Stories
                 SliverToBoxAdapter(
                   child: SizedBox(
                     height: responsiveStoryHeight,
@@ -856,6 +855,8 @@ class _HomeContentState extends State<_HomeContent> {
                 SliverToBoxAdapter(
                   child: _buildSectionHeader(
                     tr(context, 'new_arrivals_header'),
+                    topPadding: 4,
+                    bottomPadding: 4,
                     onAction: () => Navigator.push(
                       context,
                       SlideUpRoute(page: const ArrivagesScreen()),
@@ -926,10 +927,8 @@ class _HomeContentState extends State<_HomeContent> {
                                     children: [
                                       ImageUtils.buildCachedImage(
                                         firstStory.mediaUrl.isNotEmpty
-                                            ? CryptoUtils.decrypt(
-                                                firstStory.mediaUrl,
-                                              )
-                                            : '',
+                                            ? firstStory.mediaUrl
+                                            : null,
                                         fit: BoxFit.contain,
                                       ),
                                       Container(
@@ -1160,238 +1159,10 @@ class _HomeContentState extends State<_HomeContent> {
     );
   }
 
-  Widget _buildCategoryShortcuts() {
-    final hPad = MediaQuery.of(context).size.width < 360 ? 12.0 : 16.0;
-
-    late final StreamBuilder<List<Category>> categoryStream;
-    try {
-      final productRepo = context.watch<ProductRepository>();
-      categoryStream = StreamBuilder<List<Category>>(
-        stream: productRepo.watchRootCategories(),
-        builder: (context, snapshot) {
-          final categories = snapshot.data ?? [];
-          debugPrint(
-            'Root categories: ${categories.length}, connectionState=${snapshot.connectionState}',
-          );
-          // Debug: print category details
-          if (categories.isNotEmpty) {
-            for (var i = 0; i < categories.length && i < 3; i++) {
-              debugPrint(
-                '  Category[$i]: id=${categories[i].id}, name=${categories[i].name}, level=${categories[i].level}',
-              );
-            }
-          }
-          // Show up to 6 root categories to include all categories
-          final displayCategories = categories.take(6).toList();
-
-          if (displayCategories.isEmpty) {
-            // Check if still loading or truly empty
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              // Show skeleton placeholders while loading
-              return Padding(
-                padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: List.generate(5, (_) {
-                    return Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: Colors.grey[200],
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Container(
-                            width: 40,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              color: Colors.grey[200],
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                ),
-              );
-            } else {
-              // Categories are empty - show sync button
-              return Padding(
-                padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
-                child: Column(
-                  children: [
-                    Text(
-                      'No categories loaded',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                    ),
-                    SizedBox(height: 8),
-                    ElevatedButton.icon(
-                      onPressed: () async {
-                        try {
-                          final syncService = context.read<SyncService>();
-                          await syncService.ensureCategoriesSynced();
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Categories synced successfully'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Failed to sync: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        }
-                      },
-                      icon: Icon(Icons.sync, size: 16),
-                      label: Text('Sync Categories'),
-                      style: ElevatedButton.styleFrom(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-          }
-
-          return Padding(
-            padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: displayCategories.map((category) {
-                final icon = _getCategoryIcon(category.name);
-                return Expanded(
-                  child: TapAnimator(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        FadeThroughRoute(
-                          page: SearchScreen(
-                            showAppBar: true,
-                            initialCategoryId: category.id,
-                            initialCategoryName: category.name,
-                          ),
-                        ),
-                      );
-                    },
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: UzaColors.secondary.withValues(alpha: 0.1),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            icon,
-                            color: UzaColors.secondary,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          category.name,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF424242),
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          );
-        },
-      );
-    } catch (e) {
-      debugPrint('Error building category shortcuts: $e');
-      // Fallback: show empty space
-      return const SizedBox.shrink();
-    }
-
-    return categoryStream;
-  }
-
-  /// Map category names to appropriate icons, matching the logic
-  /// used in SearchScreen._getCategoryIcon for consistency.
-  IconData _getCategoryIcon(String categoryName) {
-    final name = categoryName.toLowerCase();
-    if (name.contains('téléphone') || name.contains('phone')) {
-      return Icons.phone_android;
-    }
-    if (name.contains('ordinateur') ||
-        name.contains('pc') ||
-        name.contains('laptop') ||
-        name.contains('ordi')) {
-      return Icons.laptop;
-    }
-    if (name.contains('accessoire')) {
-      return Icons.headphones;
-    }
-    if (name.contains('gadget') || name.contains('électronique')) {
-      return Icons.devices_other;
-    }
-    if (name.contains('vêtement') ||
-        name.contains('fashion') ||
-        name.contains('habit')) {
-      return Icons.checkroom;
-    }
-    if (name.contains('sac') || name.contains('bijou')) {
-      return Icons.shopping_bag;
-    }
-    if (name.contains('maison') ||
-        name.contains('home') ||
-        name.contains('déco')) {
-      return Icons.home;
-    }
-    if (name.contains('aliment') ||
-        name.contains('food') ||
-        name.contains('resto') ||
-        name.contains('restau')) {
-      return Icons.fastfood;
-    }
-    if (name.contains('beauté') || name.contains('cosmétique')) {
-      return Icons.face;
-    }
-    if (name.contains('sport')) {
-      return Icons.sports_soccer;
-    }
-    if (name.contains('tv') || name.contains('télé')) {
-      return Icons.tv;
-    }
-    if (name.contains('auto') || name.contains('vehicul')) {
-      return Icons.directions_car;
-    }
-    return Icons.category;
-  }
-
   Widget _buildSectionHeader(
     String title, {
     double topPadding = 20,
+    double bottomPadding = 8,
     VoidCallback? onAction,
   }) {
     return Padding(
@@ -1399,7 +1170,7 @@ class _HomeContentState extends State<_HomeContent> {
         MediaQuery.of(context).size.width < 360 ? 12.0 : 16.0,
         topPadding,
         MediaQuery.of(context).size.width < 360 ? 12.0 : 16.0,
-        8,
+        bottomPadding,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,

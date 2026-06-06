@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:drift/drift.dart' as drift;
-import 'package:image_picker/image_picker.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 
@@ -13,7 +12,9 @@ import '../components/tap_animator.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/auth_service.dart';
-import '../../core/utils/image_compress_utils.dart';
+import '../../core/utils/picker_utils.dart';
+import '../../core/utils/image_prepare_utils.dart';
+import '../../core/utils/phone_utils.dart';
 import '../../core/l10n/tr.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/shop_repository.dart';
@@ -117,6 +118,8 @@ class _CreateShopScreenState extends State<CreateShopScreen>
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _whatsappController = TextEditingController();
+  String _phoneComplete = '';
+  String _whatsappComplete = '';
   final _descriptionController = TextEditingController();
   final _facebookController = TextEditingController();
   final _instagramController = TextEditingController();
@@ -190,19 +193,28 @@ class _CreateShopScreenState extends State<CreateShopScreen>
     super.dispose();
   }
 
+  String _resolvedPhone() => PhoneUtils.normalizeDrc(
+    _phoneComplete.isNotEmpty
+        ? _phoneComplete
+        : _phoneController.text.trim(),
+  );
+
+  String _resolvedWhatsapp() {
+    final whatsapp = PhoneUtils.normalizeDrc(
+      _whatsappComplete.isNotEmpty
+          ? _whatsappComplete
+          : _whatsappController.text.trim(),
+    );
+    return whatsapp.isNotEmpty ? whatsapp : _resolvedPhone();
+  }
+
   // ─── Image Picker ────────────────────────────────────────────────
 
-  Future<void> _pickLogo(ImageSource source) async {
+  Future<void> _pickLogo(PickerImageSource source) async {
     Navigator.pop(context);
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: source, imageQuality: 70);
-
-    if (pickedFile != null) {
-      final bytes = await pickedFile.readAsBytes();
-      final compressed = await ImageCompressUtils.compressImage(bytes);
-      setState(() {
-        _logoPreviewBytes = compressed ?? bytes;
-      });
+    final bytes = await PickerUtils.pickImage(context, source: source);
+    if (bytes != null && mounted) {
+      setState(() => _logoPreviewBytes = bytes);
     }
   }
 
@@ -230,7 +242,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
               ListTile(
                 leading: const Icon(Icons.camera_alt, color: UzaColors.primary),
                 title: const Text('Prendre une photo'),
-                onTap: () => _pickLogo(ImageSource.camera),
+                onTap: () => _pickLogo(PickerImageSource.camera),
               ),
               ListTile(
                 leading: const Icon(
@@ -238,7 +250,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                   color: UzaColors.primary,
                 ),
                 title: const Text('Choisir dans la galerie'),
-                onTap: () => _pickLogo(ImageSource.gallery),
+                onTap: () => _pickLogo(PickerImageSource.gallery),
               ),
             ],
           ),
@@ -256,8 +268,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         if (_selectedCity == null || _selectedCommune == null) return false;
         return true;
       case 1:
-        final phone = _phoneController.text.trim();
-        if (phone.isEmpty || phone.length < 9) return false;
+        if (!PhoneUtils.isValidDrc(_resolvedPhone())) return false;
         return true;
       case 2:
         return _otpVerified || _otpSkipped;
@@ -364,7 +375,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
   // ─── OTP Logic ───────────────────────────────────────────────────
 
   Future<void> _sendOtp() async {
-    final phone = _phoneController.text.trim();
+    final phone = _resolvedPhone();
     if (phone.isEmpty) return;
 
     setState(() {
@@ -517,7 +528,8 @@ class _CreateShopScreenState extends State<CreateShopScreen>
       final apiService = context.read<ApiService>();
       final shopRepo = context.read<ShopRepository>();
       final syncService = context.read<SyncService>();
-      final phone = _phoneController.text.trim();
+      final phone = _resolvedPhone();
+      final whatsapp = _resolvedWhatsapp();
 
       // 1. Check for existing shop LOCALLY first (prevent duplicate)
       final allShops = await shopRepo.watchAllShops().first;
@@ -573,8 +585,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
       // 3. Upload logo if any
       String finalLogoUrl = _logoUrl ?? '';
       if (_logoPreviewBytes != null) {
-        final fileName =
-            "shop_logo_${DateTime.now().millisecondsSinceEpoch}.png";
+        final fileName = ImagePrepareUtils.buildUploadFileName(
+          prefix: 'shop_logo',
+        );
         final uploadedUrl = await apiService.uploadFile(
           _logoPreviewBytes!,
           fileName,
@@ -625,7 +638,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         type: _selectedType,
         ownerId: drift.Value(userId),
         phone: drift.Value(phone),
-        whatsapp: drift.Value(_whatsappController.text.trim()),
+        whatsapp: drift.Value(whatsapp.isNotEmpty ? whatsapp : phone),
         facebookUrl: drift.Value(_facebookController.text.trim()),
         instagramUrl: drift.Value(_instagramController.text.trim()),
         tiktokUrl: drift.Value(_tiktokController.text.trim()),
@@ -661,7 +674,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         'type': _selectedType.name,
         'owner_id': userId,
         'phone': phone,
-        'whatsapp': _whatsappController.text.trim(),
+        'whatsapp': whatsapp.isNotEmpty ? whatsapp : phone,
         'facebook_url': _facebookController.text.trim(),
         'instagram_url': _instagramController.text.trim(),
         'tiktok_url': _tiktokController.text.trim(),
@@ -1152,7 +1165,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             disableLengthCheck: false,
             invalidNumberMessage: 'Numéro invalide',
             controller: _phoneController,
-            onChanged: (phone) {},
+            onChanged: (phone) {
+              _phoneComplete = phone.completeNumber;
+            },
             validator: (phone) {
               if (phone == null || phone.number.length < 9) {
                 return 'Entrez un numéro valide';
@@ -1198,7 +1213,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             disableLengthCheck: false,
             invalidNumberMessage: 'Numéro invalide',
             controller: _whatsappController,
-            onChanged: (phone) {},
+            onChanged: (phone) {
+              _whatsappComplete = phone.completeNumber;
+            },
           ),
         ],
       ),

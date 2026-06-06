@@ -2,8 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/res/uza_colors.dart';
@@ -16,6 +17,8 @@ import 'core/services/contact_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/services/settings_service.dart';
+import 'core/services/deep_link_service.dart';
+import 'core/services/fcm_service.dart';
 import 'core/theme/uza_theme.dart';
 import 'core/l10n/tr.dart';
 import 'data/local/uza_database.dart';
@@ -26,14 +29,19 @@ import 'data/repositories/order_repository.dart';
 import 'data/repositories/product_repository.dart';
 import 'data/repositories/shop_repository.dart';
 import 'data/repositories/story_repository.dart';
+import 'data/repositories/cash_repository.dart';
 import 'data/services/sync_service.dart';
 import 'ui/components/error_boundary.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/product_detail_screen.dart';
 import 'ui/screens/shop_profile_screen.dart';
+import 'ui/screens/story_view_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (kIsWeb) {
+    usePathUrlStrategy();
+  }
 
   // Set up global error handler
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -60,168 +68,6 @@ void main() async {
   runApp(const UzaApp());
 }
 
-class BiometricGuard extends StatefulWidget {
-  final Widget child;
-
-  const BiometricGuard({super.key, required this.child});
-
-  @override
-  State<BiometricGuard> createState() => _BiometricGuardState();
-}
-
-class _BiometricGuardState extends State<BiometricGuard> {
-  bool _isAuthenticated = false;
-  bool _isChecking = false;
-  bool _authAttempted = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _authenticate();
-    });
-  }
-
-  Future<void> _authenticate() async {
-    if (_isChecking) return;
-    setState(() => _isChecking = true);
-
-    final localAuth = LocalAuthentication();
-    try {
-      final didAuthenticate = await localAuth.authenticate(
-        localizedReason: 'Déverrouillez UzaApp',
-        options: const AuthenticationOptions(
-          stickyAuth: true,
-          biometricOnly: false,
-        ),
-      );
-
-      if (didAuthenticate && mounted) {
-        setState(() => _isAuthenticated = true);
-      }
-    } catch (e) {
-      debugPrint('Biometric auth error: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isChecking = false;
-          _authAttempted = true;
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final settings = context.watch<SettingsService>();
-
-    // If biometric is disabled or already authenticated, show the app
-    if (!settings.biometricEnabled || _isAuthenticated) {
-      return widget.child;
-    }
-
-    // Show lock screen
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // App Logo
-                Image.asset(
-                  'assets/logo.png',
-                  width: 120,
-                  height: 120,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        color: UzaColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: const Icon(
-                        Icons.lock_outline,
-                        size: 56,
-                        color: UzaColors.primary,
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 32),
-                const Text(
-                  'UzaApp',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: UzaColors.primary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  tr(context, 'app_locked'),
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: UzaColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 48),
-                SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: ElevatedButton.icon(
-                    onPressed: _isChecking ? null : _authenticate,
-                    icon: _isChecking
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.fingerprint, size: 24),
-                    label: Text(
-                      _isChecking
-                          ? tr(context, 'verifying')
-                          : tr(context, 'unlock'),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: UzaColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 0,
-                    ),
-                  ),
-                ),
-                if (_authAttempted && !_isAuthenticated) ...[
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: _isChecking ? null : _authenticate,
-                    child: Text(
-                      tr(context, 'retry'),
-                      style: const TextStyle(color: UzaColors.textSecondary),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class UzaApp extends StatefulWidget {
@@ -233,6 +79,14 @@ class UzaApp extends StatefulWidget {
 
 class _UzaAppState extends State<UzaApp> {
   late Future<void> _initializationFuture;
+  GoRouter? _router;
+  DeepLinkService? _deepLinkService;
+
+  @override
+  void dispose() {
+    _deepLinkService?.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -286,6 +140,8 @@ class _UzaAppState extends State<UzaApp> {
       final messageRepository = MessageRepository(database);
       final contactService = ContactService(database);
       final settingsService = SettingsService(database);
+      final cashRepository = CashRepository(apiService);
+      final fcmService = FcmService(apiService);
 
       // Connect cross-references
       authService.syncService = syncService;
@@ -308,7 +164,13 @@ class _UzaAppState extends State<UzaApp> {
         messageRepository: messageRepository,
         contactService: contactService,
         settingsService: settingsService,
+        cashRepository: cashRepository,
+        fcmService: fcmService,
       );
+
+      if (!kIsWeb) {
+        fcmService.registerToken(userPhone: authService.user?.phoneNumber);
+      }
 
       // Start sync AFTER a short delay to prioritize UI rendering
       await Future.delayed(const Duration(milliseconds: 500));
@@ -316,6 +178,7 @@ class _UzaAppState extends State<UzaApp> {
 
       // Public catalog sync — no AuthService.user required
       await syncService.checkFirstSync();
+      unawaited(syncService.warmMediaCache());
       await connectivityService.initialize();
       syncService.bindConnectivity(connectivityService);
       syncService.startAutoSync();
@@ -339,6 +202,7 @@ class _UzaAppState extends State<UzaApp> {
             notificationService,
             shopRepository,
             productRepository,
+            storyRepository,
           );
         } catch (e) {
           debugPrint('Error initializing notifications: $e');
@@ -356,6 +220,7 @@ class _UzaAppState extends State<UzaApp> {
     NotificationService notifService,
     ShopRepository shopRepo,
     ProductRepository productRepo,
+    StoryRepository storyRepo,
   ) {
     notifService.addListener(() {
       final link = notifService.consumePendingDeepLink();
@@ -376,8 +241,7 @@ class _UzaAppState extends State<UzaApp> {
           _navigateToProduct(navigator, productRepo, id);
           break;
         case 'arrivage':
-          // Arrivages are stories; for now navigate to the shop that posted it
-          _navigateToShop(navigator, shopRepo, id);
+          _navigateToArrivage(navigator, storyRepo, shopRepo, id);
           break;
       }
     });
@@ -387,7 +251,7 @@ class _UzaAppState extends State<UzaApp> {
     navigator.push(
       MaterialPageRoute(
         builder: (_) => FutureBuilder<Shop?>(
-          future: repo.getShopById(id),
+          future: repo.resolveShopById(id),
           builder: (_, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -406,6 +270,57 @@ class _UzaAppState extends State<UzaApp> {
     );
   }
 
+  void _navigateToArrivage(
+    NavigatorState navigator,
+    StoryRepository storyRepo,
+    ShopRepository shopRepo,
+    int storyId,
+  ) {
+    navigator.push(
+      MaterialPageRoute(
+        builder: (_) => FutureBuilder<Story?>(
+          future: storyRepo.findStoryByAnyId(storyId),
+          builder: (_, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final story = snapshot.data;
+            if (story == null) {
+              return Scaffold(
+                body: Center(child: Text(tr(context, 'no_arrivals'))),
+              );
+            }
+            return FutureBuilder<List<dynamic>>(
+              future: Future.wait([
+                storyRepo.getActiveArrivagesByShop(story.shopId),
+                shopRepo.getShopById(story.shopId),
+              ]),
+              builder: (_, dataSnapshot) {
+                if (dataSnapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                final arrivages =
+                    dataSnapshot.data?[0] as List<Story>? ?? [story];
+                final shop = dataSnapshot.data?[1] as Shop?;
+                final index = arrivages.indexWhere((s) => s.id == story.id);
+                final shopLookup = shop != null ? {shop.id: shop} : <int, Shop>{};
+                return StoryViewScreen(
+                  stories: arrivages,
+                  initialIndex: index >= 0 ? index : 0,
+                  shopLookup: shopLookup,
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   void _navigateToProduct(
     NavigatorState navigator,
     ProductRepository repo,
@@ -414,7 +329,7 @@ class _UzaAppState extends State<UzaApp> {
     navigator.push(
       MaterialPageRoute(
         builder: (_) => FutureBuilder<Product?>(
-          future: repo.getProductById(id),
+          future: repo.resolveProductById(id),
           builder: (_, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -443,8 +358,6 @@ class _UzaAppState extends State<UzaApp> {
           return _buildSplashScreen();
         }
 
-        // Show main app with all services ready
-        // Skip BiometricGuard for faster startup - go directly to HomeScreen
         return _buildMainApp();
       },
     );
@@ -554,33 +467,22 @@ class _UzaAppState extends State<UzaApp> {
         ChangeNotifierProvider<SettingsService>(
           create: (context) => _services!.settingsService,
         ),
+        Provider<CashRepository>.value(value: _services!.cashRepository),
       ],
       child: ErrorBoundary(
         child: Consumer<SettingsService>(
           builder: (context, settings, child) {
-            final router = AppRouter.create(_rootNavigatorKey);
+            _router ??= AppRouter.create(_rootNavigatorKey);
+            _deepLinkService ??= DeepLinkService(_router!)..init();
             return MaterialApp.router(
               debugShowCheckedModeBanner: false,
               title: 'Uzaapp',
               theme: UzaTheme.lightTheme,
-              darkTheme: ThemeData.dark().copyWith(
-                primaryColor: UzaColors.primary,
-                colorScheme: ColorScheme.fromSeed(
-                  seedColor: UzaColors.primary,
-                  brightness: Brightness.dark,
-                ),
-              ),
+              darkTheme: UzaTheme.darkTheme,
               themeMode: settings.isDarkMode ? ThemeMode.dark : ThemeMode.light,
               locale: Locale(settings.language),
-              routerConfig: router,
-              builder: (context, child) {
-                if (settings.biometricEnabled) {
-                  return BiometricGuard(
-                    child: child ?? const HomeScreen(),
-                  );
-                }
-                return child ?? const HomeScreen();
-              },
+              routerConfig: _router!,
+              builder: (context, child) => child ?? const HomeScreen(),
             );
           },
         ),
@@ -606,6 +508,8 @@ class _UzaServices {
   final MessageRepository messageRepository;
   final ContactService contactService;
   final SettingsService settingsService;
+  final CashRepository cashRepository;
+  final FcmService fcmService;
 
   _UzaServices({
     required this.database,
@@ -623,5 +527,7 @@ class _UzaServices {
     required this.messageRepository,
     required this.contactService,
     required this.settingsService,
+    required this.cashRepository,
+    required this.fcmService,
   });
 }

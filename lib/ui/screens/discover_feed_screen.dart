@@ -49,7 +49,10 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
     if (products.isNotEmpty || mediaItems.isNotEmpty) return;
     if (!syncService.isOnline || syncService.isSyncing) return;
     _requestedGuestSync = true;
-    syncService.syncNow();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      syncService.syncNow();
+    });
   }
 
   @override
@@ -308,7 +311,7 @@ class _ProductPageState extends State<_ProductPage> {
         },
         itemCount: images.length,
         itemBuilder: (context, index) {
-          return ImageUtils.buildCachedImage(images[index], fit: BoxFit.cover);
+          return ImageUtils.buildFullscreenContainedImage(images[index]);
         },
       );
     } else {
@@ -456,6 +459,7 @@ class _ProductPageState extends State<_ProductPage> {
                               productUrl:
                                   'https://uzaapp.com/product/${widget.product.id}',
                               price: widget.product.price,
+                              hidePrice: widget.product.hidePrice,
                               condition: widget.product.condition,
                             );
                           }
@@ -750,15 +754,13 @@ class _ArrivagePageState extends State<_ArrivagePage> {
   }
 
   Widget _buildMediaContent(ArrivageMediaItem item) {
-    final decryptedUrl = item.mediaUrl.isNotEmpty
-        ? CryptoUtils.decrypt(item.mediaUrl)
-        : '';
+    final mediaUrl = item.mediaUrl.isNotEmpty ? item.mediaUrl : null;
+    final resolvedUrl = ImageUtils.resolveImageUrl(mediaUrl) ?? '';
 
-    if (item.mediaType == 'video' && decryptedUrl.isNotEmpty) {
-      return ShopVideoPlayer(videoUrl: decryptedUrl, isBackground: true);
-    } else {
-      return ImageUtils.buildCachedImage(decryptedUrl, fit: BoxFit.cover);
+    if (item.mediaType == 'video' && resolvedUrl.isNotEmpty) {
+      return ShopVideoPlayer(videoUrl: resolvedUrl, isBackground: true);
     }
+    return ImageUtils.buildFullscreenContainedImage(mediaUrl);
   }
 
   Widget _buildMediaIndicator(int index) {

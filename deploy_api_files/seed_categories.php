@@ -53,11 +53,12 @@ try {
     // LEVEL 0 – Root categories
     // ================================================================
     $roots = [
-        ['name' => 'Phones & Tablets',     'icon' => 'smartphone',     'sort' => 1],
-        ['name' => 'Informatique',         'icon' => 'computer',       'sort' => 2],
-        ['name' => 'Gadgets',              'icon' => 'devices_other',  'sort' => 3],
-        ['name' => 'Vehicules',            'icon' => 'directions_car', 'sort' => 4],
-        ['name' => 'Restaurant',           'icon' => 'restaurant',     'sort' => 5],
+        ['name' => 'Phones',     'icon' => 'smartphone',     'sort' => 1],
+        ['name' => 'Ordi.',      'icon' => 'computer',       'sort' => 2],
+        ['name' => 'Gadgets',    'icon' => 'devices_other',  'sort' => 3],
+        ['name' => 'Restau.',    'icon' => 'restaurant',     'sort' => 4],
+        ['name' => 'Style',      'icon' => 'shopping_bag',   'sort' => 5],
+        ['name' => 'Auto',       'icon' => 'directions_car', 'sort' => 6],
     ];
 
     $rootIds = [];
@@ -69,12 +70,12 @@ try {
     // LEVEL 1 – Subcategories
     // ================================================================
     $subs = [
-        'Phones & Tablets' => [
+        'Phones' => [
             ['name' => 'Phones',      'sort' => 1],
             ['name' => 'Tablets',     'sort' => 2],
             ['name' => 'Accessoires', 'sort' => 3],
         ],
-        'Informatique' => [
+        'Ordi.' => [
             ['name' => 'Laptops',     'sort' => 1],
             ['name' => 'Desktops',    'sort' => 2],
             ['name' => 'Imprimantes', 'sort' => 3],
@@ -91,15 +92,22 @@ try {
             ['name' => 'Power Banks',        'sort' => 6],
             ['name' => 'Maison Intelligente', 'sort' => 7],
         ],
-        'Vehicules' => [
+        'Auto' => [
             ['name' => 'En Vente',                'sort' => 1],
             ['name' => 'Location avec Chauffeur',  'sort' => 2],
             ['name' => 'Location sans Chauffeur',  'sort' => 3],
         ],
-        'Restaurant' => [
+        'Restau.' => [
             ['name' => 'Take Away', 'sort' => 1],
             ['name' => 'Fast Food', 'sort' => 2],
             ['name' => 'Livraison', 'sort' => 3],
+        ],
+        'Style' => [
+            ['name' => 'Homme', 'sort' => 1],
+            ['name' => 'Femme', 'sort' => 2],
+            ['name' => 'Enfant', 'sort' => 3],
+            ['name' => 'Chaussures', 'sort' => 4],
+            ['name' => 'Accessoires Mode', 'sort' => 5],
         ],
     ];
 
@@ -134,6 +142,22 @@ try {
         ],
         'En Vente' => [
             'Voitures', 'Motos', 'Camions', 'Bus & Minibus',
+        ],
+        'Homme' => [
+            'Chemises', 'Pantalons', 'T-Shirts', 'Vestes',
+            'Costumes', 'Jeans', 'Shorts', 'Polos',
+        ],
+        'Femme' => [
+            'Robes', 'Jupes', 'Blouses', 'Pantalons',
+            'Racs', 'Tuniques', 'Jeans', 'Vestes',
+        ],
+        'Chaussures' => [
+            'Sneakers', 'Chaussures Homme', 'Chaussures Femme',
+            'Sandales', 'Bottes', 'Escarpins', 'Mocassins',
+        ],
+        'Accessoires Mode' => [
+            'Sacs & Bagages', 'Montres', 'Bijoux',
+            'Lunettes', 'Ceintures', 'Chapeaux & Casquettes',
         ],
     ];
 

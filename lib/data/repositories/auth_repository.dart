@@ -67,6 +67,8 @@ class AuthRepository {
 
   Future<bool> isLoggedIn() async {
     final user = await getCurrentUser();
-    return user != null;
+    return user != null &&
+        user.remoteId != null &&
+        user.remoteId!.isNotEmpty;
   }
 }

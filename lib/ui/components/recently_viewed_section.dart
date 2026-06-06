@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../data/repositories/recently_viewed_repository.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/utils/image_utils.dart';
 
 class RecentlyViewedSection extends StatelessWidget {
   final List<RecentlyViewedItem> items;
@@ -75,13 +75,13 @@ class RecentlyViewedSection extends StatelessWidget {
                   height: 120,
                   color: Colors.grey[200],
                   child: item.imageUrl != null && item.imageUrl!.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: item.imageUrl!,
+                      ? ImageUtils.buildCachedImage(
+                          item.imageUrl,
                           fit: BoxFit.cover,
-                          placeholder: (context, url) => Container(
-                            color: Colors.grey[200],
-                          ),
-                          errorWidget: (context, url, error) => Icon(
+                          width: 120,
+                          height: 120,
+                          placeholder: Container(color: Colors.grey[200]),
+                          errorWidget: Icon(
                             item.type == 'shop' ? Icons.store : Icons.image,
                             color: Colors.grey[400],
                           ),

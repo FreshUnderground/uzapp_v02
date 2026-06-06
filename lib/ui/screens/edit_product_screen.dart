@@ -12,6 +12,7 @@ import '../../core/services/api_service.dart';
 import '../../core/utils/picker_utils.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
+import '../../core/utils/image_prepare_utils.dart';
 import '../../data/services/sync_service.dart';
 import 'dart:convert';
 import '../components/category_forms/vehicule_form.dart';
@@ -389,13 +390,21 @@ class _EditProductScreenState extends State<EditProductScreen> {
       for (int i = 0; i < _productImages.length; i++) {
         final img = _productImages[i];
         if (img.bytes != null) {
-          // Upload new image
-          final fileName =
-              "prod_${DateTime.now().millisecondsSinceEpoch}_$i.png";
-          final uploadedUrl = await apiService.uploadFile(
+          final prepared = await ImagePrepareUtils.prepareForUpload(
             img.bytes!,
-            fileName,
+            maxWidth: 1080,
+            quality: 70,
+            prefix: 'prod_$i',
+          );
+          final bytesToUpload = await ImagePrepareUtils.ensureUploadSize(
+            prepared.bytes,
+          );
+
+          final uploadedUrl = await apiService.uploadFile(
+            bytesToUpload,
+            prepared.fileName,
             folder: 'produits',
+            timeout: const Duration(seconds: 30),
           );
           if (uploadedUrl != null) finalUrls.add(uploadedUrl);
         } else if (img.url != null) {

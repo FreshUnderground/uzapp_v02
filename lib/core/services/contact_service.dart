@@ -9,6 +9,8 @@ import 'package:drift/drift.dart' as drift;
 import '../../data/local/uza_database.dart';
 import '../utils/crypto_utils.dart';
 import '../utils/image_utils.dart';
+import '../utils/phone_utils.dart';
+import '../utils/product_price_utils.dart';
 
 class ContactService {
   final UzaDatabase db;
@@ -24,9 +26,10 @@ class ContactService {
     String? imageUrl,
     String? productUrl,
     double? price,
+    bool hidePrice = false,
     String? condition,
   }) async {
-    final cleanPhone = phone.replaceAll(RegExp(r'\D'), '');
+    final cleanPhone = PhoneUtils.forWhatsApp(phone);
 
     if (cleanPhone.isEmpty) {
       debugPrint('launchWhatsApp: empty phone number, aborting launch');
@@ -40,6 +43,12 @@ class ContactService {
       buf.writeln('Bonjour, je vous contacte depuis Uzaapp.');
       buf.writeln('Je suis très intéressé(e) par votre article :');
       buf.writeln('📌 *$name*');
+      buf.writeln(
+        ProductPriceUtils.shareLineFromValues(
+          price: price,
+          hidePrice: hidePrice,
+        ),
+      );
       buf.writeln();
       final productLink = productUrl ?? 'https://uzaapp.com/product/$entityId';
       buf.writeln('🔗 Lien : $productLink');
@@ -82,7 +91,9 @@ class ContactService {
     required String entityType,
     required int entityId,
   }) async {
-    final url = Uri.parse("tel:$phone");
+    final tel = PhoneUtils.forTelUri(phone);
+    if (tel.isEmpty) return;
+    final url = Uri.parse('tel:$tel');
     debugPrint('Launching phone call: $url');
 
     try {
@@ -104,9 +115,10 @@ class ContactService {
     required String entityType,
     required int entityId,
   }) async {
-    final cleanPhone = phone.replaceAll(RegExp(r'\D'), '');
+    final cleanPhone = PhoneUtils.forSms(phone);
+    if (cleanPhone.isEmpty) return;
     final url = Uri.parse(
-      "sms:$cleanPhone?body=${Uri.encodeComponent(message ?? '')}",
+      "sms:+$cleanPhone?body=${Uri.encodeComponent(message ?? '')}",
     );
     debugPrint('Launching SMS: $url');
 
@@ -181,7 +193,7 @@ class ContactService {
   }
 
   Future<void> shareShop(Shop shop) async {
-    final String url = "https://uzaapp.com/#/shop/${shop.id}";
+    final String url = "https://uzaapp.com/shop/${shop.id}";
     final String text =
         "💼 Vous cherchez à développer votre clientèle ?\n\n"
         "🛍️ Découvrez '${shop.name}' sur UzaApp - l'app qui révolutionne le commerce !\n\n"
@@ -239,9 +251,7 @@ class ContactService {
     final String condition = product.condition == 'new'
         ? '🆕 État : Neuf'
         : '✅ État : Occasion';
-    final String priceText = product.price != null && product.price! > 0
-        ? '💰 Prix : ${product.price!.toStringAsFixed(0)} \$'
-        : '💬 Prix : sur demande';
+    final String priceText = ProductPriceUtils.shareLine(product);
     final String descLine =
         (product.description != null && product.description!.isNotEmpty)
         ? '📝 ${product.description!.length > 120 ? '${product.description!.substring(0, 120)}...' : product.description}\n'

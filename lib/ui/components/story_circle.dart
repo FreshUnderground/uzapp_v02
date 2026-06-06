@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/local/uza_database.dart';
 import '../../core/res/uza_colors.dart';
-import '../../core/utils/crypto_utils.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../core/utils/image_utils.dart';
 
 class StoryCircle extends StatelessWidget {
   final Story story;
@@ -61,12 +60,12 @@ class StoryCircle extends StatelessWidget {
                     width: 60,
                     height: 60,
                     child: story.mediaUrl.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: CryptoUtils.decrypt(story.mediaUrl),
+                        ? ImageUtils.buildCachedImage(
+                            story.mediaUrl,
                             fit: BoxFit.cover,
                             width: 60,
                             height: 60,
-                            placeholder: (_, __) => Container(
+                            placeholder: Container(
                               color: Colors.grey[200],
                               child: Center(
                                 child: Icon(
@@ -78,21 +77,16 @@ class StoryCircle extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            errorWidget: (_, url, error) {
-                              debugPrint(
-                                'StoryCircle: image error for $url — $error',
-                              );
-                              return Container(
-                                color: Colors.grey[300],
-                                child: Center(
-                                  child: Icon(
-                                    Icons.broken_image_outlined,
-                                    color: Colors.grey[500],
-                                    size: 24,
-                                  ),
+                            errorWidget: Container(
+                              color: Colors.grey[300],
+                              child: Center(
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  color: Colors.grey[500],
+                                  size: 24,
                                 ),
-                              );
-                            },
+                              ),
+                            ),
                           )
                         : Container(
                             color: Colors.grey[200],

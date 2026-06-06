@@ -1,4 +1,54 @@
-RewriteEngine On
+<IfModule mod_rewrite.c>
 
-# Route /product/{id} to the dynamic product page with OG tags
-RewriteRule ^product/(.+)$ api/product_page.php?id=$1 [L,QSA]
+  RewriteEngine On
+
+
+
+  RewriteRule ^api/ - [L]
+
+
+
+  RewriteCond %{QUERY_STRING} (^|&)web=1(&|$) [NC]
+
+  RewriteRule ^(product|shop)/ /index.html [L]
+
+
+
+  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
+
+  RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1 [L,QSA]
+
+
+
+  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
+
+  RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1 [L,QSA]
+
+
+
+  RewriteCond %{HTTP_USER_AGENT} (Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera\sMini) [NC]
+
+  RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1&bridge=1 [L,QSA]
+
+
+
+  RewriteCond %{HTTP_USER_AGENT} (Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera\sMini) [NC]
+
+  RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1&bridge=1 [L,QSA]
+
+
+
+  RewriteRule ^product/([^/]+)/?$ /index.html [L]
+
+  RewriteRule ^shop/([^/]+)/?$ /index.html [L]
+
+
+
+  RewriteCond %{REQUEST_FILENAME} !-f
+
+  RewriteCond %{REQUEST_FILENAME} !-d
+
+  RewriteRule ^ /index.html [L]
+
+</IfModule>
+

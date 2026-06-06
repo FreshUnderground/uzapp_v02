@@ -12,6 +12,7 @@ import '../../data/services/sync_service.dart';
 import 'dart:async';
 import 'package:drift/drift.dart' as drift;
 import '../components/analytics_tab.dart';
+import '../components/seller_quick_actions.dart';
 
 class ShopDashboardScreen extends StatefulWidget {
   /// Optional local shop id; when null, resolves via logged-in user's shop.
@@ -139,6 +140,16 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          const Text(
+                            'Actions rapides',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SellerQuickActions(shop: shop),
+                          const SizedBox(height: 32),
                           _buildStatsGrid(shop.id),
                           const SizedBox(height: 32),
                           // Location button for shop dashboard

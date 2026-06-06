@@ -1,8 +1,12 @@
+import 'dart:convert';
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import '../local/uza_database.dart';
 import 'location_data.dart';
 import 'paginated_result.dart';
 import '../services/sync_service.dart';
+import '../../core/utils/phone_utils.dart';
 
 class ShopRepository {
   final UzaDatabase db;
@@ -46,6 +50,89 @@ class ShopRepository {
     return (db.select(
       db.shops,
     )..where((t) => t.id.equals(id))).getSingleOrNull();
+  }
+
+  /// Resolves a shop for deep links: local DB first, then public API.
+  Future<Shop?> resolveShopById(int id) async {
+    final local = await getShopById(id);
+    if (local != null) return local;
+
+    try {
+      final uri = Uri.parse(
+        'https://uzaapp.com/api/shop_page.php?id=$id&format=json',
+      );
+      final response = await http
+          .get(uri)
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) return null;
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      if (body['success'] != true) return null;
+      final data = body['shop'] as Map<String, dynamic>?;
+      if (data == null) return null;
+
+      final remoteId = data['remote_id']?.toString();
+      final resolvedId = _toInt(data['id']) ?? id;
+      await db.into(db.shops).insert(
+        ShopsCompanion(
+          id: Value(resolvedId),
+          remoteId: Value(
+            remoteId != null && remoteId.isNotEmpty
+                ? remoteId
+                : resolvedId.toString(),
+          ),
+          name: Value((data['name'] as String? ?? 'Boutique').trim()),
+          description: Value(data['description'] as String?),
+          logoUrl: Value(data['logo_url'] as String?),
+          type: Value(
+            data['type'] == 'wholesale' ? ShopType.wholesale : ShopType.retail,
+          ),
+          ownerId: Value(data['owner_id'] as String?),
+          address: Value(data['address'] as String?),
+          whatsapp: Value(data['whatsapp'] as String?),
+          phone: Value(data['phone'] as String?),
+          email: Value(data['email'] as String?),
+          instagramUrl: Value(data['instagram_url'] as String?),
+          tiktokUrl: Value(data['tiktok_url'] as String?),
+          facebookUrl: Value(data['facebook_url'] as String?),
+          youtubeUrl: Value(data['youtube_url'] as String?),
+          bannerUrl: Value(data['banner_url'] as String?),
+          videoUrl: Value(data['video_url'] as String?),
+          updatedAt: Value(
+            DateTime.tryParse(data['updated_at'] as String? ?? '') ??
+                DateTime.now(),
+          ),
+          isBoosted: Value(_toBool(data['is_boosted'])),
+          boostStatus: Value(_toInt(data['boost_status']) ?? 0),
+          bannerStatus: Value(_toInt(data['banner_status']) ?? 0),
+          bannerText: Value(data['banner_text'] as String?),
+          isVerified: Value(_toBool(data['is_verified'])),
+          responseTimeMinutes: Value(_toInt(data['response_time_minutes'])),
+          commune: Value(data['commune'] as String?),
+          city: Value(data['city'] as String?),
+          latitude: Value((data['latitude'] as num?)?.toDouble()),
+          longitude: Value((data['longitude'] as num?)?.toDouble()),
+        ),
+        mode: InsertMode.insertOrReplace,
+      );
+      return getShopById(resolvedId);
+    } catch (e) {
+      debugPrint('resolveShopById error: $e');
+      return null;
+    }
+  }
+
+  int? _toInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    return int.tryParse(value.toString());
+  }
+
+  bool _toBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is int) return value == 1;
+    final normalized = value?.toString().toLowerCase();
+    return normalized == '1' || normalized == 'true';
   }
 
   Stream<Shop?> watchUserShop(String userId) {
@@ -116,10 +203,16 @@ class ShopRepository {
       for (final shop in variantMatch) {
         // Normalise ownerId to the current uid format
         await (db.update(db.shops)..where((t) => t.id.equals(shop.id))).write(
-          ShopsCompanion(ownerId: Value(userId)),
+          ShopsCompanion(
+            ownerId: Value(PhoneUtils.normalizeDrc(userId).isNotEmpty
+                ? PhoneUtils.normalizeDrc(userId)
+                : userId),
+          ),
         );
       }
     }
+
+    await syncService?.repairProductShopLinks();
   }
 
   bool _shopBelongsToUser(Shop shop, String userId) {
@@ -137,32 +230,7 @@ class ShopRepository {
 
   /// Generate common phone-number format variations for DRC numbers.
   /// e.g. "+243823456789" → ["0823456789", "243823456789", "+243823456789"]
-  List<String> _phoneVariations(String phone) {
-    final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
-    final variations = <String>{phone.trim(), digits};
-
-    if (digits.startsWith('243') && digits.length >= 12) {
-      // +243823456789 → 823456789 and 0823456789
-      final local = digits.substring(3);
-      variations.add(local);
-      variations.add('0$local');
-      variations.add(digits);
-      variations.add('+$digits');
-    } else if (digits.startsWith('0') && digits.length >= 10) {
-      // 0823456789 → 823456789, +243823456789 and 243823456789
-      final withoutLeading0 = digits.substring(1);
-      variations.add(withoutLeading0);
-      variations.add('243$withoutLeading0');
-      variations.add('+243$withoutLeading0');
-    } else if (digits.length == 9) {
-      variations.add('0$digits');
-      variations.add('243$digits');
-      variations.add('+243$digits');
-    }
-
-    variations.removeWhere((value) => value.isEmpty);
-    return variations.toList();
-  }
+  List<String> _phoneVariations(String phone) => PhoneUtils.lookupKeys(phone);
 
   Future<int> addShop(ShopsCompanion shop) {
     return db.into(db.shops).insert(shop);
@@ -385,6 +453,36 @@ class ShopRepository {
       'weeklyContacts': weeklyContacts,
       'weeklyShares': weeklyShares,
     };
+  }
+
+  /// Daily breakdown for the last 7 days (views per day).
+  Future<List<int>> getDailyViewsBreakdown(int shopId) async {
+    final products = await (db.select(db.products)
+          ..where((t) => t.shopId.equals(shopId)))
+        .get();
+    final entityIds = <int>[shopId, ...products.map((p) => p.id)];
+    if (entityIds.isEmpty) return List.filled(7, 0);
+
+    final now = DateTime.now();
+    final weekAgo = now.subtract(const Duration(days: 6));
+    final analytics = await (db.select(db.analytics)..where(
+          (t) =>
+              t.entityId.isIn(entityIds) &
+              t.interactionType.equals('view') &
+              t.createdAt.isBiggerOrEqualValue(
+                DateTime(weekAgo.year, weekAgo.month, weekAgo.day),
+              ),
+        ))
+        .get();
+
+    final counts = List.filled(7, 0);
+    for (final a in analytics) {
+      final dayIndex = a.createdAt.difference(
+        DateTime(weekAgo.year, weekAgo.month, weekAgo.day),
+      ).inDays;
+      if (dayIndex >= 0 && dayIndex < 7) counts[dayIndex]++;
+    }
+    return counts;
   }
 
   /// Get regular clients (phones that contacted this shop multiple times)

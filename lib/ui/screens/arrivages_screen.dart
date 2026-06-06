@@ -4,7 +4,6 @@ import '../../data/local/uza_database.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/services/sync_service.dart';
-import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
 import '../components/custom_refresh_indicator.dart';
 import '../utils/page_transitions.dart';
@@ -176,9 +175,7 @@ class _ArrivageStoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final decryptedUrl = story.mediaUrl.isNotEmpty
-        ? CryptoUtils.decrypt(story.mediaUrl)
-        : '';
+    final hasMedia = story.mediaUrl.isNotEmpty;
 
     return GestureDetector(
       onTap: () => _openStory(context),
@@ -192,13 +189,20 @@ class _ArrivageStoryCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             // Full-bleed image
-            if (decryptedUrl.isNotEmpty)
+            if (hasMedia)
               Hero(
                 tag: 'arrivage_image_${story.id}',
                 child: ImageUtils.buildCachedImage(
-                  decryptedUrl,
-                  fit: BoxFit.contain,
+                  story.mediaUrl,
+                  fit: BoxFit.cover,
                   borderRadius: BorderRadius.circular(12),
+                  errorWidget: Center(
+                    child: Icon(
+                      Icons.image_not_supported_outlined,
+                      color: Colors.grey[400],
+                      size: 36,
+                    ),
+                  ),
                 ),
               )
             else
@@ -283,29 +287,28 @@ class _ArrivageStoryCard extends StatelessWidget {
     );
   }
 
-  /// Opens StoryViewScreen with stories from the same shop.
+  /// Opens StoryViewScreen with active arrivages for swiping.
   Future<void> _openStory(BuildContext context) async {
     final storyRepo = context.read<StoryRepository>();
     storyRepo.logStoryView(story.id);
 
-    // Get all stories for this shop to enable swiping
-    final shopStories = await storyRepo.getStoriesForShop(story.shopId);
     final shop = await shopRepo.getShopById(story.shopId);
     final shopLookup = <int, Shop>{};
     if (shop != null) {
       shopLookup[story.shopId] = shop;
     }
 
-    final initialIndex = shopStories.indexWhere((s) => s.id == story.id);
+    final initialIndex = allStories.indexWhere((s) => s.id == story.id);
 
     if (context.mounted) {
       Navigator.push(
         context,
         SlideUpRoute(
           page: StoryViewScreen(
-            stories: shopStories,
+            stories: allStories,
             initialIndex: initialIndex >= 0 ? initialIndex : 0,
             shopLookup: shopLookup,
+            getViewCount: storyRepo.getStoryViewCount,
           ),
         ),
       );

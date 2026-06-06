@@ -8,6 +8,8 @@ import '../../core/services/api_service.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/utils/crypto_utils.dart';
+import '../../core/utils/image_utils.dart';
+import '../../core/utils/phone_utils.dart';
 import '../repositories/story_repository.dart';
 
 enum SyncStatus { idle, syncing, error, offline }
@@ -87,7 +89,7 @@ class SyncService extends ChangeNotifier {
           'name': shop.name,
           'description': shop.description,
           'address': shop.address,
-          'logo_url': shop.logoUrl,
+          'logo_url': _plainMediaUrl(shop.logoUrl),
           'type': shop.type.name,
           'owner_id': shop.ownerId,
           'phone': shop.phone,
@@ -435,6 +437,7 @@ class SyncService extends ChangeNotifier {
     debugPrint('FULL RESET: Clearing retry counters and forcing sync');
     _retryCounts.clear();
     _lastSyncTime = null;
+    _isFirstSync = true;
 
     // Reset last sync time in database to force full pull
     try {
@@ -508,6 +511,226 @@ class SyncService extends ChangeNotifier {
     return all;
   }
 
+  /// Fix products whose [shopId] stores a server shop id instead of local id.
+  Future<int> repairProductShopLinks() async {
+    try {
+      final shops = await db.select(db.shops).get();
+      if (shops.isEmpty) return 0;
+
+      final serverToLocal = <String, int>{};
+      for (final shop in shops) {
+        if (shop.remoteId != null && shop.remoteId!.isNotEmpty) {
+          serverToLocal[shop.remoteId!] = shop.id;
+        }
+      }
+
+      final products = await db.select(db.products).get();
+      var fixed = 0;
+      for (final product in products) {
+        final hasLocalShop = shops.any((s) => s.id == product.shopId);
+        if (hasLocalShop) continue;
+
+        final remapped = serverToLocal[product.shopId.toString()];
+        if (remapped == null || remapped == product.shopId) continue;
+
+        await (db.update(db.products)..where((t) => t.id.equals(product.id)))
+            .write(ProductsCompanion(shopId: Value(remapped)));
+        fixed++;
+      }
+
+      if (fixed > 0) {
+        debugPrint('REPAIR: Fixed $fixed product→shop link(s)');
+        notifyListeners();
+      }
+      return fixed;
+    } catch (e) {
+      debugPrint('REPAIR product shop links error: $e');
+      return 0;
+    }
+  }
+
+  int _resolveLocalShopIdForProduct(
+    Map<String, dynamic> product,
+    Map<String, int> shopIdMap,
+    List<Shop> localShops,
+  ) {
+    final serverShopId =
+        (product['shop_id'] ?? product['shop_remote_id'])?.toString() ?? '';
+    if (serverShopId.isEmpty) return 0;
+
+    final mapped = shopIdMap[serverShopId];
+    if (mapped != null && mapped > 0) return mapped;
+
+    for (final shop in localShops) {
+      if (shop.remoteId == serverShopId) return shop.id;
+    }
+
+    return 0;
+  }
+
+  int? _findExistingLocalShopIdForPull(
+    Map<String, dynamic> serverShop,
+    String remoteId,
+    Map<String, int> shopIdMap,
+    Map<String, int> ownerIdToLocalShopId,
+  ) {
+    final fromRemote = shopIdMap[remoteId];
+    if (fromRemote != null) return fromRemote;
+
+    for (final key in PhoneUtils.lookupKeys(
+      serverShop['owner_id']?.toString(),
+    )) {
+      final localId = ownerIdToLocalShopId[key];
+      if (localId != null) return localId;
+    }
+
+    for (final key in PhoneUtils.lookupKeys(serverShop['phone']?.toString())) {
+      final localId = ownerIdToLocalShopId[key];
+      if (localId != null) return localId;
+    }
+
+    return null;
+  }
+
+  void _registerOwnerShopKeys(Map<String, int> map, Shop shop) {
+    if (shop.remoteId != null && shop.remoteId!.isNotEmpty) return;
+    for (final key in PhoneUtils.lookupKeys(shop.ownerId)) {
+      map[key] = shop.id;
+    }
+    for (final key in PhoneUtils.lookupKeys(shop.phone)) {
+      map.putIfAbsent(key, () => shop.id);
+    }
+    for (final key in PhoneUtils.lookupKeys(shop.whatsapp)) {
+      map.putIfAbsent(key, () => shop.id);
+    }
+  }
+
+  Future<void> _pullInsertShops({
+    required List<Map<String, dynamic>> remoteShops,
+    required Map<String, int> shopIdMap,
+    required Map<String, int> ownerIdToLocalShopId,
+    required Map<int, Shop> localShopById,
+    required Set<String> pendingShopRemoteIds,
+    required bool fullSync,
+  }) async {
+    final serverRemoteIds = <String>{};
+    for (var s in remoteShops) {
+      final dynamic rawRemoteId = s['remote_id'];
+      final String rId =
+          rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+          ? rawRemoteId.toString()
+          : (s['id']?.toString() ?? '');
+      if (rId.isNotEmpty) {
+        serverRemoteIds.add(rId);
+      }
+    }
+
+    if (fullSync) {
+      final allLocalShops = await db.select(db.shops).get();
+      for (var localShop in allLocalShops) {
+        if (localShop.remoteId != null &&
+            localShop.remoteId!.isNotEmpty &&
+            !serverRemoteIds.contains(localShop.remoteId)) {
+          await (db.delete(
+            db.shops,
+          )..where((t) => t.id.equals(localShop.id))).go();
+          debugPrint(
+            'Sync: Removed deleted shop ${localShop.name} (remoteId: ${localShop.remoteId})',
+          );
+        }
+      }
+    }
+
+    await db.batch((batch) {
+      for (var s in remoteShops) {
+        final dynamic rawRemoteId = s['remote_id'];
+        final String rId =
+            rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+            ? rawRemoteId.toString()
+            : (s['id']?.toString() ?? '');
+        if (rId.isNotEmpty && pendingShopRemoteIds.contains(rId)) {
+          continue;
+        }
+        final String rawName = s['name'] as String? ?? '';
+        final String sanitizedName = rawName.trim().isEmpty
+            ? 'Boutique'
+            : rawName;
+        final int? existingLocalId = _findExistingLocalShopIdForPull(
+          s,
+          rId,
+          shopIdMap,
+          ownerIdToLocalShopId,
+        );
+        final Shop? existingShop = existingLocalId != null
+            ? localShopById[existingLocalId]
+            : null;
+        final rawOwner = s['owner_id']?.toString();
+        final normalizedOwner = rawOwner == null || rawOwner.isEmpty
+            ? null
+            : (PhoneUtils.normalizeDrc(rawOwner).isNotEmpty
+                  ? PhoneUtils.normalizeDrc(rawOwner)
+                  : rawOwner);
+
+        batch.insert(
+          db.shops,
+          ShopsCompanion.insert(
+            id: existingLocalId != null
+                ? Value(existingLocalId)
+                : const Value.absent(),
+            remoteId: Value(rId),
+            name: sanitizedName,
+            description: Value(s['description'] as String?),
+            logoUrl: Value(
+              _mergeMediaUrlForLocal(
+                _coerceMediaField(s['logo_url']),
+                existingShop?.logoUrl,
+              ),
+            ),
+            type: ShopType.values.firstWhere(
+              (e) => e.name == s['type'],
+              orElse: () => ShopType.retail,
+            ),
+            ownerId: Value(normalizedOwner),
+            address: Value(s['address'] as String?),
+            whatsapp: Value(_normalizeShopPhone(s['whatsapp'] as String?)),
+            phone: Value(_normalizeShopPhone(s['phone'] as String?)),
+            email: Value(s['email'] as String?),
+            instagramUrl: Value(s['instagram_url'] as String?),
+            tiktokUrl: Value(s['tiktok_url'] as String?),
+            facebookUrl: Value(s['facebook_url'] as String?),
+            youtubeUrl: Value(s['youtube_url'] as String?),
+            bannerUrl: Value(
+              _mergeMediaUrlForLocal(
+                _coerceMediaField(s['banner_url']),
+                existingShop?.bannerUrl,
+              ),
+            ),
+            boostStatus: Value(_toInt(s['boost_status']) ?? 0),
+            bannerStatus: Value(_toInt(s['banner_status']) ?? 0),
+            bannerText: Value(s['banner_text'] as String?),
+            videoUrl: Value(
+              _mergeMediaUrlForLocal(
+                _coerceMediaField(s['video_url']),
+                existingShop?.videoUrl,
+              ),
+            ),
+            isBoosted: Value(_toBool(s['is_boosted'])),
+            isVerified: Value(_toBool(s['is_verified'])),
+            verifiedAt: Value(
+              DateTime.tryParse(s['verified_at']?.toString() ?? ''),
+            ),
+            city: Value(s['city'] as String?),
+            commune: Value(s['commune'] as String?),
+            latitude: Value(_toDouble(s['latitude'])),
+            longitude: Value(_toDouble(s['longitude'])),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
+      }
+    });
+    debugPrint('Sync: Synced ${remoteShops.length} shops from server');
+  }
+
   Future<List<Map<String, dynamic>>> _fetchAllShopsPaginated() async {
     final all = <Map<String, dynamic>>[];
     var page = 1;
@@ -545,9 +768,10 @@ class SyncService extends ChangeNotifier {
       final pendingProductRemoteIds = await _pendingRemoteIds('products');
       final pendingShopRemoteIds = await _pendingRemoteIds('shops');
 
-      // ── PHASE 1: categories & products (most critical for display) ──────
+      // ── PHASE 1: categories, shops, then products ───────────────────────
       List<Map<String, dynamic>> remoteCategories = [];
       List<Map<String, dynamic>> remoteProducts = [];
+      List<Map<String, dynamic>> remoteShops = [];
 
       try {
         // Categories: always full fetch (small payload, deletion detection)
@@ -576,25 +800,49 @@ class SyncService extends ChangeNotifier {
         debugPrint('PULL ERROR (products): $e');
       }
 
+      try {
+        if (fullSync) {
+          remoteShops = await _fetchAllShopsPaginated();
+        } else {
+          remoteShops = await api
+              .fetchShops(updatedSince: updatedSince)
+              .timeout(_requestTimeout);
+        }
+        debugPrint(
+          'PULL: shops (${fullSync ? "full" : "incremental"}) '
+          '→ ${remoteShops.length}',
+        );
+      } on TimeoutException {
+        debugPrint('PULL TIMEOUT: shops (phase 1)');
+      } catch (e) {
+        debugPrint('PULL ERROR (shops phase 1): $e');
+      }
+
       // Build a map of remoteId -> localId for shops to resolve product relationships
-      final allShops = await db.select(db.shops).get();
-      final Map<String, int> shopIdMap = {
-        for (var s in allShops) s.remoteId ?? '': s.id,
+      var allShops = await db.select(db.shops).get();
+      var localShopById = <int, Shop>{
+        for (final shop in allShops) shop.id: shop,
       };
+      final Map<String, int> shopIdMap = {};
+      for (final s in allShops) {
+        if (s.remoteId != null && s.remoteId!.isNotEmpty) {
+          shopIdMap[s.remoteId!] = s.id;
+        }
+      }
 
       // Build owner_id -> localId map for shops that have no remoteId yet,
       // so the pull phase can update them in-place instead of creating duplicates.
-      final Map<String, int> ownerIdToLocalShopId = {
-        for (var s in allShops)
-          if (s.ownerId != null &&
-              s.ownerId!.isNotEmpty &&
-              (s.remoteId == null || s.remoteId!.isEmpty))
-            s.ownerId!: s.id,
-      };
+      final Map<String, int> ownerIdToLocalShopId = {};
+      for (final s in allShops) {
+        _registerOwnerShopKeys(ownerIdToLocalShopId, s);
+      }
 
       // Build a comprehensive map of remoteId -> localId from ALL existing
       // products to prevent any duplication during pull sync.
       final allProducts = await db.select(db.products).get();
+      final Map<int, Product> localProductById = {
+        for (final product in allProducts) product.id: product,
+      };
       final Map<String, int> productIdMap = {};
       for (final p in allProducts) {
         final rId = p.remoteId;
@@ -658,6 +906,32 @@ class SyncService extends ChangeNotifier {
             calculatedLevels[rId] = calculatedLevels[parentRemoteId]! + 1;
             changed = true;
           }
+        }
+      }
+
+      // Sync shops BEFORE products so shop_id mapping is correct on first install
+      if (remoteShops.isNotEmpty) {
+        await _pullInsertShops(
+          remoteShops: remoteShops,
+          shopIdMap: shopIdMap,
+          ownerIdToLocalShopId: ownerIdToLocalShopId,
+          localShopById: localShopById,
+          pendingShopRemoteIds: pendingShopRemoteIds,
+          fullSync: fullSync,
+        );
+        allShops = await db.select(db.shops).get();
+        localShopById
+          ..clear()
+          ..addAll({for (final shop in allShops) shop.id: shop});
+        shopIdMap.clear();
+        for (final s in allShops) {
+          if (s.remoteId != null && s.remoteId!.isNotEmpty) {
+            shopIdMap[s.remoteId!] = s.id;
+          }
+        }
+        ownerIdToLocalShopId.clear();
+        for (final s in allShops) {
+          _registerOwnerShopKeys(ownerIdToLocalShopId, s);
         }
       }
 
@@ -768,13 +1042,22 @@ class SyncService extends ChangeNotifier {
                 ? 'Produit'
                 : rawName;
 
-            final String sRemoteId =
-                (p['shop_id'] ?? p['shop_remote_id'])?.toString() ?? '';
-            final int localShopId =
-                shopIdMap[sRemoteId] ??
-                (p['shop_id'] is int ? p['shop_id'] as int : 0);
+            final int localShopId = _resolveLocalShopIdForProduct(
+              p,
+              shopIdMap,
+              allShops,
+            );
+            if (localShopId <= 0) {
+              debugPrint(
+                'Sync: skip product ${p['name']} — shop_id ${p['shop_id']} not mapped locally',
+              );
+              continue;
+            }
 
             final int? existingLocalId = productIdMap[rId];
+            final Product? existingProduct = existingLocalId != null
+                ? localProductById[existingLocalId]
+                : null;
 
             batch.insert(
               db.products,
@@ -788,7 +1071,12 @@ class SyncService extends ChangeNotifier {
                 name: Value(sanitizedName),
                 description: Value(p['description'] as String?),
                 price: Value((p['price'] as num?)?.toDouble()),
-                imageUrls: Value(p['image_urls'] as String? ?? ''),
+                imageUrls: Value(
+                  _mergeImageUrlsForLocal(
+                    _coerceMediaField(p['image_urls']),
+                    existingProduct?.imageUrls,
+                  ),
+                ),
                 isArrival: Value(
                   p['is_arrival'] == 1 || p['is_arrival'] == true,
                 ),
@@ -827,32 +1115,15 @@ class SyncService extends ChangeNotifier {
         notifyListeners();
       }
 
-      // ── PHASE 2: shops & stories (less critical) ───────────────────────
-      List<Map<String, dynamic>> remoteShops = [];
+      // ── PHASE 2: stories ───────────────────────────────────────────────
       List<Map<String, dynamic>> remoteStories = [];
-
-      try {
-        if (fullSync) {
-          remoteShops = await _fetchAllShopsPaginated();
-        } else {
-          remoteShops = await api
-              .fetchShops(updatedSince: updatedSince)
-              .timeout(_requestTimeout);
-        }
-        debugPrint(
-          'PULL: shops (${fullSync ? "full" : "incremental"}) '
-          '→ ${remoteShops.length}',
-        );
-      } on TimeoutException {
-        debugPrint('PULL TIMEOUT: shops');
-      } catch (e) {
-        debugPrint('PULL ERROR (shops): $e');
-      }
+      var storiesPullOk = false;
 
       try {
         remoteStories = await api
             .fetchStories(updatedSince: updatedSince)
             .timeout(_requestTimeout);
+        storiesPullOk = true;
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: stories');
       } catch (e) {
@@ -884,105 +1155,6 @@ class SyncService extends ChangeNotifier {
             }
           }
         }
-      }
-
-      // ── PHASE 2a: sync shops first so shopIdMap can be refreshed before stories ──
-      if (remoteShops.isNotEmpty) {
-        // Build a set of remote IDs that exist on the server
-        final serverRemoteIds = <String>{};
-        for (var s in remoteShops) {
-          final dynamic rawRemoteId = s['remote_id'];
-          final String rId =
-              rawRemoteId != null && rawRemoteId.toString().isNotEmpty
-              ? rawRemoteId.toString()
-              : (s['id']?.toString() ?? '');
-          if (rId.isNotEmpty) {
-            serverRemoteIds.add(rId);
-          }
-        }
-
-        if (fullSync) {
-        final allLocalShops = await db.select(db.shops).get();
-        for (var localShop in allLocalShops) {
-          if (localShop.remoteId != null &&
-              localShop.remoteId!.isNotEmpty &&
-              !serverRemoteIds.contains(localShop.remoteId)) {
-            // This shop was deleted on the server, remove it locally
-            await (db.delete(
-              db.shops,
-            )..where((t) => t.id.equals(localShop.id))).go();
-            debugPrint(
-              'Sync: Removed deleted shop ${localShop.name} (remoteId: ${localShop.remoteId})',
-            );
-          }
-        }
-        }
-
-        // Now insert or update shops from server
-        await db.batch((batch) {
-          for (var s in remoteShops) {
-            // Use remote_id if available, otherwise use id as fallback
-            final dynamic rawRemoteId = s['remote_id'];
-            final String rId =
-                rawRemoteId != null && rawRemoteId.toString().isNotEmpty
-                ? rawRemoteId.toString()
-                : (s['id']?.toString() ?? '');
-            if (rId.isNotEmpty && pendingShopRemoteIds.contains(rId)) {
-              continue;
-            }
-            final String rawName = s['name'] as String? ?? '';
-            final String sanitizedName = rawName.trim().isEmpty
-                ? 'Boutique'
-                : rawName;
-            final int? existingLocalId =
-                shopIdMap[rId] ??
-                // Fall back to owner_id match for shops with null remoteId
-                // (prevents duplicate creation and saves correct remoteId)
-                ownerIdToLocalShopId[s['owner_id']?.toString() ?? ''];
-
-            batch.insert(
-              db.shops,
-              ShopsCompanion.insert(
-                id: existingLocalId != null
-                    ? Value(existingLocalId)
-                    : const Value.absent(),
-                remoteId: Value(rId),
-                name: sanitizedName,
-                description: Value(s['description'] as String?),
-                logoUrl: Value(s['logo_url'] as String?),
-                type: ShopType.values.firstWhere(
-                  (e) => e.name == s['type'],
-                  orElse: () => ShopType.retail,
-                ),
-                ownerId: Value(s['owner_id']?.toString()),
-                address: Value(s['address'] as String?),
-                whatsapp: Value(s['whatsapp'] as String?),
-                phone: Value(s['phone'] as String?),
-                email: Value(s['email'] as String?),
-                instagramUrl: Value(s['instagram_url'] as String?),
-                tiktokUrl: Value(s['tiktok_url'] as String?),
-                facebookUrl: Value(s['facebook_url'] as String?),
-                youtubeUrl: Value(s['youtube_url'] as String?),
-                bannerUrl: Value(s['banner_url'] as String?),
-                boostStatus: Value(_toInt(s['boost_status']) ?? 0),
-                bannerStatus: Value(_toInt(s['banner_status']) ?? 0),
-                bannerText: Value(s['banner_text'] as String?),
-                videoUrl: Value(s['video_url'] as String?),
-                isBoosted: Value(_toBool(s['is_boosted'])),
-                isVerified: Value(_toBool(s['is_verified'])),
-                verifiedAt: Value(
-                  DateTime.tryParse(s['verified_at']?.toString() ?? ''),
-                ),
-                city: Value(s['city'] as String?),
-                commune: Value(s['commune'] as String?),
-                latitude: Value(_toDouble(s['latitude'])),
-                longitude: Value(_toDouble(s['longitude'])),
-              ),
-              mode: InsertMode.insertOrReplace,
-            );
-          }
-        });
-        debugPrint('Sync: Synced ${remoteShops.length} shops from server');
       }
 
       // Refresh shopIdMap after shops are committed so stories can resolve shop IDs
@@ -1019,7 +1191,7 @@ class SyncService extends ChangeNotifier {
       }
 
       // ── PHASE 2b: sync stories using the refreshed shopIdMap ────────────
-      if (remoteStories.isNotEmpty) {
+      if (storiesPullOk) {
         // Build a set of remote IDs that exist on the server
         final serverStoryRemoteIds = <String>{};
         for (var st in remoteStories) {
@@ -1033,30 +1205,10 @@ class SyncService extends ChangeNotifier {
           }
         }
 
-        if (fullSync) {
-        final allLocalStories = await db.select(db.stories).get();
-        for (var localStory in allLocalStories) {
-          if (localStory.remoteId != null &&
-              localStory.remoteId!.isNotEmpty &&
-              !serverStoryRemoteIds.contains(localStory.remoteId)) {
-            // Update expiresAt to past timestamp instead of deleting
-            // The watch queries filter by expiresAt > NOW() so they won't appear
-            await (db.update(
-              db.stories,
-            )..where((t) => t.id.equals(localStory.id))).write(
-              StoriesCompanion(
-                expiresAt: Value(
-                  DateTime.now().subtract(const Duration(days: 1)),
-                ),
-              ),
-            );
-            debugPrint(
-              'Sync: Soft-deleted expired story (remoteId: ${localStory.remoteId})',
-            );
-          }
-        }
-        }
+        await _purgeOrphanedLocalStories(serverStoryRemoteIds);
+      }
 
+      if (remoteStories.isNotEmpty) {
         // INCREMENTAL UPSERT: Only insert/update new or changed stories
         // Avoid re-inserting existing stories to preserve UI state
         await db.batch((batch) {
@@ -1139,11 +1291,9 @@ class SyncService extends ChangeNotifier {
               }
             }
 
-            // Encrypt media URL for consistent local storage
             final String rawMediaUrl = st['media_url'] as String? ?? '';
-            final String encryptedMediaUrl = rawMediaUrl.isNotEmpty
-                ? CryptoUtils.encrypt(rawMediaUrl)
-                : '';
+            final String storedMediaUrl =
+                _normalizeServerMedia(rawMediaUrl) ?? '';
 
             // INSERT OR REPLACE to handle both new and updated stories
             batch.insert(
@@ -1151,7 +1301,7 @@ class SyncService extends ChangeNotifier {
               StoriesCompanion.insert(
                 remoteId: Value(rId),
                 shopId: localShopId,
-                mediaUrl: encryptedMediaUrl,
+                mediaUrl: storedMediaUrl,
                 mediaType: st['media_type'] as String? ?? 'image',
                 isArrivage: Value((_toInt(st['is_arrivage']) ?? 0) == 1),
                 expiresAt:
@@ -1202,15 +1352,14 @@ class SyncService extends ChangeNotifier {
               for (var mi in st['media_items'] as List) {
                 final mediaItem = mi as Map<String, dynamic>;
                 final rawMediaUrl = mediaItem['media_url'] as String? ?? '';
-                final encryptedMediaUrl = rawMediaUrl.isNotEmpty
-                    ? CryptoUtils.encrypt(rawMediaUrl)
-                    : '';
+                final storedMediaUrl =
+                    _normalizeServerMedia(rawMediaUrl) ?? '';
                 await db
                     .into(db.storyMedia)
                     .insert(
                       StoryMediaCompanion.insert(
                         storyId: localStory.id,
-                        mediaUrl: encryptedMediaUrl,
+                        mediaUrl: storedMediaUrl,
                         mediaType: Value(
                           mediaItem['media_type'] as String? ?? 'image',
                         ),
@@ -1229,9 +1378,9 @@ class SyncService extends ChangeNotifier {
         "Boutiques: ${remoteShops.length}, Produits: ${remoteProducts.length} synchronisés.",
       );
 
-      if (remoteProducts.isNotEmpty) {
-        _prefetchBoostedImages(remoteProducts);
-      }
+      await repairProductShopLinks();
+      await _repairMediaUrlsFromServer();
+      unawaited(_prefetchAllLocalMedia());
 
       // Update last sync time
       await (db.update(db.appPreferences)..where((t) => t.id.equals(1))).write(
@@ -1261,6 +1410,183 @@ class SyncService extends ChangeNotifier {
     // NOTE: _isSyncing is managed by syncNow()'s finally block.
   }
 
+  static String? _normalizeShopPhone(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final normalized = PhoneUtils.normalizeDrc(value);
+    return normalized.isEmpty ? value.trim() : normalized;
+  }
+
+  static String? _plainMediaUrl(String? value) {
+    if (value == null || value.isEmpty) return value;
+    final decrypted = CryptoUtils.decrypt(value);
+    if (decrypted.startsWith('http://') ||
+        decrypted.startsWith('https://') ||
+        decrypted.startsWith('data:image')) {
+      return decrypted;
+    }
+    return value;
+  }
+
+  /// Keep server media URLs in plain form (same as MySQL).
+  static String? _normalizeServerMedia(String? value) {
+    if (ImageUtils.isEmptyMediaValue(value)) return null;
+    return value!.trim();
+  }
+
+  static String? _coerceMediaField(dynamic value) {
+    if (value == null) return null;
+    if (value is List) {
+      if (value.isEmpty) return null;
+      return jsonEncode(value);
+    }
+    if (value is String) {
+      return ImageUtils.isEmptyMediaValue(value) ? null : value.trim();
+    }
+    final asString = value.toString().trim();
+    return ImageUtils.isEmptyMediaValue(asString) ? null : asString;
+  }
+
+  static String _mergeImageUrlsForLocal(String? remote, String? existing) {
+    final fromServer = _normalizeServerMedia(remote);
+    if (fromServer != null) return fromServer;
+    return existing ?? '';
+  }
+
+  static String? _mergeMediaUrlForLocal(String? remote, String? existing) {
+    final fromServer = _normalizeServerMedia(remote);
+    if (fromServer != null) return fromServer;
+    if (existing != null && existing.isNotEmpty) return existing;
+    return null;
+  }
+
+  /// Warm disk cache from local DB — call on startup so images survive restarts.
+  Future<void> warmMediaCache() => _prefetchAllLocalMedia();
+
+  Future<void> _repairMediaUrlsFromServer() async {
+    if (!isOnline) return;
+
+    try {
+      final remoteProducts = await _fetchAllProductsPaginated();
+      final remoteShops = await _fetchAllShopsPaginated();
+      final localProducts = await db.select(db.products).get();
+      final localShops = await db.select(db.shops).get();
+
+      final productByRemoteId = <String, Product>{
+        for (final product in localProducts)
+          if (product.remoteId != null && product.remoteId!.isNotEmpty)
+            product.remoteId!: product,
+      };
+      final shopByRemoteId = <String, Shop>{
+        for (final shop in localShops)
+          if (shop.remoteId != null && shop.remoteId!.isNotEmpty)
+            shop.remoteId!: shop,
+      };
+
+      var repaired = 0;
+
+      await db.batch((batch) {
+        for (final remote in remoteProducts) {
+          final dynamic rawRemoteId = remote['remote_id'];
+          final rId = rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+              ? rawRemoteId.toString()
+              : (remote['id']?.toString() ?? '');
+          if (rId.isEmpty) continue;
+
+          final local = productByRemoteId[rId];
+          if (local == null) continue;
+
+          final remoteImages =
+              _normalizeServerMedia(remote['image_urls'] as String?);
+          if (remoteImages == null || local.imageUrls == remoteImages) {
+            continue;
+          }
+
+          batch.update(
+            db.products,
+            ProductsCompanion(imageUrls: Value(remoteImages)),
+            where: (t) => t.id.equals(local.id),
+          );
+          repaired++;
+        }
+
+        for (final remote in remoteShops) {
+          final dynamic rawRemoteId = remote['remote_id'];
+          final rId = rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+              ? rawRemoteId.toString()
+              : (remote['id']?.toString() ?? '');
+          if (rId.isEmpty) continue;
+
+          final local = shopByRemoteId[rId];
+          if (local == null) continue;
+
+          final remoteLogo =
+              _normalizeServerMedia(remote['logo_url'] as String?);
+          final remoteBanner =
+              _normalizeServerMedia(remote['banner_url'] as String?);
+          final remoteVideo =
+              _normalizeServerMedia(remote['video_url'] as String?);
+
+          final logoNeedsUpdate =
+              remoteLogo != null && local.logoUrl != remoteLogo;
+          final bannerNeedsUpdate =
+              remoteBanner != null && local.bannerUrl != remoteBanner;
+          final videoNeedsUpdate =
+              remoteVideo != null && local.videoUrl != remoteVideo;
+
+          if (!logoNeedsUpdate && !bannerNeedsUpdate && !videoNeedsUpdate) {
+            continue;
+          }
+
+          batch.update(
+            db.shops,
+            ShopsCompanion(
+              logoUrl: logoNeedsUpdate
+                  ? Value(remoteLogo)
+                  : const Value.absent(),
+              bannerUrl: bannerNeedsUpdate
+                  ? Value(remoteBanner)
+                  : const Value.absent(),
+              videoUrl: videoNeedsUpdate
+                  ? Value(remoteVideo)
+                  : const Value.absent(),
+            ),
+            where: (t) => t.id.equals(local.id),
+          );
+          repaired++;
+        }
+      });
+
+      if (repaired > 0) {
+        debugPrint('MEDIA REPAIR: refreshed $repaired records from server');
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('MEDIA REPAIR ERROR: $e');
+    }
+  }
+
+  Future<void> _prefetchAllLocalMedia() async {
+    try {
+      final products = await db.select(db.products).get();
+      final shops = await db.select(db.shops).get();
+      final stories = await db.select(db.stories).get();
+      final storyMedia = await db.select(db.storyMedia).get();
+
+      final sources = <String?>[
+        ...products.map((product) => product.imageUrls),
+        ...shops.map((shop) => shop.logoUrl),
+        ...shops.map((shop) => shop.bannerUrl),
+        ...shops.map((shop) => shop.videoUrl),
+        ...stories.map((story) => story.mediaUrl),
+        ...storyMedia.map((media) => media.mediaUrl),
+      ];
+
+      await ImageUtils.prefetchUrls(sources);
+    } catch (e) {
+      debugPrint('Local media prefetch failed: $e');
+    }
+  }
+
   static int? _toInt(dynamic value) {
     if (value == null) return null;
     if (value is int) return value;
@@ -1288,19 +1614,6 @@ class SyncService extends ChangeNotifier {
       return normalized == '1' || normalized == 'true' || normalized == 'yes';
     }
     return false;
-  }
-
-  void _prefetchBoostedImages(List<Map<String, dynamic>> products) {
-    // Basic pre-fetching logic (will trigger CachedNetworkImage pre-caching)
-    final boosted = products.where((p) => p['boostStatus'] == 2);
-    for (var p in boosted) {
-      final imgString = p['imageUrls'] as String? ?? '';
-      final images = imgString.split(',');
-      if (images.isNotEmpty && images.first.isNotEmpty) {
-        // We could use an ImageProvider and resolve it here to force cache
-        // precacheImage(NetworkImage(images.first), ...);
-      }
-    }
   }
 
   Future<void> addToQueue(
@@ -1580,6 +1893,42 @@ class SyncService extends ChangeNotifier {
     }
   }
 
+  /// Hard-delete local stories (and media) missing from the server list.
+  Future<void> _purgeOrphanedLocalStories(Set<String> serverStoryRemoteIds) async {
+    final allLocalStories = await db.select(db.stories).get();
+    final mediaUrls = <String?>[];
+
+    for (final localStory in allLocalStories) {
+      if (localStory.remoteId == null || localStory.remoteId!.isEmpty) {
+        continue;
+      }
+      if (serverStoryRemoteIds.contains(localStory.remoteId)) {
+        continue;
+      }
+
+      final mediaRows = await (db.select(db.storyMedia)
+            ..where((t) => t.storyId.equals(localStory.id)))
+          .get();
+      mediaUrls.add(localStory.mediaUrl);
+      mediaUrls.addAll(mediaRows.map((m) => m.mediaUrl));
+
+      await db.transaction(() async {
+        await (db.delete(db.storyMedia)
+              ..where((t) => t.storyId.equals(localStory.id)))
+            .go();
+        await (db.delete(db.stories)
+              ..where((t) => t.id.equals(localStory.id)))
+            .go();
+      });
+
+      debugPrint(
+        'Sync: Hard-deleted orphaned story (remoteId: ${localStory.remoteId})',
+      );
+    }
+
+    await ImageUtils.evictCachedSources(mediaUrls);
+  }
+
   /// Map server-returned story ID back to local story record.
   /// This prevents duplicate stories during pull sync.
   Future<void> _mapServerIdToLocalStory(
@@ -1588,25 +1937,33 @@ class SyncService extends ChangeNotifier {
   ) async {
     try {
       final data = jsonDecode(item.entityData) as Map<String, dynamic>;
-      final mediaUrl = data['media_url'] as String?;
-      final shopId = data['shop_id'] as int?;
+      final localId = data['local_id'] as int?;
 
-      if (mediaUrl == null || shopId == null) {
+      if (localId != null) {
+        await (db.update(db.stories)..where((t) => t.id.equals(localId))).write(
+          StoriesCompanion(remoteId: Value(serverId)),
+        );
         debugPrint(
-          '_mapServerIdToLocalStory: missing mediaUrl or shopId in queue item',
+          '_mapServerIdToLocalStory: mapped local story $localId → server ID $serverId',
         );
         return;
       }
 
-      // Find the local story by matching shopId and recent creation time
+      final localShopId = data['local_shop_id'] as int?;
+      if (localShopId == null) {
+        debugPrint(
+          '_mapServerIdToLocalStory: missing local_id and local_shop_id',
+        );
+        return;
+      }
+
       final localStories =
           await (db.select(db.stories)
-                ..where((t) => t.shopId.equals(shopId))
+                ..where((t) => t.shopId.equals(localShopId))
                 ..orderBy([(t) => OrderingTerm.desc(t.createdAt)])
                 ..limit(5))
               .get();
 
-      // Find the most recent story without a remoteId
       for (final localStory in localStories) {
         if (localStory.remoteId == null || localStory.remoteId!.isEmpty) {
           await (db.update(db.stories)
@@ -1620,7 +1977,7 @@ class SyncService extends ChangeNotifier {
       }
 
       debugPrint(
-        '_mapServerIdToLocalStory: no local story without remoteId found for shopId=$shopId',
+        '_mapServerIdToLocalStory: no local story without remoteId found for localShopId=$localShopId',
       );
     } catch (e) {
       debugPrint('_mapServerIdToLocalStory error: $e');

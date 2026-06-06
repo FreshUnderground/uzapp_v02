@@ -314,8 +314,33 @@ try {
         } else if ($action === 'DELETE') {
             $id = isset($data['id']) ? $data['id'] : null;
             if ($id) {
+                $mediaUrls = [];
+                $urlStmt = $db->prepare("SELECT media_url FROM stories WHERE id = ?");
+                $urlStmt->execute([$id]);
+                $storyRow = $urlStmt->fetch(PDO::FETCH_ASSOC);
+                if ($storyRow && !empty($storyRow['media_url'])) {
+                    $mediaUrls[] = $storyRow['media_url'];
+                }
+                $mediaStmt = $db->prepare("SELECT media_url FROM story_media WHERE story_id = ?");
+                $mediaStmt->execute([$id]);
+                while ($mediaRow = $mediaStmt->fetch(PDO::FETCH_ASSOC)) {
+                    if (!empty($mediaRow['media_url'])) {
+                        $mediaUrls[] = $mediaRow['media_url'];
+                    }
+                }
+                $delMediaStmt = $db->prepare("DELETE FROM story_media WHERE story_id = ?");
+                $delMediaStmt->execute([$id]);
                 $stmt = $db->prepare("DELETE FROM stories WHERE id = ?");
                 $stmt->execute([$id]);
+                $baseDir = dirname(__DIR__);
+                foreach ($mediaUrls as $url) {
+                    if (!is_string($url) || $url === '') continue;
+                    if (!preg_match('#/uploads/(.+)$#', $url, $matches)) continue;
+                    $path = $baseDir . '/uploads/' . $matches[1];
+                    if (is_file($path)) @unlink($path);
+                    $thumbPath = preg_replace('#^(.*)/([^/]+)$#', '$1/thumbnails/$2', $path);
+                    if (is_string($thumbPath) && is_file($thumbPath)) @unlink($thumbPath);
+                }
                 echo json_encode(['success' => true, 'id' => $id, 'action' => 'DELETE']);
                 exit;
             } else {

@@ -6,9 +6,9 @@ import 'notification_service.dart';
 
 /// Service for managing local notifications.
 ///
-/// Firebase Cloud Messaging (FCM) has been removed from this project.
-/// Push notifications are handled server-side; the client only shows
-/// local notifications and handles deep-link navigation from taps.
+/// Local notifications + deep-link handling on the client.
+/// Device tokens are registered server-side via [FcmService] (fcm.php).
+/// Server push delivery uses FCM when FCM_SERVER_KEY is configured.
 class PushNotificationService {
   final NotificationService? notificationService;
 

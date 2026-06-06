@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'dart:math' show cos, sqrt, sin, atan2, pi;
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:drift/drift.dart';
+import 'package:http/http.dart' as http;
 import '../local/uza_database.dart';
 import '../services/sync_service.dart';
+import '../../core/services/recommendation_service.dart';
 import 'location_data.dart';
 import 'paginated_result.dart';
 
@@ -190,6 +193,165 @@ class ProductRepository {
     )..where((t) => t.id.equals(id))).getSingleOrNull();
   }
 
+  /// Resolves a product for deep links: local DB first, then public API.
+  Future<Product?> resolveProductById(int id) async {
+    final local = await getProductById(id);
+    if (local != null) return local;
+
+    try {
+      final uri = Uri.parse(
+        'https://uzaapp.com/api/product_page.php?id=$id&format=json',
+      );
+      final response = await http
+          .get(uri)
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) return null;
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      if (body['success'] != true) return null;
+      final data = body['product'] as Map<String, dynamic>?;
+      if (data == null) return null;
+
+      final shopId = _toInt(data['shop_id']);
+      if (shopId != null && shopId > 0) {
+        await _ensureShopCachedForDeepLink(shopId);
+      }
+
+      final remoteId = data['remote_id']?.toString();
+      final resolvedId = _toInt(data['id']) ?? id;
+      await db.into(db.products).insert(
+        ProductsCompanion(
+          id: Value(resolvedId),
+          remoteId: Value(
+            remoteId != null && remoteId.isNotEmpty
+                ? remoteId
+                : resolvedId.toString(),
+          ),
+          shopId: Value(shopId ?? 0),
+          categoryId: Value(_toInt(data['category_id'])),
+          name: Value((data['name'] as String? ?? 'Produit').trim()),
+          description: Value(data['description'] as String?),
+          price: Value((data['price'] as num?)?.toDouble()),
+          category: Value(data['category'] as String?),
+          imageUrls: Value(_coerceImageUrls(data['image_urls'])),
+          isArrival: Value(_toBool(data['is_arrival'])),
+          isPromotion: Value(_toBool(data['is_promotion'])),
+          stockCount: Value(_toInt(data['stock_count'])),
+          hidePrice: Value(_toBool(data['hide_price'])),
+          showStock: Value(_toBool(data['show_stock'])),
+          isBoosted: Value(_toBool(data['is_boosted'])),
+          promotionMessage: Value(data['promotion_message'] as String?),
+          updatedAt: Value(
+            DateTime.tryParse(data['updated_at'] as String? ?? '') ??
+                DateTime.now(),
+          ),
+          viewsCount: Value(_toInt(data['views_count']) ?? 0),
+          sharesCount: Value(_toInt(data['shares_count']) ?? 0),
+          ratingsCount: Value(_toInt(data['ratings_count']) ?? 0),
+          ratingAvg: Value((data['rating_avg'] as num? ?? 0).toDouble()),
+          boostStatus: Value(_toInt(data['boost_status']) ?? 0),
+          condition: Value(data['condition'] as String? ?? 'new'),
+          reportCount: Value(_toInt(data['report_count']) ?? 0),
+          isSold: Value(_toBool(data['is_sold'])),
+          metadata: Value(data['metadata']?.toString()),
+        ),
+        mode: InsertMode.insertOrReplace,
+      );
+      return getProductById(resolvedId);
+    } catch (e) {
+      debugPrint('resolveProductById error: $e');
+      return null;
+    }
+  }
+
+  Future<void> _ensureShopCachedForDeepLink(int shopId) async {
+    final existing = await (db.select(
+      db.shops,
+    )..where((t) => t.id.equals(shopId))).getSingleOrNull();
+    if (existing != null) return;
+
+    try {
+      final uri = Uri.parse(
+        'https://uzaapp.com/api/shop_page.php?id=$shopId&format=json',
+      );
+      final response = await http
+          .get(uri)
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) return;
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      if (body['success'] != true) return;
+      final data = body['shop'] as Map<String, dynamic>?;
+      if (data == null) return;
+
+      final remoteId = data['remote_id']?.toString();
+      final resolvedId = _toInt(data['id']) ?? shopId;
+      await db.into(db.shops).insert(
+        ShopsCompanion(
+          id: Value(resolvedId),
+          remoteId: Value(
+            remoteId != null && remoteId.isNotEmpty
+                ? remoteId
+                : resolvedId.toString(),
+          ),
+          name: Value((data['name'] as String? ?? 'Boutique').trim()),
+          description: Value(data['description'] as String?),
+          logoUrl: Value(data['logo_url'] as String?),
+          type: Value(
+            data['type'] == 'wholesale' ? ShopType.wholesale : ShopType.retail,
+          ),
+          ownerId: Value(data['owner_id'] as String?),
+          address: Value(data['address'] as String?),
+          whatsapp: Value(data['whatsapp'] as String?),
+          phone: Value(data['phone'] as String?),
+          email: Value(data['email'] as String?),
+          instagramUrl: Value(data['instagram_url'] as String?),
+          tiktokUrl: Value(data['tiktok_url'] as String?),
+          facebookUrl: Value(data['facebook_url'] as String?),
+          youtubeUrl: Value(data['youtube_url'] as String?),
+          bannerUrl: Value(data['banner_url'] as String?),
+          videoUrl: Value(data['video_url'] as String?),
+          updatedAt: Value(
+            DateTime.tryParse(data['updated_at'] as String? ?? '') ??
+                DateTime.now(),
+          ),
+          isBoosted: Value(_toBool(data['is_boosted'])),
+          boostStatus: Value(_toInt(data['boost_status']) ?? 0),
+          bannerStatus: Value(_toInt(data['banner_status']) ?? 0),
+          bannerText: Value(data['banner_text'] as String?),
+          isVerified: Value(_toBool(data['is_verified'])),
+          responseTimeMinutes: Value(_toInt(data['response_time_minutes'])),
+          commune: Value(data['commune'] as String?),
+          city: Value(data['city'] as String?),
+          latitude: Value((data['latitude'] as num?)?.toDouble()),
+          longitude: Value((data['longitude'] as num?)?.toDouble()),
+        ),
+        mode: InsertMode.insertOrReplace,
+      );
+    } catch (e) {
+      debugPrint('_ensureShopCachedForDeepLink error: $e');
+    }
+  }
+
+  int? _toInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    return int.tryParse(value.toString());
+  }
+
+  bool _toBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is int) return value == 1;
+    final normalized = value?.toString().toLowerCase();
+    return normalized == '1' || normalized == 'true';
+  }
+
+  String _coerceImageUrls(dynamic value) {
+    if (value == null) return '';
+    if (value is String) return value;
+    return jsonEncode(value);
+  }
+
   Future<int> addProduct(ProductsCompanion product) {
     return db.into(db.products).insert(product);
   }
@@ -274,15 +436,21 @@ class ProductRepository {
     )..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch();
   }
 
+  /// Produits populaires : tirage aléatoire parmi les plus récents.
   Stream<List<Product>> watchTrendingProducts({int limit = 10}) {
-    // Now using global synced stats for trending status
+    final poolSize = (limit * 4).clamp(limit, 80);
     return (db.select(db.products)
-          ..orderBy([
-            (t) => OrderingTerm.desc(t.viewsCount),
-            (t) => OrderingTerm.desc(t.sharesCount),
-          ])
-          ..limit(limit))
-        .watch();
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+        .watch()
+        .map((items) {
+          if (items.isEmpty) return items;
+          final pool = items.take(poolSize).toList();
+          final boosted = pool.where((p) => p.boostStatus == 2).toList()
+            ..shuffle();
+          final regular = pool.where((p) => p.boostStatus != 2).toList()
+            ..shuffle();
+          return [...boosted, ...regular].take(limit).toList();
+        });
   }
 
   Future<List<Product>> searchProductsByKeywords(List<String> keywords) {
@@ -669,20 +837,13 @@ class ProductRepository {
 
   Stream<List<Product>> suggestedProducts(int productId) {
     return (db.select(db.products)..where((t) => t.id.equals(productId)))
-        .getSingleOrNull()
-        .asStream()
-        .asyncExpand((current) {
-          if (current == null) return Stream.value([]);
-          return (db.select(db.products)
-                ..where((t) {
-                  Expression<bool> filter = t.shopId.equals(current.shopId);
-                  if (current.categoryId != null) {
-                    filter = filter | t.categoryId.equals(current.categoryId!);
-                  }
-                  return filter & t.id.equals(current.id).not();
-                })
-                ..limit(10))
-              .watch();
+        .watchSingleOrNull()
+        .asyncMap((current) async {
+          if (current == null) return <Product>[];
+          return RecommendationService(this).similarProducts(
+            source: current,
+            limit: 10,
+          );
         });
   }
 

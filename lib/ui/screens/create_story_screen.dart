@@ -1,7 +1,8 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:image_picker/image_picker.dart';
+import '../../core/utils/picker_utils.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import 'package:drift/drift.dart' hide Column;
@@ -9,18 +10,18 @@ import '../../data/local/uza_database.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/services/api_service.dart';
 import '../../core/utils/crypto_utils.dart';
-import '../../core/utils/image_compress_utils.dart';
+import '../../core/utils/image_prepare_utils.dart';
 import '../../data/services/sync_service.dart';
 
 /// Represents a selected media item before upload.
 class _PendingMedia {
-  final XFile file;
   final Uint8List bytes;
+  final String fileName;
   final String mediaType; // 'image' or 'video'
 
   _PendingMedia({
-    required this.file,
     required this.bytes,
+    required this.fileName,
     required this.mediaType,
   });
 }
@@ -39,76 +40,131 @@ class CreateStoryScreen extends StatefulWidget {
 }
 
 class _CreateStoryScreenState extends State<CreateStoryScreen> {
-  final _picker = ImagePicker();
   final List<_PendingMedia> _selectedMedia = [];
   bool _isLoading = false;
   bool _isUploading = false;
   String? _uploadMessage;
 
   Future<void> _pickImage() async {
-    if (widget.isArrivage) {
-      // Multi-image selection for arrivages
-      final List<XFile> files = await _picker.pickMultiImage();
-      if (files.isEmpty) return;
+    try {
+      if (widget.isArrivage) {
+        final images = await PickerUtils.pickMultipleImages(context);
+        if (images.isEmpty) return;
 
-      final List<_PendingMedia> newItems = [];
-      for (final file in files) {
-        final bytes = await file.readAsBytes();
-        newItems.add(
-          _PendingMedia(file: file, bytes: bytes, mediaType: 'image'),
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final newItems = images.asMap().entries.map((entry) {
+          return _PendingMedia(
+            bytes: entry.value,
+            fileName: 'arrivage_${timestamp}_${entry.key}.jpg',
+            mediaType: 'image',
+          );
+        }).toList();
+        setState(() => _selectedMedia.addAll(newItems));
+      } else {
+        final bytes = await PickerUtils.pickImage(context);
+        if (bytes == null) return;
+
+        setState(() {
+          _selectedMedia
+            ..clear()
+            ..add(
+              _PendingMedia(
+                bytes: bytes,
+                fileName:
+                    'story_${DateTime.now().millisecondsSinceEpoch}.jpg',
+                mediaType: 'image',
+              ),
+            );
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impossible de charger l\'image: $e')),
         );
       }
-      setState(() {
-        _selectedMedia.addAll(newItems);
-      });
-    } else {
-      // Single selection for regular stories
-      final XFile? file = await _picker.pickImage(source: ImageSource.gallery);
-      if (file == null) return;
-
-      final bytes = await file.readAsBytes();
-      setState(() {
-        _selectedMedia.clear();
-        _selectedMedia.add(
-          _PendingMedia(file: file, bytes: bytes, mediaType: 'image'),
-        );
-      });
     }
   }
 
   Future<void> _pickVideo() async {
-    final XFile? file = await _picker.pickVideo(source: ImageSource.gallery);
-    if (file == null) return;
+    try {
+      final picked = await PickerUtils.pickVideo(context);
+      if (picked == null) return;
 
-    final bytes = await file.readAsBytes();
-    const maxVideoSize = 20 * 1024 * 1024; // 20MB
-    if (bytes.length > maxVideoSize) {
+      const maxVideoSize = 20 * 1024 * 1024; // 20MB
+      if (picked.bytes.length > maxVideoSize) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'La vidéo est trop volumineuse (max 20 Mo). Utilisez une vidéo plus courte.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final prefix = widget.isArrivage ? 'arrivage' : 'story';
+      final media = _PendingMedia(
+        bytes: picked.bytes,
+        fileName: picked.fileName.contains('.')
+            ? picked.fileName
+            : '${prefix}_${DateTime.now().millisecondsSinceEpoch}.mp4',
+        mediaType: 'video',
+      );
+
+      setState(() {
+        if (widget.isArrivage) {
+          _selectedMedia.add(media);
+        } else {
+          _selectedMedia
+            ..clear()
+            ..add(media);
+        }
+      });
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'La vidéo est trop volumineuse (max 20 Mo). Utilisez une vidéo plus courte.',
-            ),
-          ),
+          SnackBar(content: Text('Impossible de charger la vidéo: $e')),
         );
       }
-      return;
     }
+  }
 
-    setState(() {
-      if (widget.isArrivage) {
-        // Append for arrivages
-        _selectedMedia.add(
-          _PendingMedia(file: file, bytes: bytes, mediaType: 'video'),
-        );
-      } else {
-        // Replace for regular stories
-        _selectedMedia.clear();
-        _selectedMedia.add(
-          _PendingMedia(file: file, bytes: bytes, mediaType: 'video'),
-        );
-      }
-    });
+  Future<void> _showMediaSourceSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: UzaColors.primary),
+                title: Text(widget.isArrivage ? 'Ajouter des photos' : 'Choisir une photo'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickImage();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.videocam, color: UzaColors.primary),
+                title: Text(widget.isArrivage ? 'Ajouter une vidéo' : 'Choisir une vidéo'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickVideo();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _removeMedia() {
@@ -121,6 +177,15 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
     setState(() {
       _selectedMedia.removeAt(index);
     });
+  }
+
+  String _uploadFileName(_PendingMedia media, int index) {
+    if (media.fileName.isNotEmpty) return media.fileName;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    if (media.mediaType == 'video') {
+      return 'story_${timestamp}_$index.mp4';
+    }
+    return 'story_${timestamp}_$index.jpg';
   }
 
   Future<void> _submit() async {
@@ -150,38 +215,42 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
 
       for (var i = 0; i < _selectedMedia.length; i++) {
         final media = _selectedMedia[i];
-        setState(() {
-          _uploadMessage =
-              'Envoi ${i + 1}/${_selectedMedia.length} (${ImageCompressUtils.getFileSizeString(media.bytes.length)})...';
-        });
 
         Uint8List bytesToUpload = media.bytes;
+        String fileName = _uploadFileName(media, i);
 
-        // Compress images (skip for videos)
         if (media.mediaType == 'image') {
-          final compressed = await ImageCompressUtils.compressImage(
+          final prepared = await ImagePrepareUtils.prepareForUpload(
             media.bytes,
             maxWidth: 1080,
             quality: 70,
+            prefix: widget.isArrivage ? 'arrivage' : 'story',
           );
-          if (compressed != null) {
-            bytesToUpload = compressed;
+          bytesToUpload = await ImagePrepareUtils.ensureUploadSize(
+            prepared.bytes,
+          );
+          fileName = prepared.fileName;
+          if (bytesToUpload.length > ImagePrepareUtils.maxImageUploadBytes) {
+            throw Exception(
+              'Image ${i + 1} trop volumineuse (max 5 Mo). '
+              'Choisissez une photo plus petite.',
+            );
           }
         }
 
-        final fileName =
-            'story_${DateTime.now().millisecondsSinceEpoch}_$i.${media.file.name.split('.').last}';
+        setState(() {
+          _uploadMessage =
+              'Envoi ${i + 1}/${_selectedMedia.length} (${ImagePrepareUtils.getFileSizeString(bytesToUpload.length)})...';
+        });
 
-        final remoteUrl = await apiService.uploadFile(
+        final remoteUrl = await apiService.uploadFileOrThrow(
           bytesToUpload,
           fileName,
           folder: 'stories',
-          timeout: const Duration(seconds: 30),
+          timeout: media.mediaType == 'video'
+              ? const Duration(seconds: 120)
+              : const Duration(seconds: 60),
         );
-
-        if (remoteUrl == null) {
-          throw Exception('Échec de l\'upload du média ${i + 1}');
-        }
 
         remoteUrls.add(remoteUrl);
         mediaTypes.add(media.mediaType);
@@ -193,6 +262,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
           ? nowUtc.add(StoryRepository.arrivageExpiry)
           : nowUtc.add(StoryRepository.storyExpiry);
 
+      late final int localStoryId;
       if (widget.isArrivage && remoteUrls.length > 1) {
         // Arrivage with multiple media → use addStoryWithMedia
         final mediaItems = <StoryMediaCompanion>[];
@@ -206,7 +276,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
             ),
           );
         }
-        await storyRepo.addStoryWithMedia(
+        localStoryId = await storyRepo.addStoryWithMedia(
           StoriesCompanion.insert(
             shopId: widget.shopId,
             mediaUrl: CryptoUtils.encrypt(remoteUrls.first),
@@ -218,7 +288,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
         );
       } else {
         // Single media story (or regular story)
-        await storyRepo.addStory(
+        localStoryId = await storyRepo.addStory(
           StoriesCompanion.insert(
             shopId: widget.shopId,
             mediaUrl: CryptoUtils.encrypt(remoteUrls.first),
@@ -234,6 +304,8 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
       final shop = await shopRepo.getShopById(widget.shopId);
       final remoteShopId = int.tryParse(shop?.remoteId ?? '') ?? widget.shopId;
       final syncPayload = <String, dynamic>{
+        'local_id': localStoryId,
+        'local_shop_id': widget.shopId,
         'shop_id': remoteShopId,
         'media_url': remoteUrls.first,
         'media_type': mediaTypes.first,
@@ -437,7 +509,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
 
   Widget _buildEmptyPicker() {
     return GestureDetector(
-      onTap: _pickImage,
+      onTap: _showMediaSourceSheet,
       child: Container(
         width: double.infinity,
         height: 200,
@@ -453,11 +525,22 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.add_a_photo_outlined, size: 48, color: Colors.grey[400]),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.photo_library_outlined, size: 36, color: Colors.grey[400]),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('ou', style: TextStyle(color: Colors.grey[500])),
+                ),
+                Icon(Icons.videocam_outlined, size: 36, color: Colors.grey[400]),
+              ],
+            ),
             const SizedBox(height: 12),
             Text(
-              'Cliquez pour ajouter une photo ou vidéo',
+              'Photo ou vidéo — touchez pour choisir',
               style: TextStyle(color: Colors.grey[600]),
+              textAlign: TextAlign.center,
             ),
           ],
         ),

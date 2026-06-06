@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
-import '../../core/utils/crypto_utils.dart';
+import '../../core/utils/image_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -45,6 +44,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   // Video player for video media
   VideoPlayerController? _videoController;
   bool _isVideoInitialized = false;
+  bool _isMediaReady = false;
 
   // Liked stories (local state only)
   final Set<int> _likedStoryIds = {};
@@ -175,28 +175,40 @@ class _StoryViewScreenState extends State<StoryViewScreen>
     }
   }
 
+  String? _resolveMediaSource(String? source) {
+    if (source == null || source.isEmpty) return null;
+    return ImageUtils.resolveImageUrl(source);
+  }
+
   /// Get the current media URL (either from StoryMedia or the story's main mediaUrl)
   String _getCurrentMediaUrl() {
     final story = widget.stories[_currentIndex];
+    String? raw;
 
-    // If we have media items from storyMedia table
     if (_currentMediaItems.isNotEmpty) {
-      // Index 0 = story's main mediaUrl (first image)
-      // Index 1+ = media items from storyMedia table
       if (_mediaIndex == 0) {
-        // First image: use story's main mediaUrl
-        return story.mediaUrl.isNotEmpty
-            ? CryptoUtils.decrypt(story.mediaUrl)
-            : '';
+        raw = story.mediaUrl.isNotEmpty ? story.mediaUrl : null;
       } else if (_mediaIndex < _currentMediaItems.length + 1) {
-        // Subsequent images: use storyMedia items (adjust index by -1)
-        final url = _currentMediaItems[_mediaIndex - 1].mediaUrl;
-        return CryptoUtils.decrypt(url);
+        raw = _currentMediaItems[_mediaIndex - 1].mediaUrl;
       }
+    } else {
+      raw = story.mediaUrl.isNotEmpty ? story.mediaUrl : null;
     }
 
-    // Fallback: no media items, use the story's main mediaUrl
-    return story.mediaUrl.isNotEmpty ? CryptoUtils.decrypt(story.mediaUrl) : '';
+    return _resolveMediaSource(raw) ?? '';
+  }
+
+  String? _getCurrentRawMediaUrl() {
+    final story = widget.stories[_currentIndex];
+    if (_currentMediaItems.isNotEmpty) {
+      if (_mediaIndex == 0) {
+        return story.mediaUrl.isNotEmpty ? story.mediaUrl : null;
+      }
+      if (_mediaIndex < _currentMediaItems.length + 1) {
+        return _currentMediaItems[_mediaIndex - 1].mediaUrl;
+      }
+    }
+    return story.mediaUrl.isNotEmpty ? story.mediaUrl : null;
   }
 
   /// Get the current media type
@@ -229,25 +241,36 @@ class _StoryViewScreenState extends State<StoryViewScreen>
     return 1; // Fallback to single media
   }
 
+  void _onMediaReady() {
+    if (!mounted || _isMediaReady) return;
+    setState(() => _isMediaReady = true);
+    if (!_isPaused) {
+      _animController.forward(from: 0);
+    }
+  }
+
   void _setupCurrentMedia() {
     _disposeVideoController();
     _animController.stop();
     _animController.reset();
+    _isMediaReady = false;
 
     final mediaType = _getCurrentMediaType();
     if (mediaType == 'video') {
       _setupVideoPlayer();
     } else {
-      // Image: use timer-based progress
       _animController.duration = const Duration(seconds: 5);
-      if (!_isPaused) {
-        _animController.forward();
-      }
     }
   }
 
   void _setupVideoPlayer() {
     final url = _getCurrentMediaUrl();
+    if (url.isEmpty) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) _advanceMediaOrStory();
+      });
+      return;
+    }
     _videoController = VideoPlayerController.networkUrl(Uri.parse(url));
     _videoController!
         .initialize()
@@ -257,16 +280,13 @@ class _StoryViewScreenState extends State<StoryViewScreen>
             _videoController!.play();
             _videoController!.addListener(_onVideoUpdate);
 
-            // Set animation duration to video duration for progress bar
             final duration = _videoController!.value.duration;
             if (duration.inMilliseconds > 0) {
               _animController.duration = duration;
             } else {
               _animController.duration = const Duration(seconds: 15);
             }
-            if (!_isPaused) {
-              _animController.forward();
-            }
+            _onMediaReady();
           }
         })
         .catchError((e) {
@@ -306,7 +326,9 @@ class _StoryViewScreenState extends State<StoryViewScreen>
 
   void _onLongPressEnd(LongPressEndDetails _) {
     setState(() => _isPaused = false);
-    _animController.forward();
+    if (_isMediaReady) {
+      _animController.forward();
+    }
     _videoController?.play();
   }
 
@@ -324,14 +346,18 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       body: Stack(
         children: [
           // Blurred background for desktop
-          if (isDesktop && mediaType != 'video')
+          if (isDesktop && mediaType != 'video' && mediaUrl.isNotEmpty)
             Positioned.fill(
-              child: CachedNetworkImage(
-                imageUrl: mediaUrl,
-                fit: BoxFit.cover,
-                color: Colors.black.withValues(alpha: 0.6),
-                colorBlendMode: BlendMode.darken,
-                errorWidget: (_, __, ___) => Container(color: Colors.black),
+              child: ColorFiltered(
+                colorFilter: ColorFilter.mode(
+                  Colors.black.withValues(alpha: 0.6),
+                  BlendMode.darken,
+                ),
+                child: ImageUtils.buildCachedImage(
+                  widget.stories[_currentIndex].mediaUrl,
+                  fit: BoxFit.cover,
+                  errorWidget: Container(color: Colors.black),
+                ),
               ),
             ),
 
@@ -466,7 +492,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
     if (mediaType == 'video') {
       if (_isVideoInitialized && _videoController != null) {
         return FittedBox(
-          fit: BoxFit.cover,
+          fit: BoxFit.contain,
           key: ValueKey('video_$_mediaIndex'),
           child: SizedBox(
             width: _videoController!.value.size.width,
@@ -485,13 +511,27 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       }
     }
 
-    return CachedNetworkImage(
+    if (mediaUrl.isEmpty) {
+      return Container(
+        key: ValueKey('img_empty_$_mediaIndex'),
+        color: Colors.black,
+        child: const Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      );
+    }
+
+    return ImageUtils.buildFullscreenContainedImage(
+      _getCurrentRawMediaUrl(),
       key: ValueKey('img_$_mediaIndex'),
-      imageUrl: mediaUrl,
-      fit: BoxFit.cover,
-      width: double.infinity,
-      height: double.infinity,
-      errorWidget: (_, __, ___) => Container(
+      onImageLoaded: _onMediaReady,
+      placeholder: Container(
+        color: Colors.black,
+        child: const Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      ),
+      errorWidget: Container(
         color: Colors.grey[900],
         child: const Center(
           child: Icon(Icons.broken_image, color: Colors.white54, size: 48),
@@ -543,18 +583,14 @@ class _StoryViewScreenState extends State<StoryViewScreen>
 
     return Row(
       children: [
-        CircleAvatar(
-          radius: 18,
-          backgroundColor: Colors.white24,
-          backgroundImage: () {
-            if (shop?.logoUrl == null || shop!.logoUrl!.isEmpty) return null;
-            final decrypted = CryptoUtils.decrypt(shop.logoUrl!);
-            if (decrypted.isEmpty || (!decrypted.startsWith('http://') && !decrypted.startsWith('https://'))) return null;
-            return CachedNetworkImageProvider(decrypted) as ImageProvider;
-          }(),
-          child: shop?.logoUrl == null || shop!.logoUrl!.isEmpty
-              ? const Icon(Icons.person, color: Colors.white)
-              : null,
+        SizedBox(
+          width: 36,
+          height: 36,
+          child: ImageUtils.getLogoWidget(
+            shop?.logoUrl,
+            size: 36,
+            fallbackIcon: Icons.person,
+          ),
         ),
         const SizedBox(width: 12),
         Expanded(

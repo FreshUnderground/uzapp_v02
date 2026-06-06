@@ -4,7 +4,11 @@
  * Serves as the WhatsApp link preview target for shared products.
  * No authentication required — this is a public page.
  */
-require_once __DIR__ . '/../db.php';
+$dbFile = __DIR__ . '/db.php';
+if (!is_file($dbFile)) {
+    $dbFile = __DIR__ . '/../db.php';
+}
+require_once $dbFile;
 
 $productId = $_GET['id'] ?? '';
 if (!$productId) {
@@ -16,13 +20,37 @@ $product = null;
 $dbError = null;
 
 try {
-    $db = DB::getInstance()->getConnection();
-    $stmt = $db->prepare('SELECT name, price, image_urls, condition FROM products WHERE id = ?');
+    $db = DB::getInstance();
+    $stmt = $db->prepare('SELECT * FROM products WHERE id = ?');
     $stmt->execute([$productId]);
     $product = $stmt->fetch(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     $dbError = $e->getMessage();
     error_log('product_page.php error: ' . $dbError);
+}
+
+// JSON API for Flutter deep links (no auth required)
+if (isset($_GET['format']) && $_GET['format'] === 'json') {
+    header('Content-Type: application/json');
+    if (!$product) {
+        http_response_code(404);
+        echo json_encode(['success' => false, 'product' => null]);
+        exit;
+    }
+    echo json_encode(['success' => true, 'product' => $product]);
+    exit;
+}
+
+// Mobile smart opener: try native app, fallback to Flutter web
+if (isset($_GET['bridge']) && $_GET['bridge'] === '1') {
+    if (!$product) {
+        http_response_code(404);
+        header('Location: https://uzaapp.com');
+        exit;
+    }
+    require_once __DIR__ . '/smart_open_bridge.php';
+    renderSmartOpenBridge('product', $productId, $product['name'] ?? null);
+    exit;
 }
 
 // Return 404 if product not found or DB error occurred
@@ -190,13 +218,5 @@ $pageUrl = 'https://uzaapp.com/product/' . urlencode($productId);
     </div>
   </div>
 
-  <script>
-    <?php if ($product): ?>
-    // Attempt to open in the native app via custom URL scheme
-    setTimeout(function() {
-      window.location.href = 'uzaapp://product/<?= htmlspecialchars($productId) ?>';
-    }, 500);
-    <?php endif; ?>
-  </script>
 </body>
 </html>

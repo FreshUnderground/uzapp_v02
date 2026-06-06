@@ -10,10 +10,14 @@ import '../../core/services/api_service.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../core/utils/picker_utils.dart';
+import '../../core/utils/image_prepare_utils.dart';
+import '../../core/utils/phone_utils.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../data/repositories/location_data.dart';
 import '../../data/services/sync_service.dart';
 import '../../core/services/location_service.dart';
+import '../../core/utils/profile_shop_sync.dart';
+import '../../core/utils/image_utils.dart';
 
 class EditShopScreen extends StatefulWidget {
   final Shop shop;
@@ -96,13 +100,20 @@ class _EditShopScreenState extends State<EditShopScreen> {
     }
   }
 
-  Future<void> _pickVideo() async {
-    final bytes = await PickerUtils.pickVideo(context);
+  Future<void> _pickBanner() async {
+    final bytes = await PickerUtils.pickImage(context);
     if (bytes != null) {
+      setState(() => _bannerBytes = bytes);
+    }
+  }
+
+  Future<void> _pickVideo() async {
+    final picked = await PickerUtils.pickVideo(context);
+    if (picked != null) {
       setState(() {
-        _videoBytes = bytes;
+        _videoBytes = picked.bytes;
         _videoController.text =
-            "Vidéo sélectionnée (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)";
+            "Vidéo sélectionnée (${(picked.bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)";
       });
     }
   }
@@ -155,20 +166,26 @@ class _EditShopScreenState extends State<EditShopScreen> {
 
       String finalLogoUrl = _logoController.text.trim();
       if (_previewBytes != null) {
-        final fileName = "shop_logo_update_${widget.shop.id}.png";
-        final uploadedUrl = await apiService.uploadFile(
+        final prepared = await ImagePrepareUtils.prepareForUpload(
           _previewBytes!,
-          fileName,
+          prefix: 'shop_logo_${widget.shop.id}',
+        );
+        final uploadedUrl = await apiService.uploadFile(
+          prepared.bytes,
+          prepared.fileName,
         );
         if (uploadedUrl != null) finalLogoUrl = uploadedUrl;
       }
 
       String finalBannerUrl = _bannerController.text;
       if (_bannerBytes != null) {
-        final fileName = "shop_banner_update_${widget.shop.id}.png";
-        final uploadedUrl = await apiService.uploadFile(
+        final prepared = await ImagePrepareUtils.prepareForUpload(
           _bannerBytes!,
-          fileName,
+          prefix: 'shop_banner_${widget.shop.id}',
+        );
+        final uploadedUrl = await apiService.uploadFile(
+          prepared.bytes,
+          prepared.fileName,
           folder: 'boutiques',
         );
         if (uploadedUrl != null) finalBannerUrl = uploadedUrl;
@@ -190,13 +207,15 @@ class _EditShopScreenState extends State<EditShopScreen> {
         name: drift.Value(_nameController.text),
         description: drift.Value(_descController.text),
         address: drift.Value(_addressController.text),
-        whatsapp: drift.Value(_whatsappController.text),
+        whatsapp: drift.Value(
+          PhoneUtils.normalizeDrc(_whatsappController.text),
+        ),
         facebookUrl: drift.Value(_fbController.text),
         tiktokUrl: drift.Value(_ttController.text),
         instagramUrl: drift.Value(_igController.text),
-        logoUrl: drift.Value(CryptoUtils.encrypt(finalLogoUrl)),
-        bannerUrl: drift.Value(CryptoUtils.encrypt(finalBannerUrl)),
-        videoUrl: drift.Value(CryptoUtils.encrypt(finalVideoUrl)),
+        logoUrl: drift.Value(finalLogoUrl),
+        bannerUrl: drift.Value(finalBannerUrl),
+        videoUrl: drift.Value(finalVideoUrl),
         bannerText: drift.Value(_bannerTextController.text),
         city: drift.Value(_selectedCity),
         commune: drift.Value(_selectedCommune),
@@ -210,6 +229,14 @@ class _EditShopScreenState extends State<EditShopScreen> {
       );
 
       await shopRepo.updateShop(updatedShop);
+
+      if (mounted) {
+        await ProfileShopSync.syncToProfile(
+          context,
+          name: _nameController.text.trim(),
+          avatarUrl: finalLogoUrl.isNotEmpty ? finalLogoUrl : null,
+        );
+      }
 
       // Queue for remote sync
       if (mounted) {
@@ -226,7 +253,7 @@ class _EditShopScreenState extends State<EditShopScreen> {
             'name': _nameController.text,
             'description': _descController.text,
             'address': _addressController.text,
-            'whatsapp': _whatsappController.text,
+            'whatsapp': PhoneUtils.normalizeDrc(_whatsappController.text),
             'facebook_url': _fbController.text,
             'tiktok_url': _ttController.text,
             'instagram_url': _igController.text,
@@ -314,7 +341,11 @@ class _EditShopScreenState extends State<EditShopScreen> {
                     children: [
                       _buildLogoSection(),
                       const SizedBox(height: 24),
+                      _buildCoverSection(),
+                      const SizedBox(height: 24),
                       _buildGeneralInfo(),
+                      const SizedBox(height: 24),
+                      _buildVideoSection(),
                     ],
                   ),
                 ),
@@ -324,6 +355,8 @@ class _EditShopScreenState extends State<EditShopScreen> {
             )
           else ...[
             _buildLogoSection(),
+            const SizedBox(height: 24),
+            _buildCoverSection(),
             const SizedBox(height: 24),
             _buildGeneralInfo(),
             const SizedBox(height: 24),
@@ -357,8 +390,77 @@ class _EditShopScreenState extends State<EditShopScreen> {
             radius: 50,
             backgroundImage: _previewBytes != null
                 ? MemoryImage(_previewBytes!)
+                : ImageUtils.getImageProvider(widget.shop.logoUrl),
+            child: _previewBytes == null &&
+                    ImageUtils.resolveImageUrl(widget.shop.logoUrl) == null
+                ? const Icon(Icons.add_a_photo)
                 : null,
-            child: _previewBytes == null ? const Icon(Icons.add_a_photo) : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCoverSection() {
+    final existingBanner = _bannerController.text.trim();
+    final hasExistingBanner = existingBanner.isNotEmpty &&
+        ImageUtils.resolveImageUrl(existingBanner) != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Image de couverture',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Grande image derrière votre logo, visible par tous les visiteurs.',
+          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+        ),
+        const SizedBox(height: 12),
+        GestureDetector(
+          onTap: _pickBanner,
+          child: Container(
+            height: 150,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[300]!),
+              color: Colors.grey[100],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: _bannerBytes != null
+                  ? Image.memory(
+                      _bannerBytes!,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: 150,
+                    )
+                  : hasExistingBanner
+                  ? ImageUtils.buildCachedImage(
+                      widget.shop.bannerUrl,
+                      fit: BoxFit.cover,
+                      height: 150,
+                      width: double.infinity,
+                    )
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.add_photo_alternate_outlined,
+                          color: Colors.grey[500],
+                          size: 40,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Ajouter une photo de couverture',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+            ),
           ),
         ),
       ],

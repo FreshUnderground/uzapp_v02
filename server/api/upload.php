@@ -12,9 +12,19 @@ if (!file_exists($baseDir)) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_FILES['file'])) {
+    if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+        $uploadError = $_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE;
+        $errorMessages = [
+            UPLOAD_ERR_INI_SIZE => 'Fichier trop volumineux (limite serveur)',
+            UPLOAD_ERR_FORM_SIZE => 'Fichier trop volumineux',
+            UPLOAD_ERR_PARTIAL => 'Upload incomplet, réessayez',
+            UPLOAD_ERR_NO_FILE => 'Aucun fichier reçu',
+        ];
         http_response_code(400);
-        echo json_encode(['error' => 'No file uploaded']);
+        echo json_encode([
+            'error' => $errorMessages[$uploadError] ?? 'Erreur lors de l\'upload du fichier',
+            'upload_error_code' => $uploadError,
+        ]);
         exit;
     }
 
@@ -31,12 +41,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $targetFilePath = $specificDir . $uniqueName;
 
     // Validate file type
-    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
+    $allowedTypes = [
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+        'image/heic', 'image/heif',
+        'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm',
+        'application/octet-stream',
+    ];
     $fileType = mime_content_type($_FILES['file']['tmp_name']);
-    
-    if (!in_array($fileType, $allowedTypes)) {
+
+    // Fallback: detect from extension when MIME is generic
+    if ($fileType === 'application/octet-stream' || empty($fileType)) {
+        $ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
+        $extToMime = [
+            'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp',
+            'heic' => 'image/heic', 'heif' => 'image/heif',
+            'mp4' => 'video/mp4', 'mov' => 'video/quicktime',
+            'avi' => 'video/x-msvideo', 'webm' => 'video/webm',
+        ];
+        if (isset($extToMime[$ext])) {
+            $fileType = $extToMime[$ext];
+        }
+    }
+
+    // Last resort: sniff JPEG/PNG magic bytes
+    if ($fileType === 'application/octet-stream') {
+        $header = file_get_contents($_FILES['file']['tmp_name'], false, null, 0, 12);
+        if (strncmp($header, "\xFF\xD8\xFF", 3) === 0) {
+            $fileType = 'image/jpeg';
+        } elseif (strncmp($header, "\x89PNG\r\n\x1a\n", 8) === 0) {
+            $fileType = 'image/png';
+        }
+    }
+
+    $allowedFinal = [
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+        'image/heic', 'image/heif',
+        'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm',
+    ];
+    if (!in_array($fileType, $allowedFinal)) {
         http_response_code(400);
-        echo json_encode(['error' => 'Invalid file type. Allowed: jpg, png, gif, webp, mp4, mov, avi, webm']);
+        echo json_encode([
+            'error' => 'Type de fichier non supporté. Utilisez jpg, png, webp, heic ou mp4.',
+            'detected_type' => $fileType,
+        ]);
         exit;
     }
 
@@ -51,6 +99,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (move_uploaded_file($_FILES['file']['tmp_name'], $targetFilePath)) {
+        // Convert HEIC/HEIF → JPEG when possible (iPhone photos)
+        if (in_array($fileType, ['image/heic', 'image/heif'], true)) {
+            $jpgName = preg_replace('/\.(heic|heif|hif)$/i', '.jpg', $uniqueName);
+            $jpgPath = $specificDir . $jpgName;
+            $converted = false;
+
+            if (extension_loaded('imagick')) {
+                try {
+                    $imagick = new Imagick($targetFilePath);
+                    $imagick->setImageFormat('jpeg');
+                    $imagick->setImageCompressionQuality(85);
+                    $imagick->writeImage($jpgPath);
+                    $imagick->clear();
+                    $imagick->destroy();
+                    if (file_exists($jpgPath)) {
+                        @unlink($targetFilePath);
+                        $targetFilePath = $jpgPath;
+                        $uniqueName = $jpgName;
+                        $fileType = 'image/jpeg';
+                        $converted = true;
+                    }
+                } catch (Exception $e) {
+                    // fall through
+                }
+            }
+
+            if (!$converted) {
+                $convertCmd = null;
+                if (shell_exec('which heif-convert 2>/dev/null')) {
+                    $convertCmd = 'heif-convert ' . escapeshellarg($targetFilePath)
+                        . ' ' . escapeshellarg($jpgPath) . ' 2>/dev/null';
+                } elseif (shell_exec('which magick 2>/dev/null')) {
+                    $convertCmd = 'magick ' . escapeshellarg($targetFilePath)
+                        . ' ' . escapeshellarg($jpgPath) . ' 2>/dev/null';
+                }
+                if ($convertCmd) {
+                    @exec($convertCmd, $out, $code);
+                    if ($code === 0 && file_exists($jpgPath)) {
+                        @unlink($targetFilePath);
+                        $targetFilePath = $jpgPath;
+                        $uniqueName = $jpgName;
+                        $fileType = 'image/jpeg';
+                    }
+                }
+            }
+        }
+
         // Build base URL
         $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
         $host = $_SERVER['HTTP_HOST'];
