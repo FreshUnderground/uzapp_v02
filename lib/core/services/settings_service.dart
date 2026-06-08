@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/local/uza_database.dart';
 import 'package:drift/drift.dart';
+import 'web_notification_service.dart';
+import 'whatsapp_status_scheduler.dart';
 
 class SettingsService extends ChangeNotifier {
   final UzaDatabase _db;
@@ -9,17 +12,22 @@ class SettingsService extends ChangeNotifier {
   String _language = 'fr';
   bool _notificationsEnabled = true;
   bool _isLiteMode = false;
+  bool _waStatusAutoEnabled = true;
   bool get isDarkMode => _isDarkMode;
   String get language => _language;
   String get currentLanguage => _language;
   bool get notificationsEnabled => _notificationsEnabled;
   bool get isLiteMode => _isLiteMode;
+  bool get waStatusAutoEnabled => _waStatusAutoEnabled;
 
   SettingsService(this._db) {
     _loadSettings();
   }
 
   Future<void> _loadSettings() async {
+    final sp = await SharedPreferences.getInstance();
+    _waStatusAutoEnabled = sp.getBool(kPrefWaStatusEnabled) ?? true;
+
     final prefs = await (_db.select(
       _db.appPreferences,
     )..where((t) => t.id.equals(1))).getSingleOrNull();
@@ -75,6 +83,16 @@ class SettingsService extends ChangeNotifier {
     _isLiteMode = value;
     notifyListeners();
     await _updateDb();
+  }
+
+  Future<void> toggleWaStatusAuto(bool value) async {
+    _waStatusAutoEnabled = value;
+    notifyListeners();
+    final sp = await SharedPreferences.getInstance();
+    await sp.setBool(kPrefWaStatusEnabled, value);
+    if (!value) {
+      await WebNotificationService.syncNextReminder(null);
+    }
   }
 
   Future<void> _updateDb() async {

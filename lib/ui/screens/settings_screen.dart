@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/services/auth_service.dart';
 import '../../core/services/settings_service.dart';
+import '../../data/repositories/shop_repository.dart';
 import '../../core/l10n/tr.dart';
 import '../../core/l10n/app_translations.dart';
 import 'legal_screen.dart';
@@ -136,6 +138,7 @@ class SettingsScreen extends StatelessWidget {
                   value: settings.isDarkMode,
                   onChanged: (val) => settings.toggleDarkMode(val),
                 ),
+                _buildWaStatusToggle(context, settings),
               ],
             ),
           ),
@@ -204,6 +207,43 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 32),
         ],
       ),
+    );
+  }
+
+  Widget _buildWaStatusToggle(BuildContext context, SettingsService settings) {
+    final userId = context.read<AuthService>().user?.uid ?? '';
+    if (userId.isEmpty) return const SizedBox.shrink();
+
+    return StreamBuilder(
+      stream: context.read<ShopRepository>().watchUserShop(userId),
+      builder: (context, snapshot) {
+        final hasShop = snapshot.hasData && snapshot.data != null;
+        if (!hasShop) return const SizedBox.shrink();
+
+        return Column(
+          children: [
+            const Divider(height: 1, indent: 16, endIndent: 16),
+            SwitchListTile(
+              secondary: const Icon(
+                Icons.collections_outlined,
+                color: Color(0xFF25D366),
+              ),
+              title: Text(
+                tr(context, 'wa_status_auto'),
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+              subtitle: Text(
+                settings.waStatusAutoEnabled
+                    ? tr(context, 'wa_status_auto_on')
+                    : tr(context, 'wa_status_auto_off'),
+                style: const TextStyle(fontSize: 13),
+              ),
+              value: settings.waStatusAutoEnabled,
+              onChanged: (val) => settings.toggleWaStatusAuto(val),
+            ),
+          ],
+        );
+      },
     );
   }
 

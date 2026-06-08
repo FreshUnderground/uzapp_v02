@@ -15,6 +15,7 @@ import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/story_repository.dart'
     show StoryRepository, ArrivageMediaItem;
 import '../../data/services/sync_service.dart';
+import '../components/shop_share_sheet.dart';
 import '../components/shop_video_player.dart';
 import '../components/skeletons.dart';
 import '../utils/page_transitions.dart';
@@ -83,14 +84,29 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
       otherMedia[j] = tmp;
     }
 
-    // Shuffle products
-    final shuffledProducts = [...products];
-    for (var i = shuffledProducts.length - 1; i > 0; i--) {
-      final j = _rng.nextInt(i + 1);
-      final tmp = shuffledProducts[i];
-      shuffledProducts[i] = shuffledProducts[j];
-      shuffledProducts[j] = tmp;
+    // Image filter first, then shuffle within each group
+    final productsWithImages = <Product>[];
+    final productsWithoutImages = <Product>[];
+    for (final product in products) {
+      if (ImageUtils.hasDisplayableImage(product.imageUrls)) {
+        productsWithImages.add(product);
+      } else {
+        productsWithoutImages.add(product);
+      }
     }
+
+    void shuffleList(List<Product> list) {
+      for (var i = list.length - 1; i > 0; i--) {
+        final j = _rng.nextInt(i + 1);
+        final tmp = list[i];
+        list[i] = list[j];
+        list[j] = tmp;
+      }
+    }
+
+    shuffleList(productsWithImages);
+    shuffleList(productsWithoutImages);
+    final shuffledProducts = [...productsWithImages, ...productsWithoutImages];
 
     // Build feed: interleave with video priority
     // Strategy: videos get ~40% of feed, other media ~30%, products ~30%
@@ -720,9 +736,8 @@ class _ArrivagePageState extends State<_ArrivagePage> {
                         icon: Icons.share,
                         label: 'Partager',
                         onTap: () {
-                          // Share the arrivage/shop
                           if (_shop != null) {
-                            context.read<ContactService>().shareShop(_shop!);
+                            ShopShareSheet.show(context, _shop!);
                           }
                         },
                       ),

@@ -68,12 +68,19 @@
     if (oldVersion && oldVersion !== APP_VERSION) {
       console.log(`Uzaapp: Version change detected (${oldVersion} -> ${APP_VERSION})`);
 
-      // Clear all browser caches
+      // Clear only Flutter app shell caches — keep image/media caches for speed
       if ('caches' in window) {
         caches.keys().then(names => {
           for (let name of names) {
-            caches.delete(name);
-            console.log(`Uzaapp: Cache deleted: ${name}`);
+            const lower = name.toLowerCase();
+            const isAppShell =
+              lower.includes('flutter') ||
+              lower.includes('uzaapp-app') ||
+              lower.includes('workbox');
+            if (isAppShell) {
+              caches.delete(name);
+              console.log(`Uzaapp: App cache deleted: ${name}`);
+            }
           }
         });
       }
@@ -144,6 +151,48 @@
 
     // Save current version
     localStorage.setItem(STORAGE_VERSION_KEY, APP_VERSION);
+
+    // WhatsApp status daily reminder (24h30) — works when PWA/tab is open
+    (function initWaStatusReminder() {
+      const NEXT_KEY = 'uzaapp_wa_status_next_at';
+      const LAST_NOTIFIED_KEY = 'uzaapp_wa_status_last_notified_at';
+      const INTERVAL_MS = (24 * 60 + 30) * 60 * 1000;
+
+      function showWaStatusNotification() {
+        if (!('Notification' in window)) return;
+        if (Notification.permission !== 'granted') return;
+        const now = Date.now();
+        const last = localStorage.getItem(LAST_NOTIFIED_KEY);
+        if (last && (now - Date.parse(last)) < 60000) return;
+        localStorage.setItem(LAST_NOTIFIED_KEY, new Date().toISOString());
+        const n = new Notification('Statuts WhatsApp prêts', {
+          body: 'Ouvrez Uzaapp pour partager vos statuts du jour.',
+          icon: '/icons/Icon-192.png',
+          tag: 'wa_status_ready',
+        });
+        n.onclick = function () {
+          window.focus();
+          window.location.href = '/profile';
+        };
+      }
+
+      function tick() {
+        const nextRaw = localStorage.getItem(NEXT_KEY);
+        if (!nextRaw) return;
+        const nextAt = Date.parse(nextRaw);
+        if (isNaN(nextAt)) return;
+        if (Date.now() >= nextAt) {
+          showWaStatusNotification();
+          localStorage.setItem(NEXT_KEY, new Date(Date.now() + INTERVAL_MS).toISOString());
+        }
+      }
+
+      setInterval(tick, 60000);
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) tick();
+      });
+      window.addEventListener('load', tick);
+    })();
 
     // Check for new service worker updates
     window.addEventListener('load', function() {

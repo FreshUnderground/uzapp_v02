@@ -10,6 +10,9 @@ import 'notification_service.dart';
 /// Device tokens are registered server-side via [FcmService] (fcm.php).
 /// Server push delivery uses FCM when FCM_SERVER_KEY is configured.
 class PushNotificationService {
+  static const String kArrivagesChannelId = 'uzaapp_arrivages';
+  static const String kWaStatusChannelId = 'uzaapp_wa_status';
+
   final NotificationService? notificationService;
 
   PushNotificationService({this.notificationService});
@@ -19,12 +22,29 @@ class PushNotificationService {
 
   /// Called once from main.dart to initialize local notifications.
   Future<void> initialize() async {
-    if (kIsWeb) return; // Platform channels not available on web
+    if (kIsWeb) return;
     try {
       await _initLocalNotifications();
+      await requestPermissions();
     } catch (e) {
       debugPrint('Push notification initialization error: $e');
     }
+  }
+
+  Future<void> requestPermissions() async {
+    if (kIsWeb) return;
+
+    final ios = _localNotifications
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >();
+    await ios?.requestPermissions(alert: true, badge: true, sound: true);
+
+    final android = _localNotifications
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    await android?.requestNotificationsPermission();
   }
 
   Future<void> _initLocalNotifications() async {
@@ -46,19 +66,27 @@ class PushNotificationService {
       onDidReceiveNotificationResponse: _onLocalNotificationTap,
     );
 
-    // Create Android notification channel
-    const androidChannel = AndroidNotificationChannel(
-      'uzaapp_arrivages',
+    const arrivagesChannel = AndroidNotificationChannel(
+      kArrivagesChannelId,
       'Nouveaux arrivages',
       description: 'Notifications des nouveaux arrivages et promotions',
       importance: Importance.max,
+    );
+
+    const waStatusChannel = AndroidNotificationChannel(
+      kWaStatusChannelId,
+      'Statuts WhatsApp',
+      description:
+          'Rappels quotidiens lorsque vos statuts WhatsApp sont prêts',
+      importance: Importance.high,
     );
 
     final androidPlugin = _localNotifications
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >();
-    await androidPlugin?.createNotificationChannel(androidChannel);
+    await androidPlugin?.createNotificationChannel(arrivagesChannel);
+    await androidPlugin?.createNotificationChannel(waStatusChannel);
   }
 
   void _onLocalNotificationTap(NotificationResponse response) {
@@ -73,7 +101,7 @@ class PushNotificationService {
   }
 
   /// Parse notification data for deep linking.
-  /// Expected data keys: type ('arrivage'|'product'|'shop'), id
+  /// Expected data keys: type ('arrivage'|'product'|'shop'|'whatsapp_status'), id
   void _handleNotificationData(Map<String, dynamic> data) {
     final type = data['type']?.toString();
     final id = int.tryParse(data['id']?.toString() ?? '');
@@ -83,46 +111,15 @@ class PushNotificationService {
     }
   }
 
-  Future<void> _showLocalNotification({
-    required int id,
-    required String title,
-    required String body,
-    String? payload,
-  }) async {
-    final androidDetails = AndroidNotificationDetails(
-      'uzaapp_arrivages',
-      'Nouveaux arrivages',
-      channelDescription: 'Notifications des nouveaux arrivages',
-      importance: Importance.max,
-      priority: Priority.high,
-      showWhen: true,
-      styleInformation: BigTextStyleInformation(body),
-      actions: const <AndroidNotificationAction>[
-        AndroidNotificationAction(
-          'view',
-          'Voir',
-          showsUserInterface: true,
-        ),
-      ],
-    );
-
-    const iosDetails = DarwinNotificationDetails();
-
-    final details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _localNotifications.show(id, title, body, details, payload: payload);
-  }
-
   /// Show a local notification directly (used by BackgroundService).
   static Future<void> showLocalNotification({
     required String title,
     required String body,
     String? payload,
+    String channelId = kArrivagesChannelId,
+    int? notificationId,
   }) async {
-    if (kIsWeb) return; // Platform channels not available on web
+    if (kIsWeb) return;
     final plugin = FlutterLocalNotificationsPlugin();
     const androidSettings = AndroidInitializationSettings(
       '@drawable/ic_notification',
@@ -135,9 +132,11 @@ class PushNotificationService {
     await plugin.initialize(initSettings);
 
     final androidDetails = AndroidNotificationDetails(
-      'uzaapp_arrivages',
-      'Nouveaux arrivages',
-      channelDescription: 'Notifications des nouveaux arrivages',
+      channelId,
+      channelId == kWaStatusChannelId ? 'Statuts WhatsApp' : 'Nouveaux arrivages',
+      channelDescription: channelId == kWaStatusChannelId
+          ? 'Statuts WhatsApp quotidiens'
+          : 'Notifications des nouveaux arrivages',
       importance: Importance.max,
       priority: Priority.high,
       showWhen: true,
@@ -158,6 +157,13 @@ class PushNotificationService {
       iOS: iosDetails,
     );
 
-    await plugin.show(title.hashCode, title, body, details, payload: payload);
+    await plugin.show(
+      notificationId ?? title.hashCode,
+      title,
+      body,
+      details,
+      payload: payload,
+    );
   }
+
 }

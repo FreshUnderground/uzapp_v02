@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'push_notification_service.dart';
+import 'whatsapp_status_scheduler.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/services/sync_service.dart';
 import 'api_service.dart';
@@ -13,6 +14,7 @@ import 'api_service.dart';
 const String _kTaskCheckNewArrivages = 'checkNewArrivages';
 const String _kTaskInactivityReminder = 'inactivityReminder';
 const String _kTaskBackgroundSync = 'backgroundDataSync';
+const String _kTaskPrepareWhatsAppStatus = 'prepareWhatsAppStatus';
 
 /// Initialize and register background tasks.
 class BackgroundService {
@@ -52,6 +54,15 @@ class BackgroundService {
       constraints: Constraints(networkType: NetworkType.connected),
       existingWorkPolicy: ExistingWorkPolicy.keep,
     );
+
+    // Daily WhatsApp status preparation (checks 24h30 interval internally)
+    Workmanager().registerPeriodicTask(
+      _kTaskPrepareWhatsAppStatus,
+      _kTaskPrepareWhatsAppStatus,
+      frequency: const Duration(hours: 1),
+      constraints: Constraints(networkType: NetworkType.connected),
+      existingWorkPolicy: ExistingWorkPolicy.keep,
+    );
   }
 
   /// Cancel all background tasks.
@@ -80,6 +91,9 @@ void callbackDispatcher() {
           break;
         case _kTaskBackgroundSync:
           await _backgroundDataSync();
+          break;
+        case _kTaskPrepareWhatsAppStatus:
+          await runWhatsAppStatusBackgroundPrep();
           break;
         default:
           debugPrint('Unknown background task: $task');

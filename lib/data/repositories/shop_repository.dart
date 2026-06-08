@@ -57,6 +57,11 @@ class ShopRepository {
     final local = await getShopById(id);
     if (local != null) return local;
 
+    final byRemote = await (db.select(db.shops)
+          ..where((t) => t.remoteId.equals(id.toString())))
+        .getSingleOrNull();
+    if (byRemote != null) return byRemote;
+
     try {
       final uri = Uri.parse(
         'https://uzaapp.com/api/shop_page.php?id=$id&format=json',

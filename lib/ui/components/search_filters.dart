@@ -490,9 +490,14 @@ class _CategorySelectionSheetState extends State<_CategorySelectionSheet> {
               const SizedBox(height: 16),
               const Divider(),
               const SizedBox(height: 8),
-              const Text(
-                'Sous-catégorie',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              Text(
+                (_selectedCategoryName?.toLowerCase().contains('autre') ?? false)
+                    ? 'Catégories personnalisées'
+                    : 'Sous-catégorie',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
               StreamBuilder<List<Category>>(
@@ -502,9 +507,15 @@ class _CategorySelectionSheetState extends State<_CategorySelectionSheet> {
                 builder: (context, snapshot) {
                   _subcategories = snapshot.data ?? [];
                   if (_subcategories.isEmpty) {
-                    return const Text(
-                      'Aucune sous-catégorie',
-                      style: TextStyle(color: Colors.grey, fontSize: 14),
+                    final isAutre = _selectedCategoryName
+                            ?.toLowerCase()
+                            .contains('autre') ??
+                        false;
+                    return Text(
+                      isAutre
+                          ? 'Aucune catégorie personnalisée pour l\'instant'
+                          : 'Aucune sous-catégorie',
+                      style: const TextStyle(color: Colors.grey, fontSize: 14),
                     );
                   }
                   return Wrap(

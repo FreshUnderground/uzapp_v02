@@ -59,6 +59,7 @@ try {
         ['name' => 'Restau.',    'icon' => 'restaurant',     'sort' => 4],
         ['name' => 'Style',      'icon' => 'shopping_bag',   'sort' => 5],
         ['name' => 'Auto',       'icon' => 'directions_car', 'sort' => 6],
+        ['name' => 'Autre',      'icon' => 'category',       'sort' => 99],
     ];
 
     $rootIds = [];

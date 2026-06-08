@@ -3,8 +3,53 @@ import '../../data/local/uza_database.dart';
 /// Helper utility to map categories to form types and display types.
 /// This ensures consistency between product creation forms and product detail displays.
 class CategoryHelper {
+  static const String autreRootRemoteId = 'cat_autre';
+  static const int newCustomCategorySentinel = -1;
+
+  /// True when [cat] is the root « Autre » category.
+  static bool isAutreRoot(Category? cat) {
+    if (cat == null || cat.level != 0) return false;
+    if (cat.remoteId == autreRootRemoteId) return true;
+    return cat.name.toLowerCase().contains('autre');
+  }
+
+  /// Server-side id for a category (remoteId when numeric, else local id).
+  static int serverIdFor(Category cat) {
+    final parsed = int.tryParse(cat.remoteId ?? '');
+    return parsed ?? cat.id;
+  }
+
+  /// True when [category] is a user-contributed child under « Autre ».
+  static bool isAutreChild(Category? category, Category? autreRoot) {
+    if (category == null || autreRoot == null) return false;
+    if (isAutreRoot(category)) return false;
+    final autreServerId = serverIdFor(autreRoot);
+    return category.parentId == autreRoot.id ||
+        category.parentId == autreServerId;
+  }
+
+  /// Resolve the « Autre » root from a list of categories.
+  static Category? findAutreRoot(Iterable<Category> categories) {
+    for (final cat in categories) {
+      if (isAutreRoot(cat)) return cat;
+    }
+    return null;
+  }
+
   /// Maps a category to its form type for product creation/editing.
-  static String getFormType(Category? category) {
+  static String getFormType(
+    Category? category, {
+    Category? autreRoot,
+    Iterable<Category>? allCategories,
+  }) {
+    final root =
+        autreRoot ??
+        (allCategories != null ? findAutreRoot(allCategories) : null);
+
+    if (root != null && isAutreChild(category, root)) {
+      return 'autre';
+    }
+
     if (category == null) return 'generic';
     final name = category.name.toLowerCase();
 
@@ -91,6 +136,8 @@ class CategoryHelper {
         return 'Gadget';
       case 'style':
         return 'Style/Habillement';
+      case 'autre':
+        return 'Autre';
       default:
         return 'Produit';
     }

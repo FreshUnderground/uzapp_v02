@@ -5,6 +5,8 @@ import '../utils/page_transitions.dart';
 import '../screens/edit_product_screen.dart';
 import '../screens/create_story_screen.dart';
 import '../screens/manage_products_screen.dart';
+import '../screens/whatsapp_status_screen.dart';
+import 'shop_share_sheet.dart';
 
 /// 2x2 quick action grid for seller dashboard.
 class SellerQuickActions extends StatelessWidget {
@@ -53,6 +55,21 @@ class SellerQuickActions extends StatelessWidget {
           SlideUpRoute(page: ManageProductsScreen(shopId: shop.id)),
         ),
       ),
+      _Action(
+        icon: Icons.collections_outlined,
+        label: 'Statut WA',
+        color: const Color(0xFF25D366),
+        onTap: () => Navigator.push(
+          context,
+          SlideUpRoute(page: WhatsAppStatusScreen(shop: shop)),
+        ),
+      ),
+      _Action(
+        icon: Icons.share_outlined,
+        label: 'Partager',
+        color: Colors.blue,
+        onTap: () => ShopShareSheet.show(context, shop),
+      ),
     ];
 
     return GridView.count(
@@ -88,8 +105,14 @@ class _QuickActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    final background = Color.alphaBlend(
+      action.color.withValues(alpha: 0.14),
+      surface,
+    );
+
     return Material(
-      color: action.color.withValues(alpha: 0.08),
+      color: background,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),

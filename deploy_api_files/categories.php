@@ -13,6 +13,85 @@ try {
             throw new Exception('Invalid JSON input');
         }
 
+        if (isset($input['action']) && $input['action'] === 'find_or_create') {
+            $name = isset($input['name']) ? trim($input['name']) : '';
+            $parentId = isset($input['parent_id']) ? (int)$input['parent_id'] : null;
+            $level = isset($input['level']) ? (int)$input['level'] : 1;
+            $remoteId = isset($input['remote_id']) ? trim($input['remote_id']) : null;
+
+            if ($name === '') {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Category name is required']);
+                exit;
+            }
+            if ($parentId === null) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'parent_id is required']);
+                exit;
+            }
+
+            $stmt = $db->prepare(
+                "SELECT * FROM categories WHERE parent_id = ? AND LOWER(TRIM(name)) = LOWER(?) LIMIT 1"
+            );
+            $stmt->execute([$parentId, $name]);
+            $existing = $stmt->fetch();
+
+            if ($existing) {
+                echo json_encode([
+                    'success' => true,
+                    'action' => 'FOUND',
+                    'category' => [
+                        'id' => (int)$existing['id'],
+                        'name' => $existing['name'],
+                        'icon' => $existing['icon'],
+                        'parent_id' => $existing['parent_id'] !== null ? (int)$existing['parent_id'] : null,
+                        'level' => isset($existing['level']) ? (int)$existing['level'] : $level,
+                        'sort_order' => isset($existing['sort_order']) ? (int)$existing['sort_order'] : 0,
+                        'remote_id' => $existing['remote_id'],
+                        'updated_at' => $existing['updated_at'],
+                    ],
+                ]);
+                exit;
+            }
+
+            if (!$remoteId) {
+                $remoteId = sprintf(
+                    '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                    mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+                    mt_rand(0, 0xffff),
+                    mt_rand(0, 0x0fff) | 0x4000,
+                    mt_rand(0, 0x3fff) | 0x8000,
+                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+                );
+            }
+
+            $stmt = $db->prepare(
+                "INSERT INTO categories (name, icon, parent_id, level, sort_order, remote_id) VALUES (?, ?, ?, ?, 0, ?)"
+            );
+            $stmt->execute([$name, '', $parentId, $level, $remoteId]);
+            $newId = (int)$db->lastInsertId();
+
+            $stmt = $db->prepare("SELECT * FROM categories WHERE id = ?");
+            $stmt->execute([$newId]);
+            $created = $stmt->fetch();
+
+            echo json_encode([
+                'success' => true,
+                'action' => 'CREATE',
+                'category' => [
+                    'id' => $newId,
+                    'name' => $created['name'],
+                    'icon' => $created['icon'],
+                    'parent_id' => $created['parent_id'] !== null ? (int)$created['parent_id'] : null,
+                    'level' => isset($created['level']) ? (int)$created['level'] : $level,
+                    'sort_order' => isset($created['sort_order']) ? (int)$created['sort_order'] : 0,
+                    'remote_id' => $created['remote_id'],
+                    'updated_at' => $created['updated_at'],
+                ],
+            ]);
+            exit;
+        }
+
         $id = isset($input['id']) ? $input['id'] : null;
 
         $exists = false;

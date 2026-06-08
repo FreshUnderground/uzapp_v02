@@ -102,9 +102,10 @@ try {
     $updatedSince = isset($_GET['updated_since']) ? $_GET['updated_since'] : null;
 
     if ($updatedSince) {
-        $query = "SELECT * FROM products WHERE updated_at >= ? ORDER BY id DESC";
+        // Sync mode: return ALL products so clients can detect server-side deletions
+        $query = "SELECT * FROM products ORDER BY id DESC";
         $stmt = $db->prepare($query);
-        $stmt->execute([$updatedSince]);
+        $stmt->execute();
         $products = $stmt->fetchAll();
     } else {
         // No filter: return last 7 days first page, then paginate
@@ -124,6 +125,7 @@ try {
 
     foreach ($products as &$product) {
         $product['id'] = (int)$product['id'];
+        $product['remote_id'] = $product['remote_id'] ?? $product['id'];
         $product['shop_id'] = (int)$product['shop_id'];
         $product['category_id'] = $product['category_id'] !== null ? (int)$product['category_id'] : null;
         $product['price'] = (double)$product['price'];

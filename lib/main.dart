@@ -14,8 +14,11 @@ import 'core/services/auth_service.dart';
 import 'core/services/background_service.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/contact_service.dart';
+import 'core/services/whatsapp_status_service.dart';
+import 'core/services/whatsapp_status_scheduler.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/push_notification_service.dart';
+import 'core/services/web_notification_service.dart';
 import 'core/services/settings_service.dart';
 import 'core/services/deep_link_service.dart';
 import 'core/services/fcm_service.dart';
@@ -36,6 +39,7 @@ import 'ui/screens/home_screen.dart';
 import 'ui/screens/product_detail_screen.dart';
 import 'ui/screens/shop_profile_screen.dart';
 import 'ui/screens/story_view_screen.dart';
+import 'ui/screens/whatsapp_status_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -77,22 +81,53 @@ class UzaApp extends StatefulWidget {
   State<UzaApp> createState() => _UzaAppState();
 }
 
-class _UzaAppState extends State<UzaApp> {
+class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
   late Future<void> _initializationFuture;
   GoRouter? _router;
   DeepLinkService? _deepLinkService;
+  Timer? _waStatusTimer;
+  WhatsAppStatusScheduler? _waStatusScheduler;
 
   @override
   void dispose() {
+    _waStatusTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _deepLinkService?.dispose();
     super.dispose();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_runWaStatusScheduler());
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Initialize services asynchronously without blocking UI
     _initializationFuture = _initializeServices();
+  }
+
+  Future<void> _runWaStatusScheduler() async {
+    final scheduler = _waStatusScheduler;
+    if (scheduler == null) return;
+    try {
+      await scheduler.prepareIfDue();
+      await scheduler.syncWebReminder();
+    } catch (e) {
+      debugPrint('WaStatus scheduler tick error: $e');
+    }
+  }
+
+  void _startWaStatusPeriodicCheck() {
+    _waStatusTimer?.cancel();
+    _waStatusTimer = Timer.periodic(
+      const Duration(minutes: 15),
+      (_) => unawaited(_runWaStatusScheduler()),
+    );
   }
 
   Future<void> _initializeServices() async {
@@ -139,6 +174,12 @@ class _UzaAppState extends State<UzaApp> {
       final orderRepository = OrderRepository(database);
       final messageRepository = MessageRepository(database);
       final contactService = ContactService(database);
+      final whatsAppStatusService = WhatsAppStatusService(database);
+      final waStatusScheduler = WhatsAppStatusScheduler(
+        database,
+        whatsAppStatusService,
+      );
+      _waStatusScheduler = waStatusScheduler;
       final settingsService = SettingsService(database);
       final cashRepository = CashRepository(apiService);
       final fcmService = FcmService(apiService);
@@ -163,6 +204,7 @@ class _UzaAppState extends State<UzaApp> {
         orderRepository: orderRepository,
         messageRepository: messageRepository,
         contactService: contactService,
+        whatsAppStatusService: whatsAppStatusService,
         settingsService: settingsService,
         cashRepository: cashRepository,
         fcmService: fcmService,
@@ -192,21 +234,38 @@ class _UzaAppState extends State<UzaApp> {
       );
 
       // Initialize local notifications
-      if (!kIsWeb) {
-        try {
+      try {
+        if (!kIsWeb) {
           final pushService = PushNotificationService(
             notificationService: notificationService,
           );
           await pushService.initialize();
-          _listenForNotificationDeepLinks(
-            notificationService,
-            shopRepository,
-            productRepository,
-            storyRepository,
-          );
-        } catch (e) {
-          debugPrint('Error initializing notifications: $e');
+        } else {
+          await WebNotificationService.requestPermission();
         }
+        _listenForNotificationDeepLinks(
+          notificationService,
+          shopRepository,
+          productRepository,
+          storyRepository,
+        );
+      } catch (e) {
+        debugPrint('Error initializing notifications: $e');
+      }
+
+      // Daily WhatsApp status auto-prep (24h30)
+      try {
+        await waStatusScheduler.registerShopOwner(authService.user?.phoneNumber);
+        final userShop = await shopRepository.getUserShop(
+          authService.user?.phoneNumber ?? '',
+        );
+        if (userShop != null) {
+          await waStatusScheduler.registerShop(userShop.id);
+        }
+        unawaited(_runWaStatusScheduler());
+        _startWaStatusPeriodicCheck();
+      } catch (e) {
+        debugPrint('WaStatus scheduler init error: $e');
       }
     } catch (e, stack) {
       debugPrint('Service initialization error: $e');
@@ -243,8 +302,38 @@ class _UzaAppState extends State<UzaApp> {
         case 'arrivage':
           _navigateToArrivage(navigator, storyRepo, shopRepo, id);
           break;
+        case 'whatsapp_status':
+          _navigateToWhatsAppStatus(navigator, shopRepo, id);
+          break;
       }
     });
+  }
+
+  void _navigateToWhatsAppStatus(
+    NavigatorState navigator,
+    ShopRepository repo,
+    int shopId,
+  ) {
+    navigator.push(
+      MaterialPageRoute(
+        builder: (_) => FutureBuilder<Shop?>(
+          future: repo.getShopById(shopId),
+          builder: (_, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (!snapshot.hasData || snapshot.data == null) {
+              return Scaffold(
+                body: Center(child: Text(tr(context, 'shop_not_found'))),
+              );
+            }
+            return WhatsAppStatusScreen(shop: snapshot.data!);
+          },
+        ),
+      ),
+    );
   }
 
   void _navigateToShop(NavigatorState navigator, ShopRepository repo, int id) {
@@ -464,6 +553,9 @@ class _UzaAppState extends State<UzaApp> {
         ProxyProvider<UzaDatabase, ContactService>(
           update: (_, db, __) => _services!.contactService,
         ),
+        ProxyProvider<UzaDatabase, WhatsAppStatusService>(
+          update: (_, db, __) => _services!.whatsAppStatusService,
+        ),
         ChangeNotifierProvider<SettingsService>(
           create: (context) => _services!.settingsService,
         ),
@@ -507,6 +599,7 @@ class _UzaServices {
   final OrderRepository orderRepository;
   final MessageRepository messageRepository;
   final ContactService contactService;
+  final WhatsAppStatusService whatsAppStatusService;
   final SettingsService settingsService;
   final CashRepository cashRepository;
   final FcmService fcmService;
@@ -526,6 +619,7 @@ class _UzaServices {
     required this.orderRepository,
     required this.messageRepository,
     required this.contactService,
+    required this.whatsAppStatusService,
     required this.settingsService,
     required this.cashRepository,
     required this.fcmService,

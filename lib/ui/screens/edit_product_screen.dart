@@ -21,6 +21,7 @@ import '../components/category_forms/phone_tablet_form.dart';
 import '../components/category_forms/informatique_form.dart';
 import '../components/category_forms/gadget_form.dart';
 import '../components/category_forms/style_form.dart';
+import '../components/category_forms/autre_form.dart';
 import '../../core/utils/category_helper.dart';
 
 class ProductImage {
@@ -77,6 +78,11 @@ class _EditProductScreenState extends State<EditProductScreen> {
   final GlobalKey<GadgetFormState> _gadgetFormKey =
       GlobalKey<GadgetFormState>();
   final GlobalKey<StyleFormState> _styleFormKey = GlobalKey<StyleFormState>();
+  final GlobalKey<AutreFormState> _autreFormKey = GlobalKey<AutreFormState>();
+
+  int? _selectedCustomCategoryId;
+  final TextEditingController _newCustomCategoryController =
+      TextEditingController();
 
   Map<String, dynamic>? _existingMetadata;
 
@@ -127,6 +133,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
     _priceController.dispose();
     _stockController.dispose();
     _promoMsgController.dispose();
+    _newCustomCategoryController.dispose();
     super.dispose();
   }
 
@@ -152,15 +159,27 @@ class _EditProductScreenState extends State<EditProductScreen> {
 
           // If editing existing product, initialize root category and subcategories
           if (widget.product?.categoryId != null) {
+            final productCategoryId = widget.product!.categoryId!;
             final existingCategory = cats
-                .where((c) => c.id == widget.product!.categoryId)
-                .firstOrNull;
+                    .where((c) => c.id == productCategoryId)
+                    .firstOrNull ??
+                cats
+                    .where(
+                      (c) =>
+                          int.tryParse(c.remoteId ?? '') == productCategoryId,
+                    )
+                    .firstOrNull;
             if (existingCategory != null) {
-              if (existingCategory.level == 0) {
-                // Selected category is a root category
+              final autreRoot = CategoryHelper.findAutreRoot(cats);
+              if (autreRoot != null &&
+                  CategoryHelper.isAutreChild(existingCategory, autreRoot)) {
+                _selectedRootCategoryId = autreRoot.id;
+                _selectedCategoryId = existingCategory.id;
+                _selectedCustomCategoryId = existingCategory.id;
+                _subCategories = [];
+              } else if (existingCategory.level == 0) {
                 _selectedRootCategoryId = existingCategory.id;
                 _selectedCategoryId = existingCategory.id;
-                // Load its children
                 _subCategories = cats
                     .where((c) => c.parentId == existingCategory.id)
                     .toList();
@@ -168,12 +187,27 @@ class _EditProductScreenState extends State<EditProductScreen> {
                   'Loaded ${_subCategories.length} subcategories for existing root category',
                 );
               } else if (existingCategory.parentId != null) {
-                // Selected category is a subcategory
-                _selectedRootCategoryId = existingCategory.parentId;
+                final parent = cats
+                    .where((c) => c.id == existingCategory.parentId)
+                    .firstOrNull;
+                final autreServerId = autreRoot != null
+                    ? CategoryHelper.serverIdFor(autreRoot)
+                    : null;
+                if (parent != null) {
+                  _selectedRootCategoryId = parent.id;
+                } else if (autreRoot != null &&
+                    existingCategory.parentId == autreServerId) {
+                  _selectedRootCategoryId = autreRoot.id;
+                } else {
+                  _selectedRootCategoryId = existingCategory.parentId;
+                }
                 _selectedCategoryId = existingCategory.id;
-                // Load siblings
                 _subCategories = cats
-                    .where((c) => c.parentId == existingCategory.parentId)
+                    .where(
+                      (c) =>
+                          c.parentId == existingCategory.parentId ||
+                          c.parentId == _selectedRootCategoryId,
+                    )
                     .toList();
                 debugPrint(
                   'Loaded ${_subCategories.length} sibling subcategories',
@@ -197,25 +231,92 @@ class _EditProductScreenState extends State<EditProductScreen> {
     debugPrint('Root category changed to: $rootCategoryId');
     setState(() {
       _selectedRootCategoryId = rootCategoryId;
-      // Load subcategories for selected root category
+      _selectedCustomCategoryId = null;
+      _newCustomCategoryController.clear();
+
       if (rootCategoryId != null) {
+        final root = _categories
+            .where((c) => c.id == rootCategoryId)
+            .firstOrNull;
+        if (root != null && CategoryHelper.isAutreRoot(root)) {
+          _subCategories = [];
+          _selectedCategoryId = null;
+          return;
+        }
+
+        final serverParentId = root != null
+            ? CategoryHelper.serverIdFor(root)
+            : rootCategoryId;
         _subCategories = _categories
-            .where((c) => c.parentId == rootCategoryId)
+            .where(
+              (c) =>
+                  c.parentId == rootCategoryId || c.parentId == serverParentId,
+            )
             .toList();
         debugPrint(
           'Found ${_subCategories.length} subcategories for root category $rootCategoryId',
         );
-        for (var sub in _subCategories) {
-          debugPrint('  - Subcategory: ${sub.name} (id=${sub.id})');
-        }
-        // If no subcategories exist, use root category as the final selection.
-        // Otherwise reset so user must pick a subcategory (or keep root via dropdown).
         _selectedCategoryId = _subCategories.isEmpty ? rootCategoryId : null;
       } else {
         _subCategories = [];
         _selectedCategoryId = null;
       }
     });
+  }
+
+  void _onCustomCategoryChanged(int? customCategoryId) {
+    setState(() {
+      _selectedCustomCategoryId = customCategoryId;
+      if (customCategoryId == CategoryHelper.newCustomCategorySentinel) {
+        _selectedCategoryId = null;
+        _newCustomCategoryController.clear();
+      } else if (customCategoryId != null) {
+        _selectedCategoryId = customCategoryId;
+        _newCustomCategoryController.clear();
+      } else {
+        _selectedCategoryId = null;
+      }
+    });
+  }
+
+  Category? get _autreRoot => CategoryHelper.findAutreRoot(_categories);
+
+  bool get _isAutreSelected {
+    final root = _selectedRootCategory;
+    return root != null && CategoryHelper.isAutreRoot(root);
+  }
+
+  List<Category> get _autreCustomCategories {
+    final autre = _autreRoot;
+    if (autre == null) return [];
+    final serverParentId = CategoryHelper.serverIdFor(autre);
+    return _categories
+        .where(
+          (c) => c.parentId == autre.id || c.parentId == serverParentId,
+        )
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  int? get _autreRootServerId {
+    final autre = _autreRoot;
+    if (autre == null) return null;
+    return CategoryHelper.serverIdFor(autre);
+  }
+
+  String? _resolveCustomCategoryName() {
+    if (_selectedCustomCategoryId ==
+        CategoryHelper.newCustomCategorySentinel) {
+      final name = _newCustomCategoryController.text.trim();
+      return name.isEmpty ? null : name;
+    }
+    if (_selectedCustomCategoryId != null) {
+      return _categories
+          .where((c) => c.id == _selectedCustomCategoryId)
+          .map((c) => c.name)
+          .firstOrNull;
+    }
+    return null;
   }
 
   void _onSubCategoryChanged(int? subCategoryId) {
@@ -244,13 +345,21 @@ class _EditProductScreenState extends State<EditProductScreen> {
   }
 
   String? _getFormType(Category? category) {
-    // First try to get form type from selected category
-    final formType = CategoryHelper.getFormType(category);
+    if (_isAutreSelected) return 'autre';
+
+    final formType = CategoryHelper.getFormType(
+      category,
+      autreRoot: _autreRoot,
+      allCategories: _categories,
+    );
     if (formType != 'generic') return formType;
 
-    // If generic, try the root category (parent)
     if (_selectedRootCategory != null) {
-      final rootFormType = CategoryHelper.getFormType(_selectedRootCategory);
+      final rootFormType = CategoryHelper.getFormType(
+        _selectedRootCategory,
+        autreRoot: _autreRoot,
+        allCategories: _categories,
+      );
       if (rootFormType != 'generic') return rootFormType;
     }
 
@@ -296,6 +405,8 @@ class _EditProductScreenState extends State<EditProductScreen> {
         return GadgetForm(key: _gadgetFormKey, initialData: initialData);
       case 'style':
         return StyleForm(key: _styleFormKey, initialData: initialData);
+      case 'autre':
+        return AutreForm(key: _autreFormKey, initialData: initialData);
       default:
         return const SizedBox.shrink();
     }
@@ -326,14 +437,26 @@ class _EditProductScreenState extends State<EditProductScreen> {
         return _gadgetFormKey.currentState?.getData();
       case 'style':
         return _styleFormKey.currentState?.getData();
+      case 'autre':
+        return _autreFormKey.currentState?.getData();
       default:
         return null;
     }
   }
 
   bool _validateCategoryForm() {
-    // Category form fields are OPTIONAL - not required
-    // Users can create products without filling in category-specific details
+    if (_isAutreSelected) {
+      final customName = _resolveCustomCategoryName();
+      if (customName == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Veuillez choisir ou saisir une catégorie'),
+          ),
+        );
+        return false;
+      }
+      return _autreFormKey.currentState?.validate() ?? false;
+    }
     return true;
   }
 
@@ -386,45 +509,121 @@ class _EditProductScreenState extends State<EditProductScreen> {
     try {
       final apiService = context.read<ApiService>();
       List<String> finalUrls = [];
+      var imagesToUpload = 0;
+      var uploadFailures = 0;
 
       for (int i = 0; i < _productImages.length; i++) {
         final img = _productImages[i];
         if (img.bytes != null) {
-          final prepared = await ImagePrepareUtils.prepareForUpload(
-            img.bytes!,
-            maxWidth: 1080,
-            quality: 70,
-            prefix: 'prod_$i',
-          );
-          final bytesToUpload = await ImagePrepareUtils.ensureUploadSize(
-            prepared.bytes,
-          );
+          imagesToUpload++;
+          try {
+            final prepared = await ImagePrepareUtils.prepareForUpload(
+              img.bytes!,
+              maxWidth: 1080,
+              quality: 70,
+              prefix: 'prod_$i',
+            );
+            final bytesToUpload = await ImagePrepareUtils.ensureUploadSize(
+              prepared.bytes,
+            );
 
-          final uploadedUrl = await apiService.uploadFile(
-            bytesToUpload,
-            prepared.fileName,
-            folder: 'produits',
-            timeout: const Duration(seconds: 30),
-          );
-          if (uploadedUrl != null) finalUrls.add(uploadedUrl);
+            final uploadedUrl = await apiService.uploadFileOrThrow(
+              bytesToUpload,
+              prepared.fileName,
+              folder: 'produits',
+              timeout: const Duration(seconds: 45),
+            );
+            finalUrls.add(uploadedUrl);
+          } catch (e) {
+            uploadFailures++;
+            debugPrint('Product image upload failed slot $i: $e');
+          }
         } else if (img.url != null) {
-          // Keep existing image
-          finalUrls.add(img.url!);
+          final resolved = ImageUtils.resolveImageUrl(img.url);
+          if (resolved != null && resolved.isNotEmpty) {
+            finalUrls.add(resolved);
+          }
         }
       }
 
-      final encryptedImages = CryptoUtils.encrypt(finalUrls.join(','));
+      if (imagesToUpload > 0 && finalUrls.isEmpty) {
+        throw Exception(
+          'Échec de l\'envoi des photos. Vérifiez votre connexion et réessayez.',
+        );
+      }
+      if (uploadFailures > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$uploadFailures photo(s) sur $imagesToUpload n\'ont pas pu '
+              'être envoyées. Le produit sera enregistré avec '
+              '${finalUrls.length} photo(s).',
+            ),
+          ),
+        );
+      }
 
-      // Use subcategory if selected, otherwise fall back to root category
-      final effectiveCategoryId =
+      final encryptedImages = finalUrls.isEmpty
+          ? ''
+          : CryptoUtils.encrypt(finalUrls.join(','));
+
+      int? effectiveCategoryId =
           _selectedCategoryId ?? _selectedRootCategoryId;
+      String? categoryName;
 
-      final selectedCategory = effectiveCategoryId != null
-          ? _categories.firstWhere(
-              (c) => c.id == effectiveCategoryId,
-              orElse: () => _categories.first,
-            )
-          : null;
+      if (_isAutreSelected) {
+        final customName = _resolveCustomCategoryName();
+        if (customName == null) {
+          throw Exception('Catégorie personnalisée requise');
+        }
+
+        final isExistingCustom =
+            _selectedCustomCategoryId != null &&
+            _selectedCustomCategoryId !=
+                CategoryHelper.newCustomCategorySentinel;
+
+        if (isExistingCustom) {
+          final existing = _categories
+              .where((c) => c.id == _selectedCustomCategoryId)
+              .firstOrNull;
+          effectiveCategoryId = existing != null
+              ? CategoryHelper.serverIdFor(existing)
+              : _selectedCustomCategoryId;
+          categoryName = existing?.name ?? customName;
+        } else {
+          final parentServerId = _autreRootServerId;
+          if (parentServerId == null) {
+            throw Exception('Catégorie Autre introuvable sur le serveur');
+          }
+
+          final syncService = context.read<SyncService>();
+          final serverCategory = await apiService.findOrCreateCategory(
+            name: customName,
+            parentServerId: parentServerId,
+          );
+
+          if (serverCategory == null) {
+            throw Exception(
+              'Connexion requise pour créer une catégorie personnalisée',
+            );
+          }
+
+          await syncService.upsertCategoryFromServer(serverCategory);
+          effectiveCategoryId = serverCategory['id'] as int?;
+          categoryName = serverCategory['name'] as String? ?? customName;
+        }
+
+        if (effectiveCategoryId == null) {
+          throw Exception('Impossible de résoudre la catégorie personnalisée');
+        }
+      } else {
+        final selectedCategory = effectiveCategoryId != null
+            ? _categories
+                .where((c) => c.id == effectiveCategoryId)
+                .firstOrNull
+            : null;
+        categoryName = selectedCategory?.name;
+      }
 
       final categoryFormData = _collectCategoryFormData();
       final metadataJson = categoryFormData != null
@@ -444,7 +643,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
         price: drift.Value(double.tryParse(_priceController.text) ?? 0.0),
         imageUrls: drift.Value(encryptedImages),
         categoryId: drift.Value(effectiveCategoryId),
-        category: drift.Value(selectedCategory?.name),
+        category: drift.Value(categoryName),
         stockCount: drift.Value(int.tryParse(_stockController.text)),
         isArrival: widget.product != null
             ? drift.Value(widget.product!.isArrival)
@@ -501,7 +700,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
         'price': double.tryParse(_priceController.text) ?? 0.0,
         'image_urls': finalUrls.join(','), // Send raw URLs to server
         'category_id': effectiveCategoryId,
-        'category': selectedCategory?.name,
+        'category': categoryName,
         'stock_count': int.tryParse(_stockController.text),
         'is_arrival': widget.product?.isArrival ?? false,
         'is_promotion': widget.product?.isPromotion ?? false,
@@ -719,8 +918,55 @@ class _EditProductScreenState extends State<EditProductScreen> {
                         v == null ? 'Veuillez choisir une catégorie' : null,
                   ),
                   const SizedBox(height: 16),
-                  // Subcategory dropdown (only show if root has children)
-                  if (_subCategories.isNotEmpty)
+                  if (_isAutreSelected) ...[
+                    DropdownButtonFormField<int>(
+                      initialValue: _selectedCustomCategoryId,
+                      decoration: const InputDecoration(
+                        labelText: 'Votre catégorie *',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                      hint: const Text('Choisir ou créer une catégorie'),
+                      items: [
+                        ..._autreCustomCategories.map(
+                          (c) => DropdownMenuItem(
+                            value: c.id,
+                            child: Text(c.name),
+                          ),
+                        ),
+                        const DropdownMenuItem(
+                          value: CategoryHelper.newCustomCategorySentinel,
+                          child: Text('Nouvelle catégorie…'),
+                        ),
+                      ],
+                      onChanged: _onCustomCategoryChanged,
+                      validator: (v) => v == null &&
+                              _newCustomCategoryController.text.trim().isEmpty
+                          ? 'Veuillez choisir ou créer une catégorie'
+                          : null,
+                    ),
+                    if (_selectedCustomCategoryId ==
+                        CategoryHelper.newCustomCategorySentinel) ...[
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _newCustomCategoryController,
+                        decoration: const InputDecoration(
+                          labelText: 'Nom de la nouvelle catégorie *',
+                          hintText: 'Ex: Matériel agricole',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (v) => _selectedCustomCategoryId ==
+                                CategoryHelper.newCustomCategorySentinel &&
+                            (v == null || v.trim().isEmpty)
+                            ? 'Le nom de la catégorie est requis'
+                            : null,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ],
+                  ] else if (_subCategories.isNotEmpty)
                     DropdownButtonFormField<int>(
                       initialValue: _selectedCategoryId,
                       decoration: const InputDecoration(

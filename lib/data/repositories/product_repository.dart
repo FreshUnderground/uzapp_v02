@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import '../local/uza_database.dart';
 import '../services/sync_service.dart';
 import '../../core/services/recommendation_service.dart';
+import '../../core/utils/category_helper.dart';
+import '../../core/utils/image_utils.dart';
 import 'location_data.dart';
 import 'paginated_result.dart';
 
@@ -16,9 +18,10 @@ class ProductRepository {
   ProductRepository(this.db, {this.syncService});
 
   Stream<List<Product>> watchProductsByShop(int shopId) {
-    return (db.select(
-      db.products,
-    )..where((t) => t.shopId.equals(shopId))).watch();
+    return (db.select(db.products)
+          ..where((t) => t.shopId.equals(shopId))
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+        .watch();
   }
 
   Stream<List<Category>> watchCategories({int? parentId}) {
@@ -34,17 +37,31 @@ class ProductRepository {
   }
 
   Stream<List<Category>> watchCategoriesByParent(int? parentId) {
-    return (db.select(db.categories)
-          ..where(
-            (t) => parentId != null
-                ? t.parentId.equals(parentId)
-                : t.parentId.isNull(),
+    return db.select(db.categories).watch().map((all) {
+      if (parentId == null) {
+        return all.where((c) => c.parentId == null).toList()
+          ..sort(_compareCategories);
+      }
+
+      final parent = all.where((c) => c.id == parentId).firstOrNull;
+      final serverParentId = parent != null
+          ? CategoryHelper.serverIdFor(parent)
+          : parentId;
+
+      return all
+          .where(
+            (c) =>
+                c.parentId == parentId || c.parentId == serverParentId,
           )
-          ..orderBy([
-            (t) => OrderingTerm.asc(t.sortOrder),
-            (t) => OrderingTerm.asc(t.name),
-          ]))
-        .watch();
+          .toList()
+        ..sort(_compareCategories);
+    });
+  }
+
+  int _compareCategories(Category a, Category b) {
+    final sortCmp = a.sortOrder.compareTo(b.sortOrder);
+    if (sortCmp != 0) return sortCmp;
+    return a.name.compareTo(b.name);
   }
 
   Stream<List<Category>> watchRootCategories() {
@@ -63,14 +80,18 @@ class ProductRepository {
         });
   }
 
-  Future<List<Category>> getCategoryChildren(int categoryId) {
-    return (db.select(db.categories)
-          ..where((t) => t.parentId.equals(categoryId))
-          ..orderBy([
-            (t) => OrderingTerm.asc(t.sortOrder),
-            (t) => OrderingTerm.asc(t.name),
-          ]))
-        .get();
+  Future<List<Category>> getCategoryChildren(int categoryId) async {
+    final all = await db.select(db.categories).get();
+    final parent = all.where((c) => c.id == categoryId).firstOrNull;
+    final serverParentId = parent != null
+        ? CategoryHelper.serverIdFor(parent)
+        : categoryId;
+    return all
+        .where(
+          (c) => c.parentId == categoryId || c.parentId == serverParentId,
+        )
+        .toList()
+      ..sort(_compareCategories);
   }
 
   Future<List<Category>> getCategories() {
@@ -103,26 +124,17 @@ class ProductRepository {
   Stream<List<Product>> watchArrivals() {
     return (db.select(
       db.products,
-    )..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch().map((items) {
-      // Split into boosted and regular, and Shuffle within groups to keep app feeling fresh
-      final boosted = items.where((p) => p.boostStatus == 2).toList()
-        ..shuffle();
-      final regular = items.where((p) => p.boostStatus != 2).toList()
-        ..shuffle();
-      return [...boosted, ...regular];
-    });
+    )..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch().map(
+      _shuffleBoostedWithImagesFirst,
+    );
   }
 
   Stream<List<Product>> watchProductsByCategory(int categoryId) {
     return (db.select(
       db.products,
-    )..where((t) => t.categoryId.equals(categoryId))).watch().map((items) {
-      final boosted = items.where((p) => p.boostStatus == 2).toList()
-        ..shuffle();
-      final regular = items.where((p) => p.boostStatus != 2).toList()
-        ..shuffle();
-      return [...boosted, ...regular];
-    });
+    )..where((t) => t.categoryId.equals(categoryId))).watch().map(
+      _shuffleBoostedWithImagesFirst,
+    );
   }
 
   Stream<List<Product>> watchProductsFiltered({
@@ -153,25 +165,26 @@ class ProductRepository {
         }))
         .watch()
         .map((items) {
-          // Apply sort order
           switch (sortBy) {
             case 'priceAsc':
-              items.sort((a, b) => (a.price ?? 0).compareTo(b.price ?? 0));
-              break;
+              return _sortThenImagesLast(
+                items,
+                (a, b) => (a.price ?? 0).compareTo(b.price ?? 0),
+              );
             case 'priceDesc':
-              items.sort((a, b) => (b.price ?? 0).compareTo(a.price ?? 0));
-              break;
+              return _sortThenImagesLast(
+                items,
+                (a, b) => (b.price ?? 0).compareTo(a.price ?? 0),
+              );
             case 'newest':
-              items.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-              break;
+              return _sortThenImagesLast(
+                items,
+                (a, b) => b.updatedAt.compareTo(a.updatedAt),
+              );
             case 'relevance':
             default:
-              // Still maintain boost priority
-              final boosted = items.where((p) => p.boostStatus == 2).toList();
-              final regular = items.where((p) => p.boostStatus != 2).toList();
-              return [...boosted, ...regular];
+              return _shuffleBoostedWithImagesFirst(items);
           }
-          return items;
         });
   }
 
@@ -436,21 +449,84 @@ class ProductRepository {
     )..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch();
   }
 
-  /// Produits populaires : tirage aléatoire parmi les plus récents.
-  Stream<List<Product>> watchTrendingProducts({int limit = 10}) {
-    final poolSize = (limit * 4).clamp(limit, 80);
+  /// Pool stable (ordre récent) pour l'accueil — sans mélange à chaque sync.
+  Stream<List<Product>> watchHomeProductPool({int poolSize = 40}) {
     return (db.select(db.products)
           ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
         .watch()
-        .map((items) {
-          if (items.isEmpty) return items;
-          final pool = items.take(poolSize).toList();
-          final boosted = pool.where((p) => p.boostStatus == 2).toList()
-            ..shuffle();
-          final regular = pool.where((p) => p.boostStatus != 2).toList()
-            ..shuffle();
-          return [...boosted, ...regular].take(limit).toList();
-        });
+        .map((items) => items.take(poolSize).toList());
+  }
+
+  /// Tirage aléatoire ponctuel parmi un pool (retour accueil, pull-to-refresh).
+  List<Product> pickTrendingProducts(List<Product> pool, {int limit = 10}) {
+    if (pool.isEmpty) return const [];
+    return _shuffleBoostedWithImagesFirst(pool).take(limit).toList();
+  }
+
+  /// Produits populaires : tirage aléatoire parmi les plus récents.
+  Stream<List<Product>> watchTrendingProducts({int limit = 10}) {
+    final poolSize = (limit * 4).clamp(limit, 80);
+    return watchHomeProductPool(poolSize: poolSize).map(
+      (pool) => pickTrendingProducts(pool, limit: limit),
+    );
+  }
+
+  /// Products with displayable images first, then those without or failed.
+  List<Product> _shuffleBoostedWithImagesFirst(List<Product> items) {
+    final boostedWith = <Product>[];
+    final regularWith = <Product>[];
+    final boostedWithout = <Product>[];
+    final regularWithout = <Product>[];
+
+    for (final product in items) {
+      final hasImage = ImageUtils.hasDisplayableImage(product.imageUrls);
+      if (product.boostStatus == 2) {
+        (hasImage ? boostedWith : boostedWithout).add(product);
+      } else {
+        (hasImage ? regularWith : regularWithout).add(product);
+      }
+    }
+
+    boostedWith.shuffle();
+    regularWith.shuffle();
+    boostedWithout.shuffle();
+    regularWithout.shuffle();
+
+    return [
+      ...boostedWith,
+      ...regularWith,
+      ...boostedWithout,
+      ...regularWithout,
+    ];
+  }
+
+  List<Product> _sortThenImagesLast(
+    List<Product> items,
+    int Function(Product a, Product b) compare,
+  ) {
+    final withImages = items
+        .where((p) => ImageUtils.hasDisplayableImage(p.imageUrls))
+        .toList()
+      ..sort(compare);
+    final withoutImages = items
+        .where((p) => !ImageUtils.hasDisplayableImage(p.imageUrls))
+        .toList()
+      ..sort(compare);
+    return [...withImages, ...withoutImages];
+  }
+
+  /// Keep existing order within each group; images first, no-image at end.
+  List<Product> _preserveOrderWithImagesFirst(List<Product> items) {
+    final withImages = <Product>[];
+    final withoutImages = <Product>[];
+    for (final product in items) {
+      if (ImageUtils.hasDisplayableImage(product.imageUrls)) {
+        withImages.add(product);
+      } else {
+        withoutImages.add(product);
+      }
+    }
+    return [...withImages, ...withoutImages];
   }
 
   Future<List<Product>> searchProductsByKeywords(List<String> keywords) {
@@ -536,9 +612,31 @@ class ProductRepository {
           ..limit(limit))
         .get()
         .then((items) {
-          if (sortBy != 'relevance') return items;
+          if (sortBy != 'relevance') {
+            switch (sortBy) {
+              case 'priceAsc':
+                return _sortThenImagesLast(
+                  items,
+                  (a, b) => (a.price ?? 0).compareTo(b.price ?? 0),
+                );
+              case 'priceDesc':
+                return _sortThenImagesLast(
+                  items,
+                  (a, b) => (b.price ?? 0).compareTo(a.price ?? 0),
+                );
+              case 'newest':
+                return _sortThenImagesLast(
+                  items,
+                  (a, b) => b.updatedAt.compareTo(a.updatedAt),
+                );
+              default:
+                return items;
+            }
+          }
           // Relevance scoring: prioritize name match > description match > category match
-          if (lowerQuery == null) return items;
+          if (lowerQuery == null) {
+            return _shuffleBoostedWithImagesFirst(items);
+          }
           final rawQuery = query!.toLowerCase();
           items.sort((a, b) {
             int scoreA = 0;
@@ -567,7 +665,7 @@ class ProductRepository {
             scoreB += (b.viewsCount / 10).floor().clamp(0, 15);
             return scoreB.compareTo(scoreA);
           });
-          return items;
+          return _preserveOrderWithImagesFirst(items);
         });
   }
 

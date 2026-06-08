@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -81,6 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       try {
         final sync = context.read<SyncService>();
+        sync.ensureShopsSynced();
         sync.ensureCategoriesSynced();
         sync.syncNow();
       } catch (e) {
@@ -228,7 +230,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final List<Widget> pages = [
-      _HomeContent(onOpenStory: _openOverlayStory),
+      _HomeContent(
+        onOpenStory: _openOverlayStory,
+        isTabActive: _activeIndex == 0,
+      ),
       const DiscoverFeedScreen(),
       const ShopsDirectoryScreen(),
       const ProfileScreen(showAppBar: false),
@@ -659,20 +664,113 @@ class _CreateOptionTile extends StatelessWidget {
 
 class _HomeContent extends StatefulWidget {
   final Function(List<Story>, int) onOpenStory;
-  const _HomeContent({required this.onOpenStory});
+  final bool isTabActive;
+
+  const _HomeContent({
+    required this.onOpenStory,
+    required this.isTabActive,
+  });
 
   @override
   State<_HomeContent> createState() => _HomeContentState();
 }
 
 class _HomeContentState extends State<_HomeContent> {
+  static const _trendingLimit = 10;
+  static const _poolSize = 40;
+
+  List<Product> _displayedProducts = [];
+  List<Product> _allProducts = [];
+  List<Product> _productPool = [];
+  bool _trendingInitialized = false;
+  StreamSubscription<List<Product>>? _allProductsSub;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _subscribeProducts());
+  }
+
+  @override
+  void dispose() {
+    _allProductsSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_HomeContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isTabActive && widget.isTabActive) {
+      _reshuffleTrending();
+    }
+  }
+
+  void _subscribeProducts() {
+    if (!mounted) return;
+    _allProductsSub?.cancel();
+    _allProductsSub = context
+        .read<ProductRepository>()
+        .watchAllProducts()
+        .listen(_onAllProductsUpdated);
+  }
+
+  void _onAllProductsUpdated(List<Product> all) {
+    if (!mounted) return;
+
+    _allProducts = all;
+    _productPool = all.take(_poolSize).toList();
+
+    if (!_trendingInitialized) {
+      if (all.isEmpty) {
+        setState(() => _displayedProducts = []);
+        return;
+      }
+      _trendingInitialized = true;
+      setState(() {
+        _displayedProducts = context
+            .read<ProductRepository>()
+            .pickTrendingProducts(_productPool, limit: _trendingLimit);
+      });
+      return;
+    }
+
+    final byId = {for (final p in all) p.id: p};
+    final merged = <Product>[];
+    for (final product in _displayedProducts) {
+      final updated = byId[product.id];
+      if (updated != null) merged.add(updated);
+    }
+
+    if (_sameProductSnapshot(_displayedProducts, merged)) return;
+    setState(() => _displayedProducts = merged);
+  }
+
+  void _reshuffleTrending() {
+    if (!mounted || _productPool.isEmpty) return;
+    final next = context
+        .read<ProductRepository>()
+        .pickTrendingProducts(_productPool, limit: _trendingLimit);
+    if (_sameProductSnapshot(_displayedProducts, next)) return;
+    setState(() => _displayedProducts = next);
+  }
+
+  bool _sameProductSnapshot(List<Product> a, List<Product> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id || a[i].updatedAt != b[i].updatedAt) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _handleRefresh() async {
     try {
       final syncService = context.read<SyncService>();
-      // First ensure categories are synced
+      await syncService.ensureShopsSynced();
       await syncService.ensureCategoriesSynced();
-      // Then do a full sync
       await syncService.syncNow();
+      _reshuffleTrending();
     } catch (e) {
       debugPrint('Error during refresh sync: $e');
       if (mounted) {
@@ -695,12 +793,10 @@ class _HomeContentState extends State<_HomeContent> {
 
   @override
   Widget build(BuildContext context) {
-    late final ProductRepository productRepo;
     late final StoryRepository storyRepo;
     late final SyncService syncService;
 
     try {
-      productRepo = context.watch<ProductRepository>();
       storyRepo = context.watch<StoryRepository>();
       syncService = context.watch<SyncService>();
     } catch (e) {
@@ -1034,11 +1130,13 @@ class _HomeContentState extends State<_HomeContent> {
                 SliverToBoxAdapter(
                   child: _buildSectionHeader(tr(context, 'popular')),
                 ),
-                StreamBuilder<List<Product>>(
-                  stream: productRepo.watchTrendingProducts(limit: 10),
-                  builder: (context, snapshot) {
-                    final products = snapshot.data ?? [];
-                    if (snapshot.connectionState == ConnectionState.waiting) {
+                Builder(
+                  builder: (context) {
+                    final products = _displayedProducts;
+                    final isLoading =
+                        !_trendingInitialized && _allProducts.isEmpty;
+
+                    if (isLoading) {
                       return SliverPadding(
                         padding: EdgeInsets.symmetric(horizontal: hPadWide),
                         sliver: SliverGrid(

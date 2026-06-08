@@ -45,6 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Uzaapp utilise votre position pour trouver les produits et boutiques proches de vous.</string>
 	<key>NSLocationAlwaysUsageDescription</key>

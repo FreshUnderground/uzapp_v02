@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'crypto_utils.dart';
@@ -10,8 +12,8 @@ class UzaImageCache {
   static final CacheManager instance = CacheManager(
     Config(
       'uza_image_cache_v1',
-      stalePeriod: const Duration(days: 30),
-      maxNrOfCacheObjects: 800,
+      stalePeriod: const Duration(days: 60),
+      maxNrOfCacheObjects: 2500,
     ),
   );
 }
@@ -19,6 +21,27 @@ class UzaImageCache {
 class ImageUtils {
   // Proxy URL for external images (to avoid CORS on web)
   static const String _proxyBaseUrl = 'https://uzaapp.com/api/proxy.php?url=';
+
+  /// URLs that failed to load after retries — used to deprioritize products.
+  static final Set<String> _failedImageUrls = <String>{};
+
+  static void markImageLoadFailed(String? url) {
+    if (url == null || url.isEmpty) return;
+    _failedImageUrls.add(url);
+  }
+
+  static void markImageLoadSuccess(String? url) {
+    if (url == null || url.isEmpty) return;
+    _failedImageUrls.remove(url);
+  }
+
+  /// True when the product has at least one resolvable, non-failed image URL.
+  static bool hasDisplayableImage(String? imageUrls) {
+    if (isEmptyMediaValue(imageUrls)) return false;
+    final urls = getDecryptedList(imageUrls);
+    if (urls.isEmpty) return false;
+    return urls.any((url) => !_failedImageUrls.contains(url));
+  }
 
   /// Prefer banner/cover, then logo for shop cards and headers.
   static String? getShopCoverSource(String? bannerUrl, String? logoUrl) {
@@ -78,22 +101,54 @@ class ImageUtils {
     }
   }
 
-  static Future<void> prefetchUrls(Iterable<String?> sources) async {
-    final urls = <String>{};
+  /// Returns true when the image is already on disk (mobile/desktop) or in cache.
+  static Future<bool> isUrlCached(String url) async {
+    if (url.startsWith('data:image')) return true;
+    try {
+      final file = await UzaImageCache.instance.getFileFromCache(url);
+      return file != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Prefetch images in parallel, skipping already-cached files.
+  static Future<void> prefetchUrls(
+    Iterable<String?> sources, {
+    int? maxUrls,
+    int concurrency = 6,
+    bool skipCached = true,
+  }) async {
+    final urls = <String>[];
+    final seen = <String>{};
     for (final source in sources) {
       final resolved = resolveImageUrl(source);
-      if (resolved != null && resolved.isNotEmpty) {
-        urls.add(resolved);
+      if (resolved == null || resolved.isEmpty) continue;
+      if (resolved.startsWith('data:image')) continue;
+      if (!seen.add(resolved)) continue;
+      urls.add(resolved);
+      if (maxUrls != null && urls.length >= maxUrls) break;
+    }
+
+    if (urls.isEmpty) return;
+
+    var index = 0;
+    Future<void> worker() async {
+      while (true) {
+        final current = index++;
+        if (current >= urls.length) break;
+        final url = urls[current];
+        try {
+          if (skipCached && await isUrlCached(url)) continue;
+          await UzaImageCache.instance.downloadFile(url);
+        } catch (e) {
+          debugPrint('Image prefetch failed for $url: $e');
+        }
       }
     }
 
-    for (final url in urls) {
-      try {
-        await UzaImageCache.instance.downloadFile(url);
-      } catch (e) {
-        debugPrint('Image prefetch failed for $url: $e');
-      }
-    }
+    final workerCount = concurrency.clamp(1, 8);
+    await Future.wait(List.generate(workerCount, (_) => worker()));
   }
 
   static String _stripWrappingQuotes(String value) {
@@ -167,6 +222,15 @@ class ImageUtils {
       return urls.first;
     }
 
+    if (decrypted.contains(',') && decrypted.contains('http')) {
+      final urls = decrypted
+          .split(',')
+          .map((s) => _normalizeDecryptedUrl(s.trim()))
+          .whereType<String>()
+          .toList();
+      return urls.isEmpty ? null : urls.first;
+    }
+
     return _normalizeDecryptedUrl(decrypted);
   }
 
@@ -203,6 +267,39 @@ class ImageUtils {
     }
 
     return NetworkImage(source);
+  }
+
+  /// Download raw image bytes for offline composition (status images, etc.).
+  static Future<Uint8List?> downloadImageBytes(String? source) async {
+    final resolved = resolveImageUrl(source);
+    if (resolved == null || resolved.isEmpty) return null;
+
+    if (resolved.startsWith('data:image')) {
+      try {
+        return base64Decode(resolved.split(',').last);
+      } catch (e) {
+        debugPrint('ImageUtils: base64 decode failed: $e');
+        return null;
+      }
+    }
+
+    try {
+      final file = await UzaImageCache.instance.getSingleFile(resolved);
+      return await file.readAsBytes();
+    } catch (e) {
+      debugPrint('ImageUtils: cache miss for $resolved: $e');
+    }
+
+    try {
+      final response = await http.get(Uri.parse(resolved));
+      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+        return response.bodyBytes;
+      }
+    } catch (e) {
+      debugPrint('ImageUtils: HTTP download failed: $e');
+    }
+
+    return null;
   }
 
   static Widget getLogoWidget(
@@ -395,8 +492,13 @@ class ImageUtils {
 
     // Single plain/encrypted URL (not a JSON array).
     if (!trimmed.startsWith('[')) {
-      final single = resolveImageUrl(trimmed);
-      if (single != null) return [single];
+      final decryptedPreview = CryptoUtils.decrypt(trimmed).trim();
+      final looksLikeCsv =
+          decryptedPreview.contains(',') && decryptedPreview.contains('http');
+      if (!looksLikeCsv) {
+        final single = resolveImageUrl(trimmed);
+        if (single != null) return [single];
+      }
     }
 
     var decrypted = CryptoUtils.decrypt(trimmed);
@@ -567,8 +669,8 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
   int _retryCount = 0;
 
   void _scheduleRetry() {
-    if (_retryCount < 2) {
-      Future.delayed(const Duration(seconds: 1), () {
+    if (_retryCount < 1) {
+      Future.delayed(const Duration(milliseconds: 350), () {
         if (mounted) {
           setState(() => _retryCount++);
         }
@@ -577,6 +679,7 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
   }
 
   void _notifyLoaded() {
+    ImageUtils.markImageLoadSuccess(widget.imageUrl);
     if (widget.onImageLoaded == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.onImageLoaded?.call();
@@ -585,6 +688,7 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
 
   @override
   Widget build(BuildContext context) {
+    final diskCacheWidth = widget.memCacheWidth;
     final image = CachedNetworkImage(
       key: ValueKey('${widget.imageUrl}_$_retryCount'),
       imageUrl: widget.imageUrl,
@@ -593,7 +697,11 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
       width: widget.width,
       fit: widget.fit,
       memCacheWidth: widget.memCacheWidth,
-      fadeInDuration: const Duration(milliseconds: 200),
+      maxWidthDiskCache: diskCacheWidth,
+      maxHeightDiskCache: diskCacheWidth != null ? diskCacheWidth * 2 : 480,
+      useOldImageOnUrlChange: true,
+      fadeInDuration: const Duration(milliseconds: 120),
+      fadeOutDuration: const Duration(milliseconds: 80),
       httpHeaders: const {'Accept': 'image/*'},
       imageBuilder: widget.onImageLoaded == null
           ? null
@@ -648,7 +756,7 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
           debugPrint('⚠️ IMAGE NOT FOUND (404) for $url');
         }
 
-        if (_retryCount < 2) {
+        if (_retryCount < 1) {
           _scheduleRetry();
           return widget.placeholder ??
               ImageUtils.buildPlaceholder(
@@ -657,6 +765,7 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
                 borderRadius: widget.borderRadius,
               );
         }
+        ImageUtils.markImageLoadFailed(url);
         return widget.errorWidget ??
             ImageUtils.buildErrorWidget(
               height: widget.height,

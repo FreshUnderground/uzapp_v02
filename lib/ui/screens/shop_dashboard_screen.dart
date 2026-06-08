@@ -7,7 +7,8 @@ import '../../core/l10n/tr.dart';
 import '../../data/local/uza_database.dart';
 import 'manage_products_screen.dart';
 import 'edit_shop_screen.dart';
-import '../../core/services/contact_service.dart';
+import 'whatsapp_status_screen.dart';
+import '../components/shop_share_sheet.dart';
 import '../../data/services/sync_service.dart';
 import 'dart:async';
 import 'package:drift/drift.dart' as drift;
@@ -400,9 +401,20 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
           title: 'Partager ma boutique',
           subtitle: 'Faire connaître votre business',
           iconColor: Colors.blue,
-          onTap: () {
-            context.read<ContactService>().shareShop(shop);
-          },
+          onTap: () => ShopShareSheet.show(context, shop),
+        ),
+        const SizedBox(height: 12),
+        _managementTile(
+          icon: Icons.collections_outlined,
+          title: 'Statut WhatsApp',
+          subtitle: 'Préparer des photos pour votre statut',
+          iconColor: const Color(0xFF25D366),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => WhatsAppStatusScreen(shop: shop),
+            ),
+          ),
         ),
       ],
     );

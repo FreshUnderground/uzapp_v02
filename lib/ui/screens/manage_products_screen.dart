@@ -97,14 +97,25 @@ class _ProductManagementCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           side: BorderSide(color: Colors.grey[200]!),
         ),
-        child: Padding(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => EditProductScreen(
+                shopId: product.shopId,
+                product: product,
+              ),
+            ),
+          ),
+          child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: ImageUtils.buildCachedImage(
-                  product.imageUrls.split(',').first,
+                child: ImageUtils.buildCachedFirstProductImage(
+                  product.imageUrls,
                   width: 80,
                   height: 80,
                   fit: BoxFit.cover,
@@ -177,6 +188,7 @@ class _ProductManagementCard extends StatelessWidget {
                   ),
                   IconButton(
                     icon: const Icon(Icons.edit_outlined, size: 20),
+                    tooltip: 'Modifier',
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -199,6 +211,7 @@ class _ProductManagementCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
         ),
       ),
     );

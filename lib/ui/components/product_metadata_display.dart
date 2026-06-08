@@ -27,9 +27,39 @@ class ProductMetadataDisplay extends StatelessWidget {
         return _buildInformatiqueMetadata();
       case 'gadget':
         return _buildGadgetMetadata();
+      case 'autre':
+        return _buildAutreMetadata();
       default:
         return _buildGenericMetadata();
     }
+  }
+
+  Widget _buildAutreMetadata() {
+    final items = <_MetadataItem>[];
+
+    if (metadata['mot_cle'] != null &&
+        metadata['mot_cle'].toString().isNotEmpty) {
+      items.add(
+        _MetadataItem(
+          icon: Icons.label_outline,
+          label: 'Mot clé',
+          value: metadata['mot_cle'].toString(),
+        ),
+      );
+    }
+
+    if (metadata['specifications'] != null &&
+        metadata['specifications'].toString().isNotEmpty) {
+      items.add(
+        _MetadataItem(
+          icon: Icons.fact_check_outlined,
+          label: 'Spécifications',
+          value: metadata['specifications'].toString(),
+        ),
+      );
+    }
+
+    return _buildMetadataGrid(items);
   }
 
   Widget _buildVehiculeMetadata() {

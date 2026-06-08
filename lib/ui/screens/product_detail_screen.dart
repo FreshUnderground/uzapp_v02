@@ -15,7 +15,7 @@ import 'cart_screen.dart';
 import '../../core/utils/image_utils.dart';
 import '../../core/utils/phone_utils.dart';
 import '../../core/utils/product_price_utils.dart';
-import '../components/product_card.dart';
+import '../components/tap_animator.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import '../components/product_metadata_display.dart';
@@ -23,6 +23,7 @@ import '../../core/utils/category_helper.dart';
 import '../../core/l10n/tr.dart';
 import '../../core/services/api_service.dart';
 import '../components/report_dialog.dart';
+import 'edit_product_screen.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final Product product;
@@ -142,14 +143,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     const SizedBox(height: 48),
                     _buildBottomActions(context, shopRepo, isDesktop: true),
                     const SizedBox(height: 40),
-                    const Text(
-                      'Même Vendeur',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
+                    _buildSameSellerSection(),
+                    const SizedBox(height: 32),
                     _buildSuggestionsSection(),
                   ],
                 ),
@@ -161,10 +156,37 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
+  bool _isShopOwner(Shop shop) {
+    final userPhone = context.read<AuthService>().user?.phoneNumber ?? '';
+    return shop.phone == userPhone || shop.ownerId == userPhone;
+  }
+
   AppBar _buildAppBar(ShopRepository shopRepo) {
     final userPhone = context.read<AuthService>().user?.phoneNumber ?? '';
     return AppBar(
       actions: [
+        FutureBuilder<Shop?>(
+          future: shopRepo.getShopById(widget.product.shopId),
+          builder: (context, snapshot) {
+            final shop = snapshot.data;
+            if (shop != null && _isShopOwner(shop)) {
+              return IconButton(
+                icon: const Icon(Icons.edit_outlined, size: 20),
+                tooltip: 'Modifier le produit',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => EditProductScreen(
+                      shopId: widget.product.shopId,
+                      product: widget.product,
+                    ),
+                  ),
+                ),
+              );
+            }
+            return const SizedBox.shrink();
+          },
+        ),
         FutureBuilder<Shop?>(
           future: shopRepo.getShopById(widget.product.shopId),
           builder: (context, snapshot) {
@@ -329,14 +351,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       const SizedBox(height: 32),
                       _buildShareSection(shopRepo),
                       const SizedBox(height: 48),
-                      const Text(
-                        'Même Vendeur',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
+                      _buildSameSellerSection(),
+                      const SizedBox(height: 32),
                       _buildSuggestionsSection(),
                       const SizedBox(height: 50),
                     ],
@@ -519,20 +535,23 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       return const SizedBox.shrink();
     }
 
-    return FutureBuilder<Category?>(
-      future: _getProductCategory(),
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _getCategoryFormContext(),
       builder: (context, snapshot) {
-        // Still waiting — keep blank to avoid layout jumps
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const SizedBox.shrink();
         }
 
-        // Category may be null (unknown/generic) — still show metadata
         try {
           final metadata =
               jsonDecode(widget.product.metadata!) as Map<String, dynamic>;
-          // getFormType returns 'generic' when category is null
-          final formType = CategoryHelper.getFormType(snapshot.data);
+          final category = snapshot.data?['category'] as Category?;
+          final allCategories =
+              snapshot.data?['all'] as List<Category>? ?? const [];
+          final formType = CategoryHelper.getFormType(
+            category,
+            allCategories: allCategories,
+          );
 
           return ProductMetadataDisplay(
             metadata: metadata,
@@ -546,16 +565,23 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
-  Future<Category?> _getProductCategory() async {
+  Future<Map<String, dynamic>> _getCategoryFormContext() async {
     try {
       final db = context.read<UzaDatabase>();
       final categories = await db.select(db.categories).get();
-      return categories.firstWhere(
-        (c) => c.id == widget.product.categoryId,
-        orElse: () => throw Exception('Category not found'),
-      );
+      final categoryId = widget.product.categoryId;
+      Category? category;
+      if (categoryId != null) {
+        category = categories.where((c) => c.id == categoryId).firstOrNull ??
+            categories
+                .where(
+                  (c) => int.tryParse(c.remoteId ?? '') == categoryId,
+                )
+                .firstOrNull;
+      }
+      return {'category': category, 'all': categories};
     } catch (e) {
-      return null;
+      return {'category': null, 'all': <Category>[]};
     }
   }
 
@@ -1326,60 +1352,408 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
+  Widget _buildSameSellerSection() {
+    return StreamBuilder<List<Product>>(
+      stream: context.read<ProductRepository>().watchProductsByShop(
+        widget.product.shopId,
+      ),
+      builder: (context, snapshot) {
+        final products = (snapshot.data ?? [])
+            .where((p) => p.id != widget.product.id)
+            .toList();
+        if (products.isEmpty) return const SizedBox.shrink();
+
+        return _buildProductsDiscoverySection(
+          icon: Icons.storefront_rounded,
+          iconColor: UzaColors.secondary,
+          title: 'Même Vendeur',
+          subtitle: 'Découvrez d\'autres articles de cette boutique',
+          products: products,
+        );
+      },
+    );
+  }
+
   Widget _buildSuggestionsSection() {
+    return StreamBuilder<List<Product>>(
+      stream: context.read<ProductRepository>().suggestedProducts(
+        widget.product.id,
+      ),
+      builder: (context, snapshot) {
+        final products = snapshot.data ?? [];
+        return _buildProductsDiscoverySection(
+          icon: Icons.favorite_rounded,
+          iconColor: UzaColors.primary,
+          title: tr(context, 'similar_products'),
+          subtitle: 'Sélectionnés selon vos goûts et tendances',
+          products: products,
+          emptyMessage: tr(context, 'similar_products_empty'),
+        );
+      },
+    );
+  }
+
+  Widget _buildProductsDiscoverySection({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required List<Product> products,
+    String? emptyMessage,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          tr(context, 'similar_products'),
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        _buildProductSectionHeader(
+          icon: icon,
+          iconColor: iconColor,
+          title: title,
+          subtitle: subtitle,
+          count: products.length,
         ),
-        const SizedBox(height: 16),
-        SizedBox(
-          height: 220,
-          child: StreamBuilder<List<Product>>(
-            stream: context.read<ProductRepository>().suggestedProducts(
-              widget.product.id,
-            ),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                return Center(
-                  child: Text(
-                    tr(context, 'similar_products_empty'),
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                );
-              }
+        const SizedBox(height: 14),
+        if (products.isEmpty && emptyMessage != null)
+          _buildSuggestionsEmptyState(emptyMessage, iconColor)
+        else if (products.isNotEmpty)
+          _buildVerticalProductGrid(products, accentColor: iconColor),
+      ],
+    );
+  }
 
-              final suggestions = snapshot.data!;
-              return ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: suggestions.length,
-                itemBuilder: (context, index) {
-                  final suggestion = suggestions[index];
-                  return Container(
-                    width: 150,
-                    margin: const EdgeInsets.only(right: 16),
-                    child: HeroMode(
-                      enabled: false,
-                      child: ProductCard(
-                        product: suggestion,
-                        onTap: () => Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                ProductDetailScreen(product: suggestion),
+  Widget _buildProductSectionHeader({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required int count,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 4,
+          height: 44,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [iconColor, iconColor.withValues(alpha: 0.45)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                iconColor.withValues(alpha: 0.14),
+                iconColor.withValues(alpha: 0.06),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: iconColor.withValues(alpha: 0.12)),
+          ),
+          child: Icon(icon, color: iconColor, size: 22),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                  color: UzaColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[600],
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (count > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: iconColor.withValues(alpha: 0.15)),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                color: iconColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSuggestionsEmptyState(String message, Color accentColor) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            accentColor.withValues(alpha: 0.06),
+            Colors.grey[50]!,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: accentColor.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: accentColor.withValues(alpha: 0.12),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.auto_awesome_rounded,
+              color: accentColor,
+              size: 26,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.grey[700],
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVerticalProductGrid(
+    List<Product> products, {
+    required Color accentColor,
+  }) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final crossAxisCount = screenWidth > 900
+        ? 4
+        : (screenWidth > 600 ? 3 : 2);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.grey[100]!),
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          mainAxisSpacing: 14,
+          crossAxisSpacing: 14,
+          childAspectRatio: screenWidth < 360 ? 0.68 : 0.72,
+        ),
+        itemCount: products.length,
+        itemBuilder: (context, index) {
+          return _buildRelatedProductTile(products[index], accentColor);
+        },
+      ),
+    );
+  }
+
+  Widget _buildRelatedProductTile(Product product, Color accentColor) {
+    final images = ImageUtils.getDecryptedList(product.imageUrls);
+    final firstImage = images.isNotEmpty ? images.first : '';
+    final priceLabel = ProductPriceUtils.displayLabel(product);
+
+    return TapAnimator(
+      onTap: () => Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProductDetailScreen(product: product),
+        ),
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey[100]!),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(15),
+                    ),
+                    child: firstImage.isEmpty
+                        ? ImageUtils.buildPlaceholder()
+                        : ImageUtils.buildCachedImage(
+                            firstImage,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 320,
+                          ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.08),
+                            blurRadius: 6,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.arrow_outward_rounded,
+                        size: 12,
+                        color: accentColor,
+                      ),
+                    ),
+                  ),
+                  if (product.condition.isNotEmpty)
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          product.condition,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.3,
                           ),
                         ),
                       ),
                     ),
-                  );
-                },
-              );
-            },
-          ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product.name.toUpperCase(),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 10,
+                      letterSpacing: 0.2,
+                      height: 1.2,
+                      color: UzaColors.textPrimary,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          priceLabel,
+                          style: TextStyle(
+                            color: accentColor,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (product.viewsCount > 0) ...[
+                        Icon(
+                          Icons.visibility_outlined,
+                          size: 11,
+                          color: Colors.grey[400],
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${product.viewsCount}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey[500],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 

@@ -202,6 +202,49 @@ class ApiService {
     return [];
   }
 
+  /// Find an existing user-contributed category or create one under [parentServerId].
+  Future<Map<String, dynamic>?> findOrCreateCategory({
+    required String name,
+    required int parentServerId,
+    String? remoteId,
+    int level = 1,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/categories.php?api_key=$_apiKey');
+      final payload = jsonEncode({
+        'action': 'find_or_create',
+        'name': name.trim(),
+        'parent_id': parentServerId,
+        'level': level,
+        if (remoteId != null) 'remote_id': remoteId,
+      });
+      debugPrint('API: findOrCreateCategory parent=$parentServerId name=$name');
+      final response = await http.post(
+        uri,
+        headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+        body: payload,
+      );
+      debugPrint(
+        'API: findOrCreateCategory status=${response.statusCode} body=${response.body}',
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final body = jsonDecode(response.body);
+        if (body is Map<String, dynamic> && body['success'] == true) {
+          final category = body['category'];
+          if (category is Map<String, dynamic>) {
+            return {
+              ...category,
+              'action': body['action'],
+            };
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('API ERROR (findOrCreateCategory): $e');
+    }
+    return null;
+  }
+
   // Paginated fetch methods
   Future<Map<String, dynamic>> fetchProductsPaginated({
     int page = 1,

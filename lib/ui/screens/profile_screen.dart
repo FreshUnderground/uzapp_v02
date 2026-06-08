@@ -8,8 +8,8 @@ import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/services/sync_service.dart';
-import 'shop_dashboard_screen.dart';
 import 'create_shop_screen.dart';
+import 'manage_products_screen.dart';
 import 'shop_verification_screen.dart';
 import 'settings_screen.dart';
 import 'help_screen.dart';
@@ -22,12 +22,15 @@ import 'cash_management_screen.dart';
 import '../components/responsive_layout.dart';
 import '../components/modern_card.dart';
 import '../components/tap_animator.dart';
+import '../components/seller_quick_actions.dart';
+import '../components/shop_qr_dialog.dart';
+import '../components/shop_share_sheet.dart';
 import '../utils/page_transitions.dart';
 import '../../core/services/settings_service.dart';
 import '../../data/repositories/recently_viewed_repository.dart';
 import 'edit_product_screen.dart';
 import 'product_detail_screen.dart';
-import 'create_story_screen.dart';
+import 'whatsapp_status_screen.dart';
 import 'edit_shop_screen.dart';
 import 'story_view_screen.dart';
 import 'shop_profile_screen.dart';
@@ -885,13 +888,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _buildSectionTitle(tr(context, 'my_shops')),
               _buildShopCard(shop!),
               const SizedBox(height: 12),
+              _buildShareShopEntry(shop),
+              const SizedBox(height: 12),
               _buildEditShopEntry(shop),
               const SizedBox(height: 12),
               if (!shop.isVerified) ...[
                 _buildVerifyShopBanner(shop),
                 const SizedBox(height: 12),
               ],
-              _buildSellerQuickActions(shop),
+              _buildSectionTitle('Outils vendeur'),
+              SellerQuickActions(shop: shop),
+              const SizedBox(height: 12),
+              _buildManageProductsEntry(shop),
               const SizedBox(height: 12),
               _buildMyProducts(shop),
               _buildMyStories(shop),
@@ -907,7 +915,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 16),
             ],
             _buildSectionTitle(tr(context, 'settings')),
-            _buildSettingsSection(authService),
+            _buildSettingsSection(authService, showWaStatusToggle: hasShop),
             const SizedBox(height: 16),
             _buildSectionTitle(tr(context, 'account')),
             _buildAccountSection(authService),
@@ -938,7 +946,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         '${snap.data?.length ?? 0}',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          fontSize: 15,
                         ),
                       ),
                     )
@@ -946,12 +954,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       '0',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        fontSize: 15,
                       ),
                     ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: _statCardWidget(
               icon: Icons.store_outlined,
@@ -960,12 +968,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 shop != null ? '1' : '0',
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: 15,
                 ),
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: _statCardWidget(
               icon: Icons.visibility_outlined,
@@ -979,7 +987,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         '${snap.data?['product_view_global'] ?? 0}',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          fontSize: 15,
                         ),
                       ),
                     )
@@ -987,11 +995,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       '—',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        fontSize: 15,
                       ),
                     ),
             ),
           ),
+          if (shop != null) ...[
+            const SizedBox(width: 8),
+            Expanded(
+              child: _statCardWidget(
+                icon: Icons.collections_outlined,
+                iconColor: const Color(0xFF25D366),
+                label: 'Statut WA',
+                highlighted: true,
+                onTap: () => Navigator.push(
+                  context,
+                  SlideUpRoute(page: WhatsAppStatusScreen(shop: shop)),
+                ),
+                valueWidget: StreamBuilder<List<Product>>(
+                  stream: context
+                      .read<ProductRepository>()
+                      .watchProductsByShop(shop.id),
+                  builder: (context, snap) {
+                    final count = (snap.data ?? [])
+                        .where(
+                          (p) =>
+                              !p.isSold &&
+                              ImageUtils.hasDisplayableImage(p.imageUrls),
+                        )
+                        .length;
+                    return Icon(
+                      Icons.bolt,
+                      color: const Color(0xFF25D366),
+                      size: count > 0 ? 22 : 18,
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1001,13 +1043,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required IconData icon,
     required String label,
     required Widget valueWidget,
+    Color? iconColor,
+    VoidCallback? onTap,
+    bool highlighted = false,
   }) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+    final waGreen = const Color(0xFF25D366);
+    final card = Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: highlighted
+            ? Color.alphaBlend(
+                waGreen.withValues(alpha: 0.14),
+                theme.colorScheme.surface,
+              )
+            : theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
+        border: highlighted
+            ? Border.all(color: waGreen.withValues(alpha: 0.35))
+            : null,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
@@ -1018,18 +1072,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       child: Column(
         children: [
-          Icon(icon, color: UzaColors.primary, size: 20),
-          const SizedBox(height: 6),
+          Icon(icon, color: iconColor ?? UzaColors.primary, size: 18),
+          const SizedBox(height: 4),
           valueWidget,
           const SizedBox(height: 2),
           Text(
             label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 11,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              fontSize: 10,
+              height: 1.1,
+              color: highlighted
+                  ? waGreen.withValues(alpha: 0.85)
+                  : theme.colorScheme.onSurface.withValues(alpha: 0.6),
             ),
           ),
         ],
+      ),
+    );
+
+    if (onTap == null) return card;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: card,
       ),
     );
   }
@@ -1083,6 +1154,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         ),
         trailing: const Icon(Icons.chevron_right, size: 20),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      ),
+    );
+  }
+
+  Widget _buildShareShopEntry(Shop shop) {
+    return ModernCard(
+      padding: EdgeInsets.zero,
+      child: ListTile(
+        onTap: () => ShopShareSheet.show(context, shop),
+        leading: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: Colors.blue.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(Icons.share_outlined, color: Colors.blue),
+        ),
+        title: const Text(
+          'Partager ma boutique',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        subtitle: Text(
+          'Lien, QR code, WhatsApp…',
+          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.qr_code_2, color: UzaColors.primary),
+              tooltip: 'QR Code',
+              onPressed: () => ShopQrDialog.show(context, shop),
+            ),
+            const Icon(Icons.chevron_right, size: 20),
+          ],
+        ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
       ),
     );
@@ -1181,86 +1290,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ─── Seller Quick Actions ────────────────────────────────────────
-
-  Widget _buildSellerQuickActions(Shop shop) {
+  Widget _buildManageProductsEntry(Shop shop) {
     return ModernCard(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: TapAnimator(
-              onTap: () => Navigator.push(
-                context,
-                SlideUpRoute(page: EditProductScreen(shopId: shop.id)),
-              ),
-              child: _quickActionChip(
-                icon: Icons.add_circle_outline,
-                label: tr(context, 'add_product'),
-                color: UzaColors.primary,
-              ),
-            ),
-          ),
-          Expanded(
-            child: TapAnimator(
-              onTap: () => Navigator.push(
-                context,
-                SlideUpRoute(page: CreateStoryScreen(shopId: shop.id)),
-              ),
-              child: _quickActionChip(
-                icon: Icons.auto_awesome,
-                label: tr(context, 'create_story'),
-                color: Colors.purple,
-              ),
-            ),
-          ),
-          Expanded(
-            child: TapAnimator(
-              onTap: () => Navigator.push(
-                context,
-                SlideUpRoute(page: ShopProfileScreen(shop: shop)),
-              ),
-              child: _quickActionChip(
-                icon: Icons.storefront_outlined,
-                label: tr(context, 'view_my_shop'),
-                color: UzaColors.secondary,
-              ),
-            ),
-          ),
-        ],
+      padding: EdgeInsets.zero,
+      onTap: () => Navigator.push(
+        context,
+        SlideUpRoute(page: ManageProductsScreen(shopId: shop.id)),
       ),
-    );
-  }
-
-  Widget _quickActionChip({
-    required IconData icon,
-    required String label,
-    required Color color,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
+      child: ListTile(
+        leading: Container(
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
+            color: Colors.orange.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(icon, color: color, size: 22),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-            color: Colors.grey[700],
-            height: 1.2,
+          child: const Icon(
+            Icons.inventory_2_outlined,
+            color: Colors.orange,
           ),
         ),
-      ],
+        title: const Text(
+          'Gérer mes produits',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        subtitle: Text(
+          'Modifier, supprimer ou marquer comme vendu',
+          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+        ),
+        trailing: const Icon(Icons.chevron_right, size: 20),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      ),
     );
   }
 
@@ -1358,6 +1418,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         color: Colors.grey[400],
                                         size: 28,
                                       ),
+                              ),
+                              Positioned(
+                                top: 0,
+                                left: 0,
+                                child: GestureDetector(
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    SlideUpRoute(
+                                      page: EditProductScreen(
+                                        shopId: shop.id,
+                                        product: p,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: const BoxDecoration(
+                                      color: UzaColors.primary,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.edit_outlined,
+                                      color: Colors.white,
+                                      size: 12,
+                                    ),
+                                  ),
+                                ),
                               ),
                               Positioned(
                                 top: 0,
@@ -2000,7 +2087,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // ─── Settings Section (Paramètres) ──────────────────────────────
 
-  Widget _buildSettingsSection(AuthService authService) {
+  Widget _buildSettingsSection(
+    AuthService authService, {
+    bool showWaStatusToggle = false,
+  }) {
     final settings = context.watch<SettingsService>();
     return ModernCard(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -2107,6 +2197,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
             activeThumbColor: UzaColors.primary,
             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
           ),
+          if (showWaStatusToggle) ...[
+            const Divider(height: 1, indent: 12, endIndent: 12),
+            SwitchListTile(
+              secondary: const Icon(
+                Icons.collections_outlined,
+                color: Color(0xFF25D366),
+              ),
+              title: Text(
+                tr(context, 'wa_status_auto'),
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              subtitle: Text(
+                settings.waStatusAutoEnabled
+                    ? tr(context, 'wa_status_auto_on')
+                    : tr(context, 'wa_status_auto_off'),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              value: settings.waStatusAutoEnabled,
+              onChanged: (val) => settings.toggleWaStatusAuto(val),
+              activeThumbColor: UzaColors.primary,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ],
           // Admin section (conditional)
           if (authService.user?.isAdmin == true) ...[
             const Divider(height: 1, indent: 12, endIndent: 12),

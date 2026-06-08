@@ -16,12 +16,14 @@ import '../../core/services/auth_service.dart';
 import '../../core/services/api_service.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../core/utils/image_utils.dart';
+import '../../core/utils/shop_qr_utils.dart';
 import '../../core/utils/picker_utils.dart';
 import '../../core/utils/image_prepare_utils.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/profile_shop_sync.dart';
 import '../components/responsive_layout.dart';
 import '../components/animated_bottom_nav.dart';
+import '../components/shop_share_sheet.dart';
 import '../components/shop_video_player.dart';
 import 'story_view_screen.dart';
 import 'edit_shop_screen.dart';
@@ -282,7 +284,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
       actions.add(
         IconButton(
           icon: const Icon(Icons.share_outlined),
-          onPressed: () => contactService.shareShop(shop),
+          onPressed: () => ShopShareSheet.show(context, shop),
         ),
       );
     }
@@ -1217,7 +1219,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
         entityType: 'shop',
         entityId: shop.id,
         name: shop.name,
-        productUrl: 'https://uzaapp.com/shop/${shop.id}',
+        productUrl: ShopQrUtils.shopUrl(shop),
       ),
     );
     addLink(

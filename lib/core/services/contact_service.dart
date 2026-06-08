@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' show Rect;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -11,6 +12,11 @@ import '../utils/crypto_utils.dart';
 import '../utils/image_utils.dart';
 import '../utils/phone_utils.dart';
 import '../utils/product_price_utils.dart';
+import '../utils/shop_qr_utils.dart';
+import '../utils/shop_share_messages.dart';
+import '../utils/status_share_messages.dart';
+import '../utils/status_temp_files.dart';
+import '../utils/status_web_download.dart';
 
 class ContactService {
   final UzaDatabase db;
@@ -192,21 +198,42 @@ class ContactService {
     }
   }
 
+  Future<void> shareShopQrCode(
+    Shop shop, {
+    Rect? sharePositionOrigin,
+  }) async {
+    final String url = ShopQrUtils.shopUrl(shop);
+    final bytes = await ShopQrUtils.generateQrPng(url);
+    final xfile = await _buildXFile(
+      bytes,
+      'shop_qr_${shop.id}.png',
+      mimeType: 'image/png',
+    );
+    final String text = ShopShareMessages.qrShare(shop);
+
+    try {
+      await Share.shareXFiles(
+        [xfile.$1],
+        text: text,
+        subject: ShopShareMessages.qrShareSubject(shop),
+        sharePositionOrigin: sharePositionOrigin,
+      );
+      await _logInteraction('shop', shop.id, 'qr_share');
+    } catch (e) {
+      debugPrint('shareShopQrCode failed: $e');
+      if (kIsWeb) {
+        await downloadStatusImages(shop.id, [bytes]);
+        await _logInteraction('shop', shop.id, 'qr_share');
+        return;
+      }
+      rethrow;
+    } finally {
+      await xfile.$2?.delete();
+    }
+  }
+
   Future<void> shareShop(Shop shop) async {
-    final String url = "https://uzaapp.com/shop/${shop.id}";
-    final String text =
-        "💼 Vous cherchez à développer votre clientèle ?\n\n"
-        "🛍️ Découvrez '${shop.name}' sur UzaApp - l'app qui révolutionne le commerce !\n\n"
-        "${shop.description ?? 'Une boutique de qualité vous attend'}\n\n"
-        "📍 ${shop.address ?? 'Kinshasa, RDC'}\n"
-        "⭐ Produits de qualité\n"
-        "📦 Nouveautés régulières\n"
-        "💬 Service client réactif\n\n"
-        "👉 Voir la boutique : $url\n\n"
-        "🚀 VOUS AUSSI, CRÉEZ VOTRE BOUTIQUE GRATUITE !\n"
-        "📱 Téléchargez UzaApp et touchez des milliers de clients potentiels\n"
-        "💰 Augmentez vos ventes dès maintenant !\n\n"
-        "#UzaApp #Commerce #BoutiqueEnLigne";
+    final String text = ShopShareMessages.linkShare(shop);
 
     if (shop.logoUrl != null && shop.logoUrl!.isNotEmpty) {
       try {
@@ -221,7 +248,7 @@ class ContactService {
             await Share.shareXFiles(
               [xfile.$1],
               text: text,
-              subject: '🛍️ Découvrez ${shop.name} sur UzaApp',
+              subject: ShopShareMessages.linkShareSubject(shop),
             );
             await xfile.$2?.delete();
             await _logInteraction('shop', shop.id, 'share');
@@ -301,12 +328,16 @@ class ContactService {
   }
 
   /// Returns (XFile, File?) — File is non-null on mobile so caller can delete it.
-  Future<(XFile, File?)> _buildXFile(List<int> bytes, String filename) async {
+  Future<(XFile, File?)> _buildXFile(
+    List<int> bytes,
+    String filename, {
+    String mimeType = 'image/jpeg',
+  }) async {
     if (kIsWeb) {
       // Web: in-memory XFile (no temp file needed)
       final xfile = XFile.fromData(
         Uint8List.fromList(bytes),
-        mimeType: 'image/jpeg',
+        mimeType: mimeType,
         name: filename,
       );
       return (xfile, null);
@@ -328,6 +359,63 @@ class ContactService {
       final url = Uri.parse("https://wa.me/?text=$encodedText");
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
+      }
+    }
+  }
+
+  Future<void> shareStatusCollection({
+    required Shop shop,
+    required List<XFile> images,
+    List<String>? tempPaths,
+    Rect? sharePositionOrigin,
+    List<Uint8List>? rawImagesForWebFallback,
+  }) async {
+    if (images.isEmpty) return;
+
+    final String text = StatusShareMessages.collectionShare(
+      shop,
+      imageCount: images.length,
+    );
+
+    try {
+      if (kIsWeb) {
+        try {
+          await Share.shareXFiles(
+            images,
+            text: text,
+            subject: StatusShareMessages.collectionShareSubject(shop),
+          );
+        } catch (e) {
+          debugPrint('Web shareXFiles failed, trying download: $e');
+          if (rawImagesForWebFallback != null &&
+              rawImagesForWebFallback.isNotEmpty) {
+            await downloadStatusImages(shop.id, rawImagesForWebFallback);
+          } else {
+            await Share.share(text);
+          }
+        }
+      } else {
+        await Share.shareXFiles(
+          images,
+          text: text,
+          subject: StatusShareMessages.collectionShareSubject(shop),
+          sharePositionOrigin: sharePositionOrigin,
+        );
+      }
+      await _logInteraction('shop', shop.id, 'whatsapp_status');
+    } catch (e) {
+      debugPrint('shareStatusCollection failed: $e');
+      if (kIsWeb &&
+          rawImagesForWebFallback != null &&
+          rawImagesForWebFallback.isNotEmpty) {
+        await downloadStatusImages(shop.id, rawImagesForWebFallback);
+        await _logInteraction('shop', shop.id, 'whatsapp_status');
+        return;
+      }
+      rethrow;
+    } finally {
+      if (tempPaths != null && tempPaths.isNotEmpty) {
+        await deleteStatusTempFiles(tempPaths);
       }
     }
   }
