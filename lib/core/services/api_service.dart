@@ -117,6 +117,38 @@ class ApiService {
     return [];
   }
 
+  // GET /orders
+  Future<List<Map<String, dynamic>>> fetchOrders({
+    String? buyerPhone,
+    int? shopId,
+    DateTime? updatedSince,
+  }) async {
+    try {
+      final params = <String, String>{'api_key': _apiKey};
+      if (buyerPhone != null && buyerPhone.isNotEmpty) {
+        params['buyer_phone'] = buyerPhone;
+      }
+      if (shopId != null) {
+        params['shop_id'] = shopId.toString();
+      }
+      if (updatedSince != null) {
+        params['updated_since'] = _formatDateForApi(updatedSince);
+      }
+      final uri = Uri.parse('$baseUrl/orders.php').replace(queryParameters: params);
+      final response = await http.get(uri, headers: _commonHeaders);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final List<dynamic> data = decoded is Map
+            ? (decoded['data'] ?? [])
+            : decoded;
+        return data.cast<Map<String, dynamic>>();
+      }
+    } catch (e) {
+      debugPrint('API ERROR (fetchOrders): $e');
+    }
+    return [];
+  }
+
   // GET /stories
   Future<List<Map<String, dynamic>>> fetchStories({
     DateTime? updatedSince,
@@ -452,6 +484,15 @@ class ApiService {
           headers: {..._commonHeaders, 'Content-Type': 'application/json'},
           body: payload,
         );
+      } else if (entityType == 'orders') {
+        final uri = Uri.parse('$baseUrl/orders.php?api_key=$_apiKey');
+        final payload = jsonEncode({'action': action, 'data': data});
+        debugPrint('PUSH → orders.php  uri=$uri');
+        response = await http.post(
+          uri,
+          headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+          body: payload,
+        );
       } else {
         final String endpoint = '$entityType.php';
         final uri = Uri.parse('$baseUrl/$endpoint?api_key=$_apiKey');
@@ -672,5 +713,35 @@ class ApiService {
     } on TimeoutException {
       rethrow;
     }
+  }
+
+  /// Record a platform open / visit for admin analytics.
+  Future<bool> trackPlatformVisit({
+    required String eventType,
+    required String platform,
+    String? visitorId,
+    String? userPhone,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/platform_visits.php?api_key=$_apiKey');
+      final payload = jsonEncode({
+        'event_type': eventType,
+        'platform': platform,
+        if (visitorId != null) 'visitor_id': visitorId,
+        if (userPhone != null && userPhone.isNotEmpty) 'user_phone': userPhone,
+      });
+      final response = await http.post(
+        uri,
+        headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+        body: payload,
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data is Map && data['success'] == true;
+      }
+    } catch (e) {
+      debugPrint('API ERROR (trackPlatformVisit): $e');
+    }
+    return false;
   }
 }

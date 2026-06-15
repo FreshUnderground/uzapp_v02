@@ -70,9 +70,14 @@ class _ShopQrDialogState extends State<ShopQrDialog> {
         textAlign: TextAlign.center,
         style: const TextStyle(fontSize: 17),
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.62,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -149,10 +154,21 @@ class _ShopQrDialogState extends State<ShopQrDialog> {
                 const SizedBox(height: 8),
                 Text(
                   _shareMessage,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12,
                     height: 1.4,
                     color: Colors.grey[800],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Aperçu — le message complet sera envoyé au partage.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[500],
+                    fontStyle: FontStyle.italic,
                   ),
                 ),
               ],
@@ -184,7 +200,9 @@ class _ShopQrDialogState extends State<ShopQrDialog> {
               ),
             ),
           ),
-        ],
+            ],
+          ),
+        ),
       ),
       actions: [
         TextButton(

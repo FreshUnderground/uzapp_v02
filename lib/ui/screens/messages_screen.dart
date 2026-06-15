@@ -6,6 +6,9 @@ import '../../core/services/auth_service.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/message_repository.dart';
 import '../components/empty_state.dart';
+import '../components/async_content.dart';
+import '../components/custom_refresh_indicator.dart';
+import '../../data/services/sync_service.dart';
 import '../utils/page_transitions.dart';
 import 'auth/login_screen.dart';
 
@@ -36,18 +39,29 @@ class MessagesScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(tr(context, 'messages'))),
-      body: StreamBuilder<List<ChatMessage>>(
-        stream: msgRepo.watchInbox(userPhone),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final all = snapshot.data!;
+      body: UzaRefreshIndicator(
+        onRefresh: () async {
+          await context.read<SyncService>().syncNow();
+        },
+        child: StreamBuilder<List<ChatMessage>>(
+          stream: msgRepo.watchInbox(userPhone),
+          builder: (context, snapshot) {
+            return AsyncContent<List<ChatMessage>>(
+              snapshot: snapshot,
+              builder: (all) {
           if (all.isEmpty) {
-            return EmptyState(
-              icon: Icons.chat_bubble_outline,
-              title: tr(context, 'messages_empty'),
-              subtitle: tr(context, 'messages_empty_hint'),
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.6,
+                  child: EmptyState(
+                    icon: Icons.chat_bubble_outline,
+                    title: tr(context, 'messages_empty'),
+                    subtitle: tr(context, 'messages_empty_hint'),
+                  ),
+                ),
+              ],
             );
           }
           final threads = <String, ChatMessage>{};
@@ -64,6 +78,7 @@ class MessagesScreen extends StatelessWidget {
             );
 
           return ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
             itemCount: entries.length,
             itemBuilder: (context, index) {
               final last = entries[index].value;
@@ -97,7 +112,10 @@ class MessagesScreen extends StatelessWidget {
               );
             },
           );
-        },
+              },
+            );
+          },
+        ),
       ),
     );
   }

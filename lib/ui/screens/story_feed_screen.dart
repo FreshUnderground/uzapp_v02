@@ -117,13 +117,14 @@ class _CompactStoryFeed extends StatelessWidget {
 
         final shopId = shopIds[index - 1];
         final stories = groupedStories[shopId]!;
-        final firstStory = stories.first;
+        final previewStory = StoryRepository.previewStoryForGroup(stories);
 
         return FutureBuilder<Shop?>(
           future: context.read<ShopRepository>().getShopById(shopId),
           builder: (context, snapshot) {
             final shop = snapshot.data;
             return Padding(
+              key: ValueKey('story_circle_${shopId}_${previewStory.id}'),
               padding: const EdgeInsets.only(right: 12),
               child: Column(
                 children: [
@@ -159,8 +160,8 @@ class _CompactStoryFeed extends StatelessWidget {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                _buildStoryPreview(firstStory, shop),
-                                if (firstStory.mediaType == 'video')
+                                _buildStoryPreview(previewStory, shop),
+                                if (previewStory.mediaType == 'video')
                                   Positioned(
                                     right: 2,
                                     bottom: 2,
@@ -233,14 +234,16 @@ class _CompactStoryFeed extends StatelessWidget {
   }
 
   void _handleShopTap(BuildContext context, List<Story> stories) {
+    final activeStories = StoryRepository.activeStoriesOnly(stories);
+    if (activeStories.isEmpty) return;
+
     final storyRepo = context.read<StoryRepository>();
-    // Log view for the first story
-    storyRepo.logStoryView(stories.first.id);
+    storyRepo.logStoryView(activeStories.first.id);
 
     if (onOpenStory != null) {
-      onOpenStory!(stories, 0);
+      onOpenStory!(activeStories, 0);
     } else {
-      _openStoryViewer(context, stories, 0);
+      _openStoryViewer(context, activeStories, 0);
     }
   }
 
@@ -249,10 +252,13 @@ class _CompactStoryFeed extends StatelessWidget {
     List<Story> stories,
     int index,
   ) async {
-    // Pre-fetch shop data for all stories in this group
+    final activeStories = StoryRepository.activeStoriesOnly(stories);
+    if (activeStories.isEmpty) return;
+    final safeIndex = index.clamp(0, activeStories.length - 1);
+
     final shopRepo = context.read<ShopRepository>();
     final storyRepo = context.read<StoryRepository>();
-    final shopIds = stories.map((s) => s.shopId).toSet();
+    final shopIds = activeStories.map((s) => s.shopId).toSet();
     final shopLookup = <int, Shop>{};
     for (final id in shopIds) {
       final shop = await shopRepo.getShopById(id);
@@ -264,8 +270,8 @@ class _CompactStoryFeed extends StatelessWidget {
         context,
         MaterialPageRoute(
           builder: (_) => StoryViewScreen(
-            stories: stories,
-            initialIndex: index,
+            stories: activeStories,
+            initialIndex: safeIndex,
             shopLookup: shopLookup,
             getViewCount: storyRepo.getStoryViewCount,
           ),
@@ -420,13 +426,14 @@ class _FullStoryFeed extends StatelessWidget {
           itemBuilder: (context, index) {
             final shopId = shopIds[index];
             final stories = groupedStories[shopId]!;
-            final firstStory = stories.first;
+            final previewStory = StoryRepository.previewStoryForGroup(stories);
 
             return FutureBuilder<Shop?>(
               future: context.read<ShopRepository>().getShopById(shopId),
               builder: (context, snapshot) {
                 final shop = snapshot.data;
                 return GestureDetector(
+                  key: ValueKey('story_card_${shopId}_${previewStory.id}'),
                   onTap: () => _handleShopTap(context, stories),
                   child: Container(
                     decoration: BoxDecoration(
@@ -444,7 +451,7 @@ class _FullStoryFeed extends StatelessWidget {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          _buildStoryCardBackground(firstStory, shop),
+                          _buildStoryCardBackground(previewStory, shop),
                           Container(
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
@@ -528,7 +535,7 @@ class _FullStoryFeed extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  _formatTime(firstStory.createdAt),
+                                  _formatTime(previewStory.createdAt),
                                   style: const TextStyle(
                                     color: Colors.white70,
                                     fontSize: 11,
@@ -595,13 +602,16 @@ class _FullStoryFeed extends StatelessWidget {
   }
 
   void _handleShopTap(BuildContext context, List<Story> stories) {
+    final activeStories = StoryRepository.activeStoriesOnly(stories);
+    if (activeStories.isEmpty) return;
+
     final storyRepo = context.read<StoryRepository>();
-    storyRepo.logStoryView(stories.first.id);
+    storyRepo.logStoryView(activeStories.first.id);
 
     if (onOpenStory != null) {
-      onOpenStory!(stories, 0);
+      onOpenStory!(activeStories, 0);
     } else {
-      _openStoryViewer(context, stories, 0);
+      _openStoryViewer(context, activeStories, 0);
     }
   }
 
@@ -610,9 +620,13 @@ class _FullStoryFeed extends StatelessWidget {
     List<Story> stories,
     int index,
   ) async {
+    final activeStories = StoryRepository.activeStoriesOnly(stories);
+    if (activeStories.isEmpty) return;
+    final safeIndex = index.clamp(0, activeStories.length - 1);
+
     final shopRepo = context.read<ShopRepository>();
     final storyRepo = context.read<StoryRepository>();
-    final shopIds = stories.map((s) => s.shopId).toSet();
+    final shopIds = activeStories.map((s) => s.shopId).toSet();
     final shopLookup = <int, Shop>{};
     for (final id in shopIds) {
       final shop = await shopRepo.getShopById(id);
@@ -624,8 +638,8 @@ class _FullStoryFeed extends StatelessWidget {
         context,
         MaterialPageRoute(
           builder: (_) => StoryViewScreen(
-            stories: stories,
-            initialIndex: index,
+            stories: activeStories,
+            initialIndex: safeIndex,
             shopLookup: shopLookup,
             getViewCount: storyRepo.getStoryViewCount,
           ),

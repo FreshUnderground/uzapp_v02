@@ -2,7 +2,7 @@ name: uzaapp
 description: "Buy & sell locally. Discover products, shops & new arrivals in your area."
 publish_to: 'none'
 
-version: 2.0.3+4
+version: 2.0.4+5
 
 environment:
   sdk: ^3.10.4
@@ -40,6 +40,8 @@ dependencies:
   app_links: ^6.4.0
   mobile_scanner: ^6.0.2
   qr_flutter: ^4.1.0
+  timezone: ^0.10.1
+  flutter_quick_video_encoder: ^1.7.2
 
 dev_dependencies:
   flutter_test:

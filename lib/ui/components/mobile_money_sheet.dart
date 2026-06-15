@@ -11,6 +11,7 @@ class MobileMoneySheet extends StatefulWidget {
   final List<String> productNames;
   final String whatsAppPhone;
   final String? buyerPhone;
+  final int? orderId;
 
   const MobileMoneySheet({
     super.key,
@@ -19,6 +20,7 @@ class MobileMoneySheet extends StatefulWidget {
     required this.productNames,
     required this.whatsAppPhone,
     this.buyerPhone,
+    this.orderId,
   });
 
   static Future<void> show(
@@ -27,6 +29,7 @@ class MobileMoneySheet extends StatefulWidget {
     required List<String> productNames,
     required String whatsAppPhone,
     String? buyerPhone,
+    int? orderId,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -39,6 +42,7 @@ class MobileMoneySheet extends StatefulWidget {
         productNames: productNames,
         whatsAppPhone: whatsAppPhone,
         buyerPhone: buyerPhone,
+        orderId: orderId,
       ),
     );
   }
@@ -63,6 +67,10 @@ class _MobileMoneySheetState extends State<MobileMoneySheet> {
     );
     if (!mounted) return;
     setState(() => _loading = false);
+
+    if (widget.orderId != null && result.pending) {
+      // Order already created with pending_payment status from cart.
+    }
 
     await showDialog(
       context: context,

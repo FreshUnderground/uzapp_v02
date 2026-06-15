@@ -76,8 +76,6 @@ class SearchFilters extends StatefulWidget {
 
 class _SearchFiltersState extends State<SearchFilters> {
   late SearchFilterState _state;
-  List<Category> _subcategories = [];
-  final bool _loadingSubcategories = false;
 
   @override
   void initState() {
@@ -221,27 +219,25 @@ class _SearchFiltersState extends State<SearchFilters> {
       builder: (context) {
         return _CategorySelectionSheet(
           initialState: _state,
-          onCategorySelected: (categoryId, categoryName) {
+          onApply: ({
+            required int? categoryId,
+            required String? category,
+            required int? subcategoryId,
+            required String? subcategory,
+          }) {
             setState(() {
-              _state = _state.copyWith(
+              _state = SearchFilterState(
+                minPrice: _state.minPrice,
+                maxPrice: _state.maxPrice,
+                category: category,
                 categoryId: categoryId,
-                category: categoryName,
-                subcategoryId: null,
-                subcategory: null,
-              );
-              _subcategories = [];
-            });
-            _apply();
-          },
-          onSubcategorySelected: (subcategoryId, subcategoryName) {
-            setState(() {
-              _state = _state.copyWith(
+                subcategory: subcategory,
                 subcategoryId: subcategoryId,
-                subcategory: subcategoryName,
+                condition: _state.condition,
+                sortBy: _state.sortBy,
               );
             });
             _apply();
-            Navigator.pop(context);
           },
         );
       },
@@ -392,17 +388,22 @@ class _SearchFiltersState extends State<SearchFilters> {
   }
 }
 
+typedef _CategoryFilterApply =
+    void Function({
+      required int? categoryId,
+      required String? category,
+      required int? subcategoryId,
+      required String? subcategory,
+    });
+
 /// Category selection sheet with cascading subcategory support
 class _CategorySelectionSheet extends StatefulWidget {
   final SearchFilterState initialState;
-  final Function(int categoryId, String categoryName) onCategorySelected;
-  final Function(int subcategoryId, String subcategoryName)
-  onSubcategorySelected;
+  final _CategoryFilterApply onApply;
 
   const _CategorySelectionSheet({
     required this.initialState,
-    required this.onCategorySelected,
-    required this.onSubcategorySelected,
+    required this.onApply,
   });
 
   @override
@@ -413,154 +414,213 @@ class _CategorySelectionSheet extends StatefulWidget {
 class _CategorySelectionSheetState extends State<_CategorySelectionSheet> {
   int? _selectedCategoryId;
   String? _selectedCategoryName;
-  List<Category> _subcategories = [];
+  int? _selectedSubcategoryId;
+  String? _selectedSubcategoryName;
 
   @override
   void initState() {
     super.initState();
     _selectedCategoryId = widget.initialState.categoryId;
     _selectedCategoryName = widget.initialState.category;
+    _selectedSubcategoryId = widget.initialState.subcategoryId;
+    _selectedSubcategoryName = widget.initialState.subcategory;
+  }
+
+  void _applySelection() {
+    widget.onApply(
+      categoryId: _selectedCategoryId,
+      category: _selectedCategoryName,
+      subcategoryId: _selectedSubcategoryId,
+      subcategory: _selectedSubcategoryName,
+    );
+    Navigator.pop(context);
+  }
+
+  void _resetSelection() {
+    setState(() {
+      _selectedCategoryId = null;
+      _selectedCategoryName = null;
+      _selectedSubcategoryId = null;
+      _selectedSubcategoryName = null;
+    });
+    widget.onApply(
+      categoryId: null,
+      category: null,
+      subcategoryId: null,
+      subcategory: null,
+    );
+    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     final productRepo = context.watch<ProductRepository>();
+    final sheetHeight = MediaQuery.of(context).size.height * 0.85;
+    final isAutreCategory =
+        _selectedCategoryName?.toLowerCase().contains('autre') ?? false;
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
+      child: SizedBox(
+        height: sheetHeight,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Catégorie',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            // Root categories list
-            SizedBox(
-              height: 200,
-              child: StreamBuilder<List<Category>>(
-                stream: productRepo.watchRootCategories(),
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                    return const Center(child: Text('Aucune catégorie'));
-                  }
-                  final categories = snapshot.data!;
-                  return ListView.builder(
-                    itemCount: categories.length,
-                    itemBuilder: (context, index) {
-                      final cat = categories[index];
-                      final isSelected = _selectedCategoryId == cat.id;
-                      return ListTile(
-                        title: Text(cat.name),
-                        leading: Icon(
-                          isSelected
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_unchecked,
-                          color: isSelected ? UzaColors.primary : Colors.grey,
-                        ),
-                        onTap: () {
-                          setState(() {
-                            _selectedCategoryId = cat.id;
-                            _selectedCategoryName = cat.name;
-                          });
-                          widget.onCategorySelected(cat.id, cat.name);
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-            // Subcategories (if a category is selected)
-            if (_selectedCategoryId != null) ...[
               const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 8),
-              Text(
-                (_selectedCategoryName?.toLowerCase().contains('autre') ?? false)
-                    ? 'Catégories personnalisées'
-                    : 'Sous-catégorie',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
+              const Text(
+                'Catégorie',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              StreamBuilder<List<Category>>(
-                stream: productRepo.watchCategoriesByParent(
-                  _selectedCategoryId,
-                ),
-                builder: (context, snapshot) {
-                  _subcategories = snapshot.data ?? [];
-                  if (_subcategories.isEmpty) {
-                    final isAutre = _selectedCategoryName
-                            ?.toLowerCase()
-                            .contains('autre') ??
-                        false;
-                    return Text(
-                      isAutre
-                          ? 'Aucune catégorie personnalisée pour l\'instant'
-                          : 'Aucune sous-catégorie',
-                      style: const TextStyle(color: Colors.grey, fontSize: 14),
-                    );
-                  }
-                  return Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _subcategories.map((sub) {
-                      final isSelected =
-                          widget.initialState.subcategoryId == sub.id;
-                      return FilterChip(
-                        label: Text(sub.name),
-                        selected: isSelected,
-                        onSelected: (selected) {
-                          if (selected) {
-                            widget.onSubcategorySelected(sub.id, sub.name);
-                          }
-                        },
-                        selectedColor: UzaColors.primary.withValues(
-                          alpha: 0.15,
-                        ),
-                        checkmarkColor: UzaColors.primary,
+              Expanded(
+                child: StreamBuilder<List<Category>>(
+                  stream: productRepo.watchRootCategories(),
+                  builder: (context, rootSnapshot) {
+                    if (rootSnapshot.connectionState ==
+                        ConnectionState.waiting) {
+                      return const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       );
-                    }).toList(),
-                  );
-                },
+                    }
+
+                    final categories = rootSnapshot.data ?? [];
+                    if (categories.isEmpty) {
+                      return const Center(child: Text('Aucune catégorie'));
+                    }
+
+                    return StreamBuilder<List<Category>>(
+                      stream: _selectedCategoryId != null
+                          ? productRepo.watchCategoriesByParent(
+                              _selectedCategoryId,
+                            )
+                          : Stream.value(const []),
+                      builder: (context, subSnapshot) {
+                        final subcategories = subSnapshot.data ?? [];
+
+                        return ListView(
+                          children: [
+                            ...categories.map((cat) {
+                              final isSelected = _selectedCategoryId == cat.id;
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(cat.name),
+                                leading: Icon(
+                                  isSelected
+                                      ? Icons.radio_button_checked
+                                      : Icons.radio_button_unchecked,
+                                  color: isSelected
+                                      ? UzaColors.primary
+                                      : Colors.grey,
+                                ),
+                                onTap: () {
+                                  setState(() {
+                                    _selectedCategoryId = cat.id;
+                                    _selectedCategoryName = cat.name;
+                                    _selectedSubcategoryId = null;
+                                    _selectedSubcategoryName = null;
+                                  });
+                                },
+                              );
+                            }),
+                            if (_selectedCategoryId != null) ...[
+                              const Divider(height: 24),
+                              Text(
+                                isAutreCategory
+                                    ? 'Catégories personnalisées'
+                                    : 'Sous-catégorie',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              if (subSnapshot.connectionState ==
+                                  ConnectionState.waiting)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                )
+                              else if (subcategories.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
+                                  child: Text(
+                                    isAutreCategory
+                                        ? 'Aucune catégorie personnalisée pour l\'instant'
+                                        : 'Aucune sous-catégorie',
+                                    style: const TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                )
+                              else
+                                ...subcategories.map((sub) {
+                                  final isSelected =
+                                      _selectedSubcategoryId == sub.id;
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(sub.name),
+                                    leading: Icon(
+                                      isSelected
+                                          ? Icons.radio_button_checked
+                                          : Icons.radio_button_unchecked,
+                                      color: isSelected
+                                          ? UzaColors.primary
+                                          : Colors.grey,
+                                    ),
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedSubcategoryId = sub.id;
+                                        _selectedSubcategoryName = sub.name;
+                                      });
+                                    },
+                                  );
+                                }),
+                            ],
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _resetSelection,
+                      child: const Text('Réinitialiser'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _applySelection,
+                      child: const Text('Appliquer'),
+                    ),
+                  ),
+                ],
               ),
             ],
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () {
-                  setState(() {
-                    _selectedCategoryId = null;
-                    _selectedCategoryName = null;
-                  });
-                  widget.onCategorySelected(
-                    0,
-                    '',
-                  ); // Use 0 to indicate no category
-                  Navigator.pop(context);
-                },
-                child: const Text('Réinitialiser'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

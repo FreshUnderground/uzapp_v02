@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/services/contact_service.dart';
 import '../../data/local/uza_database.dart';
 import '../utils/page_transitions.dart';
 import '../screens/edit_product_screen.dart';
 import '../screens/create_story_screen.dart';
 import '../screens/manage_products_screen.dart';
 import '../screens/whatsapp_status_screen.dart';
+import '../screens/quick_post_screen.dart';
+import '../screens/seller_orders_screen.dart';
 import 'shop_share_sheet.dart';
 
 /// 2x2 quick action grid for seller dashboard.
@@ -24,6 +28,15 @@ class SellerQuickActions extends StatelessWidget {
         onTap: () => Navigator.push(
           context,
           SlideUpRoute(page: EditProductScreen(shopId: shop.id)),
+        ),
+      ),
+      _Action(
+        icon: Icons.flash_on_outlined,
+        label: 'Rapide',
+        color: Colors.deepOrange,
+        onTap: () => Navigator.push(
+          context,
+          SlideUpRoute(page: QuickPostScreen(shopId: shop.id)),
         ),
       ),
       _Action(
@@ -56,6 +69,15 @@ class SellerQuickActions extends StatelessWidget {
         ),
       ),
       _Action(
+        icon: Icons.receipt_long_outlined,
+        label: 'Commandes',
+        color: Colors.indigo,
+        onTap: () => Navigator.push(
+          context,
+          SlideUpRoute(page: SellerOrdersScreen(shopId: shop.id)),
+        ),
+      ),
+      _Action(
         icon: Icons.collections_outlined,
         label: 'Statut WA',
         color: const Color(0xFF25D366),
@@ -69,6 +91,41 @@ class SellerQuickActions extends StatelessWidget {
         label: 'Partager',
         color: Colors.blue,
         onTap: () => ShopShareSheet.show(context, shop),
+      ),
+      _Action(
+        icon: Icons.list_alt_outlined,
+        label: 'Catalogue',
+        color: Colors.teal,
+        onTap: () async {
+          final messenger = ScaffoldMessenger.of(context);
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Préparation du catalogue…')),
+          );
+          try {
+            await context.read<ContactService>().shareShopCatalog(shop);
+          } catch (_) {
+            messenger.showSnackBar(
+              const SnackBar(
+                content: Text('Impossible de partager le catalogue'),
+              ),
+            );
+          }
+        },
+      ),
+      _Action(
+        icon: Icons.campaign_outlined,
+        label: 'Relance WA',
+        color: const Color(0xFF128C7E),
+        onTap: () => Navigator.push(
+          context,
+          SlideUpRoute(page: ClientReengagementScreen(shop: shop)),
+        ),
+      ),
+      _Action(
+        icon: Icons.group_add_outlined,
+        label: 'Inviter',
+        color: Colors.green,
+        onTap: () => context.read<ContactService>().shareAppInvite(),
       ),
     ];
 

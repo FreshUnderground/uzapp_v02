@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/services/referral_service.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/services/auth_service.dart';
 import '../../data/repositories/auth_repository.dart';
@@ -20,8 +21,11 @@ import 'auth/login_screen.dart';
 import 'admin_validation_screen.dart';
 import 'cash_management_screen.dart';
 import '../components/responsive_layout.dart';
+import '../components/arrivage_thumbnail.dart';
 import '../components/modern_card.dart';
 import '../components/tap_animator.dart';
+import '../components/empty_state.dart';
+import '../components/async_content.dart';
 import '../components/seller_quick_actions.dart';
 import '../components/shop_qr_dialog.dart';
 import '../components/shop_share_sheet.dart';
@@ -1534,6 +1538,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               itemBuilder: (context, index) {
                 final story = stories[index];
                 return Stack(
+                  key: ValueKey('my_story_${story.id}'),
                   children: [
                     TapAnimator(
                       onTap: () async {
@@ -1686,8 +1691,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(14),
-                              child: ImageUtils.buildCachedImage(
-                                arrivage.mediaUrl,
+                              child: ArrivageThumbnail(
+                                story: arrivage,
                                 fit: BoxFit.cover,
                                 placeholder: Container(
                                   color: Colors.grey[200],
@@ -1993,8 +1998,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return StreamBuilder<List<Product>>(
       stream: context.read<ProductRepository>().watchWishlistProducts(),
       builder: (context, snapshot) {
+        if (AsyncContent.isLoading(snapshot)) {
+          return const SizedBox(
+            height: 80,
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+
         final products = snapshot.data ?? [];
-        if (products.isEmpty) return const SizedBox.shrink();
+        if (products.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: EmptyState(
+              icon: Icons.favorite_border,
+              title: tr(context, 'wishlist_empty'),
+              subtitle: tr(context, 'wishlist_empty_hint'),
+            ),
+          );
+        }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2382,15 +2409,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const Divider(height: 1, indent: 12, endIndent: 12),
           TapAnimator(
-            onTap: () {
-              const message =
-                  "Découvrez UzaApp - Le catalogue de produits #1 en RDC!\n\n"
-                  "Téléchargez l'application: https://uzaapp.com\n\n"
-                  "Envoyé depuis UzaApp";
-              Share.share(message, subject: 'Téléchargez UzaApp');
+            onTap: () async {
+              final phone = authService.user?.phoneNumber ?? 'guest';
+              final referral = context.read<ReferralService>();
+              final code = await referral.getOrCreateCode(phone);
+              final shop = await context.read<ShopRepository>().getUserShop(phone);
+              await Share.share(
+                referral.inviteMessage(
+                  referralCode: code,
+                  shopName: shop?.name,
+                ),
+                subject: 'Rejoignez UzaApp',
+              );
             },
             child: ListTile(
-              leading: Icon(Icons.share, color: Colors.green[700]),
+              leading: Icon(Icons.group_add_rounded, color: Colors.green[700]),
               title: Text(
                 tr(context, 'invite_friends'),
                 style: const TextStyle(

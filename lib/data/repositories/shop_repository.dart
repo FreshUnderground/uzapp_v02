@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -568,6 +569,193 @@ class ShopRepository {
       };
     }).toList();
   }
+
+  /// Top products by local + synced view counts.
+  Future<List<Map<String, dynamic>>> getTopViewedProducts(
+    int shopId, {
+    int limit = 5,
+  }) async {
+    final products = await (db.select(db.products)
+          ..where((t) => t.shopId.equals(shopId)))
+        .get();
+    if (products.isEmpty) return [];
+
+    final productIds = products.map((p) => p.id).toList();
+    final viewCounts = <int, int>{};
+
+    for (final p in products) {
+      viewCounts[p.id] = p.viewsCount;
+    }
+
+    final localViews = await (db.select(db.analytics)..where(
+          (t) =>
+              t.entityType.equals('product') &
+              t.entityId.isIn(productIds) &
+              t.interactionType.equals('view'),
+        ))
+        .get();
+    for (final a in localViews) {
+      viewCounts[a.entityId] = (viewCounts[a.entityId] ?? 0) + 1;
+    }
+
+    final ranked = products
+        .map(
+          (p) => {
+            'id': p.id,
+            'name': p.name,
+            'views': viewCounts[p.id] ?? 0,
+          },
+        )
+        .toList()
+      ..sort((a, b) => (b['views'] as int).compareTo(a['views'] as int));
+
+    return ranked.take(limit).toList();
+  }
+
+  /// Funnel: views → WhatsApp contacts → orders (local analytics).
+  Future<Map<String, dynamic>> getConversionMetrics(int shopId) async {
+    final products = await (db.select(db.products)
+          ..where((t) => t.shopId.equals(shopId)))
+        .get();
+    final productIds = products.map((p) => p.id).toList();
+    final entityIds = <int>[shopId, ...productIds];
+
+    int views = 0;
+    int whatsapp = 0;
+    if (entityIds.isNotEmpty) {
+      final rows = await (db.select(db.analytics)
+            ..where((t) => t.entityId.isIn(entityIds)))
+          .get();
+      for (final a in rows) {
+        if (a.interactionType == 'view') views++;
+        if (a.interactionType == 'whatsapp') whatsapp++;
+      }
+    }
+    for (final p in products) {
+      views += p.viewsCount;
+    }
+
+    final ordersCount = await (db.select(db.orders)
+          ..where((t) => t.shopId.equals(shopId)))
+        .get()
+        .then((rows) => rows.length);
+
+    double rate(int numerator, int denominator) =>
+        denominator == 0 ? 0 : (numerator / denominator) * 100;
+
+    return {
+      'views': views,
+      'whatsapp': whatsapp,
+      'orders': ordersCount,
+      'viewToContact': rate(whatsapp, views),
+      'contactToOrder': rate(ordersCount, whatsapp),
+      'viewToOrder': rate(ordersCount, views),
+    };
+  }
+
+  /// Best hours/days to publish (from views + shares + status events).
+  Future<Map<String, dynamic>> getBestPublishTimes(int shopId) async {
+    final products = await (db.select(db.products)
+          ..where((t) => t.shopId.equals(shopId)))
+        .get();
+    final productIds = products.map((p) => p.id).toList();
+    final entityIds = <int>[shopId, ...productIds];
+    if (entityIds.isEmpty) {
+      return {'bestHour': 18, 'bestDay': 'Vendredi', 'hourCounts': List.filled(24, 0)};
+    }
+
+    final relevantTypes = {
+      'view',
+      'share',
+      'whatsapp_status',
+      'facebook_status',
+      'tiktok_status',
+    };
+    final rows = await (db.select(db.analytics)
+          ..where((t) => t.entityId.isIn(entityIds)))
+        .get();
+
+    final hourCounts = List.filled(24, 0);
+    final dayCounts = List.filled(7, 0);
+    const dayNames = [
+      'Lundi',
+      'Mardi',
+      'Mercredi',
+      'Jeudi',
+      'Vendredi',
+      'Samedi',
+      'Dimanche',
+    ];
+
+    for (final a in rows) {
+      if (!relevantTypes.contains(a.interactionType)) continue;
+      hourCounts[a.createdAt.hour]++;
+      final weekday = a.createdAt.weekday - 1;
+      if (weekday >= 0 && weekday < 7) dayCounts[weekday]++;
+    }
+
+    var bestHour = 18;
+    var maxHour = -1;
+    for (var h = 0; h < 24; h++) {
+      if (hourCounts[h] > maxHour) {
+        maxHour = hourCounts[h];
+        bestHour = h;
+      }
+    }
+
+    var bestDayIndex = 4;
+    var maxDay = -1;
+    for (var d = 0; d < 7; d++) {
+      if (dayCounts[d] > maxDay) {
+        maxDay = dayCounts[d];
+        bestDayIndex = d;
+      }
+    }
+
+    return {
+      'bestHour': bestHour,
+      'bestDay': dayNames[bestDayIndex],
+      'hourCounts': hourCounts,
+      'dayCounts': dayCounts,
+    };
+  }
+
+  /// Shops with GPS coordinates, sorted by distance when [userLat]/[userLng] set.
+  Future<List<({Shop shop, double? distanceKm})>> getShopsByDistance({
+    double? userLat,
+    double? userLng,
+  }) async {
+    final shops = await (db.select(db.shops)).get();
+    final withCoords = shops
+        .where((s) => s.latitude != null && s.longitude != null)
+        .toList();
+
+    if (userLat == null || userLng == null) {
+      return withCoords.map((s) => (shop: s, distanceKm: null)).toList();
+    }
+
+    double distanceKm(Shop s) {
+      const earthRadius = 6371.0;
+      final dLat = _toRad(s.latitude! - userLat);
+      final dLng = _toRad(s.longitude! - userLng);
+      final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+          math.cos(_toRad(userLat)) *
+              math.cos(_toRad(s.latitude!)) *
+              math.sin(dLng / 2) *
+              math.sin(dLng / 2);
+      final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+      return earthRadius * c;
+    }
+
+    final ranked = withCoords
+        .map((s) => (shop: s, distanceKm: distanceKm(s)))
+        .toList()
+      ..sort((a, b) => a.distanceKm!.compareTo(b.distanceKm!));
+
+    return ranked;
+  }
+
+  double _toRad(double deg) => deg * math.pi / 180;
 
   // Shop Following Methods (using ShopFollows table with user tracking)
   Future<void> toggleFollowShop(int shopId, {String? userPhone}) async {

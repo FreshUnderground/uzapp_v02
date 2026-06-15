@@ -16,6 +16,9 @@ class AnalyticsTab extends StatelessWidget {
         shopRepo.getShopStats(shopId),
         shopRepo.getWeeklyStats(shopId),
         shopRepo.getDailyViewsBreakdown(shopId),
+        shopRepo.getTopViewedProducts(shopId),
+        shopRepo.getConversionMetrics(shopId),
+        shopRepo.getBestPublishTimes(shopId),
       ]),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -24,6 +27,12 @@ class AnalyticsTab extends StatelessWidget {
         final stats = (snapshot.data?[0] as Map<String, int>?) ?? {};
         final weekly = (snapshot.data?[1] as Map<String, int>?) ?? {};
         final dailyViews = (snapshot.data?[2] as List<int>?) ?? List.filled(7, 0);
+        final topProducts =
+            (snapshot.data?[3] as List<Map<String, dynamic>>?) ?? [];
+        final conversion =
+            (snapshot.data?[4] as Map<String, dynamic>?) ?? {};
+        final publishTimes =
+            (snapshot.data?[5] as Map<String, dynamic>?) ?? {};
 
         return ListView(
           padding: const EdgeInsets.all(24),
@@ -49,6 +58,21 @@ class AnalyticsTab extends StatelessWidget {
             _buildSectionTitle('Engagement Total'),
             const SizedBox(height: 16),
             _buildEngagementSummary(stats),
+            const SizedBox(height: 32),
+
+            _buildSectionTitle('Conversion'),
+            const SizedBox(height: 16),
+            _buildConversionRow(conversion),
+            const SizedBox(height: 32),
+
+            _buildSectionTitle('Meilleur moment pour publier'),
+            const SizedBox(height: 16),
+            _buildPublishInsight(publishTimes),
+            const SizedBox(height: 32),
+
+            _buildSectionTitle('Produits les plus vus'),
+            const SizedBox(height: 16),
+            _buildTopProducts(topProducts),
             const SizedBox(height: 32),
 
             _buildSectionTitle('Détails des Statistiques'),
@@ -294,6 +318,110 @@ class AnalyticsTab extends StatelessWidget {
           Colors.deepPurple,
         ),
       ],
+    );
+  }
+
+  Widget _buildConversionRow(Map<String, dynamic> data) {
+    String pct(dynamic v) => '${(v as num?)?.toStringAsFixed(1) ?? '0.0'}%';
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _summaryCard(
+                'Vue → WhatsApp',
+                pct(data['viewToContact']),
+                Icons.trending_up,
+                Colors.teal,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _summaryCard(
+                'WhatsApp → Cmd',
+                pct(data['contactToOrder']),
+                Icons.shopping_bag_outlined,
+                Colors.deepOrange,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _detailedRow(
+          'Vues totales',
+          data['views'] as int? ?? 0,
+          Icons.visibility,
+          Colors.blue,
+        ),
+        _detailedRow(
+          'Contacts WhatsApp',
+          data['whatsapp'] as int? ?? 0,
+          Icons.chat,
+          Colors.green,
+        ),
+        _detailedRow(
+          'Commandes',
+          data['orders'] as int? ?? 0,
+          Icons.receipt_long,
+          Colors.indigo,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPublishInsight(Map<String, dynamic> data) {
+    final hour = data['bestHour'] as int? ?? 18;
+    final day = data['bestDay'] as String? ?? 'Vendredi';
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: UzaColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: UzaColors.primary.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.schedule, color: UzaColors.primary, size: 32),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Publiez vers ${hour}h00',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  'Jour le plus actif : $day',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopProducts(List<Map<String, dynamic>> products) {
+    if (products.isEmpty) {
+      return Text(
+        'Pas encore de données de vues produits.',
+        style: TextStyle(color: Colors.grey.shade600),
+      );
+    }
+    return Column(
+      children: products.map((p) {
+        return _detailedRow(
+          p['name'] as String? ?? 'Produit',
+          p['views'] as int? ?? 0,
+          Icons.remove_red_eye_outlined,
+          Colors.blueGrey,
+        );
+      }).toList(),
     );
   }
 

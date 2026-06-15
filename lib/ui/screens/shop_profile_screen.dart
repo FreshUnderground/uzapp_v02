@@ -24,6 +24,10 @@ import '../../core/utils/profile_shop_sync.dart';
 import '../components/responsive_layout.dart';
 import '../components/animated_bottom_nav.dart';
 import '../components/shop_share_sheet.dart';
+import '../components/arrivage_thumbnail.dart';
+import '../components/async_content.dart';
+import '../components/empty_state.dart';
+import '../../core/l10n/tr.dart';
 import '../components/shop_video_player.dart';
 import 'story_view_screen.dart';
 import 'edit_shop_screen.dart';
@@ -764,13 +768,16 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
     return StreamBuilder<List<Product>>(
       stream: productRepo.watchProductsByShop(shop.id),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
+        return AsyncContent<List<Product>>(
+          snapshot: snapshot,
+          loading: const Center(child: CircularProgressIndicator()),
+          isEmpty: (products) => products.isEmpty,
+          empty: () => EmptyState(
+            icon: Icons.inventory_2_outlined,
+            title: tr(context, 'shop_no_products'),
+            subtitle: tr(context, 'shop_no_products_hint'),
+          ),
+          builder: (products) {
         int crossAxisCount = 2;
         if (constraints.maxWidth > 1200) {
           crossAxisCount = 5;
@@ -788,9 +795,9 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
           ),
-          itemCount: snapshot.data!.length,
+          itemCount: products.length,
           itemBuilder: (context, index) {
-            final product = snapshot.data![index];
+            final product = products[index];
             return ProductCard(
               product: product,
               onTap: () => Navigator.push(
@@ -800,6 +807,8 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                 ),
               ),
             );
+          },
+        );
           },
         );
       },
@@ -833,14 +842,16 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
     return StreamBuilder<List<Story>>(
       stream: context.read<StoryRepository>().watchArrivagesByShop(shop.id),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
-        final arrivages = snapshot.data!;
+        return AsyncContent<List<Story>>(
+          snapshot: snapshot,
+          loading: const Center(child: CircularProgressIndicator()),
+          isEmpty: (arrivages) => arrivages.isEmpty,
+          empty: () => EmptyState(
+            icon: Icons.auto_stories_outlined,
+            title: tr(context, 'shop_no_arrivages'),
+            subtitle: tr(context, 'shop_no_arrivages_hint'),
+          ),
+          builder: (arrivages) {
         return GridView.builder(
           padding: const EdgeInsets.all(12),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -853,6 +864,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
           itemBuilder: (context, index) {
             final story = arrivages[index];
             return GestureDetector(
+              key: ValueKey('shop_arrivage_${story.id}'),
               onTap: () => _openArrivage(context, shop, arrivages, index),
               child: Container(
                 decoration: BoxDecoration(
@@ -871,7 +883,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                     fit: StackFit.expand,
                     children: [
                       // Media content
-                      story.mediaType == 'video'
+                      story.mediaType == 'video' && story.mediaUrl.isNotEmpty
                           ? Container(
                               color: Colors.black,
                               child: const Icon(
@@ -880,8 +892,8 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                                 size: 48,
                               ),
                             )
-                          : ImageUtils.buildCachedImage(
-                              story.mediaUrl,
+                          : ArrivageThumbnail(
+                              story: story,
                               fit: BoxFit.cover,
                               errorWidget: Container(
                                 color: Colors.grey[900],
@@ -996,6 +1008,8 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                 ),
               ),
             );
+          },
+        );
           },
         );
       },

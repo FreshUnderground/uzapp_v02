@@ -3,14 +3,45 @@ import 'dart:typed_data';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
 
-Future<bool> downloadStatusImages(int shopId, List<Uint8List> images) async {
-  if (images.isEmpty) return false;
+Future<bool> downloadStatusImages(int shopId, List<Uint8List> images) {
+  return downloadStatusFiles(
+    shopId: shopId,
+    files: images,
+    extension: 'jpg',
+    mimeType: 'image/jpeg',
+    namePrefix: 'uzaapp_status',
+  );
+}
 
-  for (var i = 0; i < images.length; i++) {
-    final blob = html.Blob([images[i]], 'image/jpeg');
+Future<bool> downloadStatusGif(int shopId, Uint8List gifBytes) {
+  return downloadStatusFiles(
+    shopId: shopId,
+    files: [gifBytes],
+    extension: 'gif',
+    mimeType: 'image/gif',
+    namePrefix: 'uzaapp_tiktok',
+  );
+}
+
+Future<bool> downloadStatusFiles({
+  required int shopId,
+  required List<Uint8List> files,
+  required String extension,
+  required String mimeType,
+  required String namePrefix,
+}) async {
+  if (files.isEmpty) return false;
+
+  for (var i = 0; i < files.length; i++) {
+    final blob = html.Blob([files[i]], mimeType);
     final url = html.Url.createObjectUrlFromBlob(blob);
     html.AnchorElement(href: url)
-      ..setAttribute('download', 'uzaapp_status_${shopId}_$i.jpg')
+      ..setAttribute(
+        'download',
+        files.length == 1
+            ? '${namePrefix}_$shopId.$extension'
+            : '${namePrefix}_${shopId}_$i.$extension',
+      )
       ..click();
     html.Url.revokeObjectUrl(url);
     await Future<void>.delayed(const Duration(milliseconds: 120));

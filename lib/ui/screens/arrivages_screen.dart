@@ -4,7 +4,7 @@ import '../../data/local/uza_database.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/services/sync_service.dart';
-import '../../core/utils/image_utils.dart';
+import '../components/arrivage_thumbnail.dart';
 import '../components/custom_refresh_indicator.dart';
 import '../utils/page_transitions.dart';
 import 'story_view_screen.dart';
@@ -125,6 +125,7 @@ class ArrivagesScreen extends StatelessWidget {
                   itemCount: stories.length,
                   itemBuilder: (context, index) {
                     return _ArrivageStoryCard(
+                      key: ValueKey('arrivage_${stories[index].id}'),
                       story: stories[index],
                       shopRepo: shopRepo,
                       allStories: stories,
@@ -168,6 +169,7 @@ class _ArrivageStoryCard extends StatelessWidget {
   final List<Story> allStories;
 
   const _ArrivageStoryCard({
+    super.key,
     required this.story,
     required this.shopRepo,
     required this.allStories,
@@ -175,8 +177,6 @@ class _ArrivageStoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasMedia = story.mediaUrl.isNotEmpty;
-
     return GestureDetector(
       onTap: () => _openStory(context),
       child: Container(
@@ -188,31 +188,20 @@ class _ArrivageStoryCard extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Full-bleed image
-            if (hasMedia)
-              Hero(
-                tag: 'arrivage_image_${story.id}',
-                child: ImageUtils.buildCachedImage(
-                  story.mediaUrl,
-                  fit: BoxFit.cover,
-                  borderRadius: BorderRadius.circular(12),
-                  errorWidget: Center(
-                    child: Icon(
-                      Icons.image_not_supported_outlined,
-                      color: Colors.grey[400],
-                      size: 36,
-                    ),
+            Hero(
+              tag: 'arrivage_image_${story.id}',
+              child: ArrivageThumbnail(
+                story: story,
+                fit: BoxFit.cover,
+                errorWidget: Center(
+                  child: Icon(
+                    Icons.image_not_supported_outlined,
+                    color: Colors.grey[400],
+                    size: 36,
                   ),
                 ),
-              )
-            else
-              Center(
-                child: Icon(
-                  Icons.image_not_supported_outlined,
-                  color: Colors.grey[400],
-                  size: 36,
-                ),
               ),
+            ),
 
             // Gradient overlay at bottom for shop name
             Positioned(

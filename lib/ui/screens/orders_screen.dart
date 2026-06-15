@@ -6,6 +6,9 @@ import '../../data/local/uza_database.dart';
 import '../../data/repositories/order_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../components/empty_state.dart';
+import '../components/async_content.dart';
+import '../components/custom_refresh_indicator.dart';
+import '../../data/services/sync_service.dart';
 import '../utils/page_transitions.dart';
 import 'auth/login_screen.dart';
 
@@ -37,46 +40,61 @@ class OrdersScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(tr(context, 'my_orders'))),
-      body: StreamBuilder<List<Order>>(
-        stream: orderRepo.watchOrdersForBuyer(phone),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final orders = snapshot.data!;
-          if (orders.isEmpty) {
-            return EmptyState(
-              icon: Icons.receipt_long_outlined,
-              title: tr(context, 'orders_empty'),
-            );
-          }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: orders.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final order = orders[index];
-              return FutureBuilder<Shop?>(
-                future: shopRepo.getShopById(order.shopId),
-                builder: (context, shopSnap) {
-                  final shopName = shopSnap.data?.name ?? '…';
-                  return Card(
-                    child: ListTile(
-                      title: Text(shopName),
-                      subtitle: Text(
-                        '${tr(context, 'order_status')}: ${_statusLabel(context, order.status)}',
-                      ),
-                      trailing: Text(
-                        _formatDate(order.updatedAt),
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          );
+      body: UzaRefreshIndicator(
+        onRefresh: () async {
+          await context.read<SyncService>().syncNow();
         },
+        child: StreamBuilder<List<Order>>(
+          stream: orderRepo.watchOrdersForBuyer(phone),
+          builder: (context, snapshot) {
+            return AsyncContent<List<Order>>(
+              snapshot: snapshot,
+              builder: (orders) {
+                if (orders.isEmpty) {
+                  return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.6,
+                        child: EmptyState(
+                          icon: Icons.receipt_long_outlined,
+                          title: tr(context, 'orders_empty'),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  itemCount: orders.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final order = orders[index];
+                    return FutureBuilder<Shop?>(
+                      future: shopRepo.getShopById(order.shopId),
+                      builder: (context, shopSnap) {
+                        final shopName = shopSnap.data?.name ?? '…';
+                        return Card(
+                          child: ListTile(
+                            title: Text(shopName),
+                            subtitle: Text(
+                              '${tr(context, 'order_status')}: ${_statusLabel(context, order.status)}',
+                            ),
+                            trailing: Text(
+                              _formatDate(order.updatedAt),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }

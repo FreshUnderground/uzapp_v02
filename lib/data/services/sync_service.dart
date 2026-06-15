@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:drift/drift.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../local/uza_database.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/connectivity_service.dart';
@@ -10,6 +11,12 @@ import '../../core/services/notification_service.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
 import '../../core/utils/phone_utils.dart';
+import '../../core/services/product_alerts_service.dart';
+import '../../core/services/product_alert_notifier.dart';
+import '../../core/services/product_upload_service.dart';
+import '../repositories/order_repository.dart';
+import '../repositories/product_repository.dart';
+import '../repositories/shop_repository.dart';
 import '../repositories/story_repository.dart';
 
 enum SyncStatus { idle, syncing, error, offline }
@@ -46,6 +53,22 @@ class SyncService extends ChangeNotifier {
   /// on app restart the counters reset, giving items fresh attempts.
   final Map<int, int> _retryCounts = {};
   static const int _maxRetries = 3;
+  static const String _kDeletedStoryRemoteIds = 'deleted_story_remote_ids';
+
+  Future<void> markStoryDeletedRemotely(String remoteId) async {
+    if (remoteId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final ids = prefs.getStringList(_kDeletedStoryRemoteIds) ?? [];
+    if (!ids.contains(remoteId)) {
+      ids.add(remoteId);
+      await prefs.setStringList(_kDeletedStoryRemoteIds, ids);
+    }
+  }
+
+  Future<Set<String>> _loadDeletedStoryRemoteIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(_kDeletedStoryRemoteIds) ?? []).toSet();
+  }
 
   /// Check local DB for existing products to initialise [isFirstSync].
   Future<void> checkFirstSync() async {
@@ -128,10 +151,13 @@ class SyncService extends ChangeNotifier {
     this.db,
     this.api, {
     this.notificationService,
-    this.storyRepository,
   });
 
-  final StoryRepository? storyRepository;
+  StoryRepository? storyRepository;
+  ProductRepository? productRepository;
+  ShopRepository? shopRepository;
+  OrderRepository? orderRepository;
+  ProductAlertsService? productAlertsService;
 
   ConnectivityService? _connectivity;
   VoidCallback? _connectivityListener;
@@ -161,8 +187,10 @@ class SyncService extends ChangeNotifier {
   }
 
   bool get isOnline => _connectivity?.isOnline ?? true;
+  bool liteMode = false;
 
   Duration get _autoSyncInterval {
+    if (liteMode) return const Duration(minutes: 15);
     if (_connectivity == null) return const Duration(seconds: 30);
     switch (_connectivity!.type) {
       case ConnectivityType.wifi:
@@ -234,8 +262,18 @@ class SyncService extends ChangeNotifier {
     try {
       debugPrint("Starting background sync...");
       await repairShopsWithoutRemoteId();
+      if (productRepository != null && shopRepository != null) {
+        await ProductUploadService.processAllPending(
+          db: db,
+          api: api,
+          productRepo: productRepository!,
+          shopRepo: shopRepository!,
+          syncService: this,
+        );
+      }
       await pushLocalChanges();
       await pullRemoteUpdates();
+      await _fireProductAlerts();
 
       // Clean up expired stories during each sync cycle
       if (storyRepository != null) {
@@ -346,6 +384,9 @@ class SyncService extends ChangeNotifier {
             }
             if (serverId != null && item.entityType == 'shops') {
               await _mapServerIdToLocalShop(item, serverId.toString());
+            }
+            if (serverId != null && item.entityType == 'orders') {
+              await _mapServerIdToLocalOrder(item, serverId.toString());
             }
 
             await (db.delete(
@@ -1271,6 +1312,7 @@ class SyncService extends ChangeNotifier {
       }
 
       if (remoteStories.isNotEmpty) {
+        final deletedStoryRemoteIds = await _loadDeletedStoryRemoteIds();
         // INCREMENTAL UPSERT: Only insert/update new or changed stories
         // Avoid re-inserting existing stories to preserve UI state
         await db.batch((batch) {
@@ -1281,6 +1323,10 @@ class SyncService extends ChangeNotifier {
                 rawRemoteId != null && rawRemoteId.toString().isNotEmpty
                 ? rawRemoteId.toString()
                 : (st['id']?.toString() ?? '');
+
+            if (rId.isNotEmpty && deletedStoryRemoteIds.contains(rId)) {
+              continue;
+            }
 
             // Skip if story already exists and hasn't changed (dedup optimization)
             if (rId.isNotEmpty && existingStoryRemoteIds.contains(rId)) {
@@ -1392,11 +1438,6 @@ class SyncService extends ChangeNotifier {
                 : (st['id']?.toString() ?? '');
             if (rId.isEmpty) continue;
 
-            // Skip if story already existed (media already synced)
-            if (rId.isNotEmpty && existingStoryRemoteIds.contains(rId)) {
-              continue;
-            }
-
             // Find the local story by remoteId
             final localStory = await (db.select(
               db.stories,
@@ -1442,6 +1483,7 @@ class SyncService extends ChangeNotifier {
 
       await repairProductShopLinks();
       await _repairMediaUrlsFromServer();
+      await _pullRemoteOrders(updatedSince: updatedSince);
       unawaited(_prefetchPriorityMedia());
 
       // Update last sync time
@@ -1629,6 +1671,7 @@ class SyncService extends ChangeNotifier {
 
   /// Prefetch only recent/visible media — skips files already cached.
   Future<void> _prefetchPriorityMedia({bool force = false}) async {
+    if (liteMode && !force) return;
     if (!force &&
         _lastMediaPrefetch != null &&
         DateTime.now().difference(_lastMediaPrefetch!) <
@@ -2147,6 +2190,80 @@ class SyncService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('_mapServerIdToLocalShop error: $e');
+    }
+  }
+
+  Future<void> _mapServerIdToLocalOrder(
+    SyncQueueData item,
+    String serverId,
+  ) async {
+    try {
+      final data = jsonDecode(item.entityData) as Map<String, dynamic>;
+      final localId = data['local_id'] as int?;
+      if (localId == null) return;
+
+      await (db.update(db.orders)..where((t) => t.id.equals(localId))).write(
+        OrdersCompanion(remoteId: Value(serverId), synced: const Value(1)),
+      );
+    } catch (e) {
+      debugPrint('_mapServerIdToLocalOrder error: $e');
+    }
+  }
+
+  Future<void> _pullRemoteOrders({DateTime? updatedSince}) async {
+    final repo = orderRepository;
+    if (repo == null) return;
+
+    try {
+      final profile = await db.select(db.userProfiles).getSingleOrNull();
+      final buyerPhone = profile?.phone;
+      if (buyerPhone != null && buyerPhone.isNotEmpty) {
+        await repo.pullRemoteOrders(
+          apiService: api,
+          buyerPhone: buyerPhone,
+          updatedSince: updatedSince,
+        );
+      }
+
+      final shops = await db.select(db.shops).get();
+      for (final shop in shops) {
+        if (shop.remoteId == null || shop.remoteId!.isEmpty) continue;
+        final serverShopId = int.tryParse(shop.remoteId!);
+        if (serverShopId == null) continue;
+        await repo.pullRemoteOrders(
+          apiService: api,
+          shopId: serverShopId,
+          updatedSince: updatedSince,
+        );
+      }
+    } catch (e) {
+      debugPrint('_pullRemoteOrders error: $e');
+    }
+  }
+
+  Future<void> _fireProductAlerts() async {
+    final alerts = productAlertsService;
+    if (alerts == null) return;
+
+    try {
+      final products = await db.select(db.products).get();
+      final snapshot = <int, ({String name, double? price, bool isSold})>{};
+      for (final p in products) {
+        if (await alerts.isWatching(p.id)) {
+          snapshot[p.id] = (
+            name: p.name,
+            price: p.price,
+            isSold: p.isSold,
+          );
+        }
+      }
+      if (snapshot.isEmpty) return;
+      await ProductAlertNotifier.checkAndNotify(
+        products: snapshot,
+        alerts: alerts,
+      );
+    } catch (e) {
+      debugPrint('_fireProductAlerts error: $e');
     }
   }
 

@@ -20,4 +20,13 @@ date_default_timezone_set('UTC');
 // FCM Server Key (legacy API) for push notifications
 // Get this from Firebase Console > Project Settings > Cloud Messaging
 // define('FCM_SERVER_KEY', 'YOUR_LEGACY_SERVER_KEY_HERE');
+
+// Admin dashboard password for https://uzaapp.com/statistiques
+// Change this on production. Override via env: UZA_ADMIN_STATS_PASSWORD
+if (!defined('ADMIN_STATS_PASSWORD')) {
+    $envPass = getenv('UZA_ADMIN_STATS_PASSWORD');
+    define('ADMIN_STATS_PASSWORD', $envPass !== false && $envPass !== ''
+        ? $envPass
+        : 'UzaAdmin2026!');
+}
 ?>

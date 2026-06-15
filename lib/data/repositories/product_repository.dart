@@ -704,6 +704,31 @@ class ProductRepository {
         .get();
   }
 
+  /// Products + arrivages for catalog sharing (non vendus, avec photo si possible).
+  Future<({List<Product> arrivals, List<Product> products})> getShareableCatalog(
+    int shopId, {
+    int maxArrivals = 12,
+    int maxProducts = 15,
+  }) async {
+    final all = await (db.select(db.products)
+          ..where((t) => t.shopId.equals(shopId) & t.isSold.equals(false))
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+        .get();
+
+    final withImage = all
+        .where((p) => ImageUtils.hasDisplayableImage(p.imageUrls))
+        .toList();
+    final pool = withImage.isNotEmpty ? withImage : all;
+
+    final arrivals = pool.where((p) => p.isArrival).take(maxArrivals).toList();
+    final products = pool
+        .where((p) => !p.isArrival)
+        .take(maxProducts)
+        .toList();
+
+    return (arrivals: arrivals, products: products);
+  }
+
   Future<List<String>> getSearchSuggestions(String query) {
     if (query.isEmpty) return Future.value([]);
     final lowerQuery = '%${query.toLowerCase()}%';

@@ -106,7 +106,7 @@ class ShopShareSheet extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     ShopShareMessages.linkShare(shop),
-                    maxLines: 5,
+                    maxLines: 4,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
@@ -114,10 +114,46 @@ class ShopShareSheet extends StatelessWidget {
                       color: Colors.grey[800],
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Aperçu — le message complet sera envoyé au partage.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[500],
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
+            ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.teal.withValues(alpha: 0.12),
+                child: const Icon(Icons.inventory_2_outlined, color: Colors.teal),
+              ),
+              title: const Text('Partager le catalogue'),
+              subtitle: const Text('Produits et arrivages avec liens'),
+              onTap: () async {
+                Navigator.pop(context);
+                final messenger = ScaffoldMessenger.of(context);
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Préparation du catalogue…'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+                try {
+                  await context.read<ContactService>().shareShopCatalog(shop);
+                } catch (e) {
+                  messenger.showSnackBar(
+                    const SnackBar(
+                      content: Text('Impossible de partager le catalogue'),
+                    ),
+                  );
+                }
+              },
+            ),
             ListTile(
               leading: CircleAvatar(
                 backgroundColor: Colors.blue.withValues(alpha: 0.12),

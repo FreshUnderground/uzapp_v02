@@ -12,6 +12,7 @@ import '../components/responsive_layout.dart';
 import '../components/skeletons.dart';
 import '../utils/page_transitions.dart';
 import 'shop_profile_screen.dart';
+import 'nearby_shops_screen.dart';
 
 enum _ShopFilter { all, verified, unverified }
 
@@ -126,6 +127,17 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Près de moi',
+                    onPressed: () => Navigator.push(
+                      context,
+                      SlideUpRoute(page: const NearbyShopsScreen()),
+                    ),
+                    icon: Icon(
+                      Icons.near_me,
+                      color: UzaColors.secondary,
+                    ),
+                  ),
                   _buildFilterToggleButton(theme, isDark),
                 ],
               ),

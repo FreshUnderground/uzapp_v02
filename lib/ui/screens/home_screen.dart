@@ -22,6 +22,7 @@ import 'discover_feed_screen.dart';
 import 'arrivages_screen.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/utils/image_utils.dart';
+import '../components/arrivage_thumbnail.dart';
 import 'create_shop_screen.dart';
 import '../components/responsive_layout.dart';
 import 'create_story_screen.dart';
@@ -33,6 +34,9 @@ import '../../data/services/sync_service.dart';
 import '../components/skeletons.dart';
 import '../components/tap_animator.dart';
 import '../components/custom_refresh_indicator.dart';
+import '../components/sync_status_banner.dart';
+import '../components/home_discovery_sections.dart';
+import '../components/boost_banner_carousel.dart';
 import '../utils/page_transitions.dart';
 import '../../core/l10n/tr.dart';
 import '../../core/l10n/app_translations.dart';
@@ -266,33 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
         body: Column(
           children: [
-            Consumer<SyncService>(
-              builder: (context, syncService, child) {
-                if (syncService.syncStatus == SyncStatus.error ||
-                    syncService.syncStatus == SyncStatus.offline) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    color: Colors.orange.withValues(alpha: 0.1),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.wifi_off, size: 14, color: Colors.orange),
-                        SizedBox(width: 8),
-                        Text(
-                          tr(context, 'offline'),
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.orange,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-                return const SizedBox(height: 0);
-              },
-            ),
+            const SyncStatusBanner(),
             Expanded(child: _buildBody(pages)),
           ],
         ),
@@ -364,37 +342,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     FloatingActionButtonLocation.endFloat,
                 body: Column(
                   children: [
-                    Consumer<SyncService>(
-                      builder: (context, syncService, child) {
-                        if (syncService.syncStatus == SyncStatus.error ||
-                            syncService.syncStatus == SyncStatus.offline) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            color: Colors.orange.withValues(alpha: 0.1),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.wifi_off,
-                                  size: 14,
-                                  color: Colors.orange,
-                                ),
-                                SizedBox(width: 8),
-                                Text(
-                                  tr(context, 'offline'),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.orange,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-                        return const SizedBox(height: 0);
-                      },
-                    ),
+                    const SyncStatusBanner(),
                     Expanded(child: _buildBody(pages)),
                   ],
                 ),
@@ -677,24 +625,64 @@ class _HomeContent extends StatefulWidget {
 
 class _HomeContentState extends State<_HomeContent> {
   static const _trendingLimit = 10;
+  static const _loadMoreBatch = 10;
   static const _poolSize = 40;
 
   List<Product> _displayedProducts = [];
   List<Product> _allProducts = [];
   List<Product> _productPool = [];
   bool _trendingInitialized = false;
+  bool _isLoadingMore = false;
+  bool _hasReachedEnd = false;
   StreamSubscription<List<Product>>? _allProductsSub;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) => _subscribeProducts());
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _allProductsSub?.cancel();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients || _hasReachedEnd) return;
+    final position = _scrollController.position;
+    if (position.pixels < position.maxScrollExtent - 320) return;
+    _loadMoreProducts();
+  }
+
+  bool get _canLoadMore =>
+      _allProducts.isNotEmpty && !_isLoadingMore && !_hasReachedEnd;
+
+  void _loadMoreProducts() {
+    if (!_canLoadMore || !mounted) return;
+
+    _isLoadingMore = true;
+
+    final shownIds = _displayedProducts.map((p) => p.id).toSet();
+    final next = _allProducts
+        .where((p) => !shownIds.contains(p.id))
+        .take(_loadMoreBatch)
+        .toList();
+
+    if (next.isEmpty) {
+      setState(() => _hasReachedEnd = true);
+    } else if (next.isNotEmpty) {
+      setState(() => _displayedProducts = [..._displayedProducts, ...next]);
+      if (_displayedProducts.length >= _allProducts.length) {
+        _hasReachedEnd = true;
+      }
+    }
+
+    _isLoadingMore = false;
   }
 
   @override
@@ -734,6 +722,9 @@ class _HomeContentState extends State<_HomeContent> {
       return;
     }
 
+    final shownIds = _displayedProducts.map((p) => p.id).toSet();
+    final newProducts = all.where((p) => !shownIds.contains(p.id)).toList();
+
     final byId = {for (final p in all) p.id: p};
     final merged = <Product>[];
     for (final product in _displayedProducts) {
@@ -741,8 +732,18 @@ class _HomeContentState extends State<_HomeContent> {
       if (updated != null) merged.add(updated);
     }
 
-    if (_sameProductSnapshot(_displayedProducts, merged)) return;
-    setState(() => _displayedProducts = merged);
+    if (newProducts.isEmpty && _sameProductSnapshot(_displayedProducts, merged)) {
+      return;
+    }
+
+    setState(() {
+      if (newProducts.isNotEmpty) {
+        _displayedProducts = [...newProducts, ...merged];
+        _hasReachedEnd = _displayedProducts.length >= _allProducts.length;
+      } else {
+        _displayedProducts = merged;
+      }
+    });
   }
 
   void _reshuffleTrending() {
@@ -751,7 +752,11 @@ class _HomeContentState extends State<_HomeContent> {
         .read<ProductRepository>()
         .pickTrendingProducts(_productPool, limit: _trendingLimit);
     if (_sameProductSnapshot(_displayedProducts, next)) return;
-    setState(() => _displayedProducts = next);
+    setState(() {
+      _displayedProducts = next;
+      _isLoadingMore = false;
+      _hasReachedEnd = false;
+    });
   }
 
   bool _sameProductSnapshot(List<Product> a, List<Product> b) {
@@ -770,6 +775,7 @@ class _HomeContentState extends State<_HomeContent> {
       await syncService.ensureShopsSynced();
       await syncService.ensureCategoriesSynced();
       await syncService.syncNow();
+      setState(() => _hasReachedEnd = false);
       _reshuffleTrending();
     } catch (e) {
       debugPrint('Error during refresh sync: $e');
@@ -839,6 +845,7 @@ class _HomeContentState extends State<_HomeContent> {
           child: UzaRefreshIndicator(
             onRefresh: _handleRefresh,
             child: CustomScrollView(
+              controller: _scrollController,
               slivers: [
                 // 1. Unified Search Bar (Glassmorphic) - Floating
                 SliverAppBar(
@@ -947,6 +954,14 @@ class _HomeContentState extends State<_HomeContent> {
                   ),
                 ),
 
+                // 3. Bannières boostées + découverte
+                const SliverToBoxAdapter(
+                  child: BoostBannerCarousel(),
+                ),
+                const SliverToBoxAdapter(
+                  child: HomeDiscoverySections(),
+                ),
+
                 // 4. Nouveaux Arrivages
                 SliverToBoxAdapter(
                   child: _buildSectionHeader(
@@ -959,16 +974,16 @@ class _HomeContentState extends State<_HomeContent> {
                     ),
                   ),
                 ),
-                // Arrivage stories sub-section
+                // Arrivage stories sub-section (one card per arrivage)
                 SliverToBoxAdapter(
-                  child: StreamBuilder<Map<int, List<Story>>>(
-                    stream: storyRepo.watchArrivagesGroupedByShop(),
+                  child: StreamBuilder<List<Story>>(
+                    stream: storyRepo.watchActiveArrivages(),
                     builder: (context, snapshot) {
-                      final grouped = snapshot.data ?? {};
+                      final stories = snapshot.data ?? [];
                       debugPrint(
-                        'Arrivages grouped: ${grouped.length} shops, connectionState=${snapshot.connectionState}',
+                        'Arrivages: ${stories.length} cards, connectionState=${snapshot.connectionState}',
                       );
-                      if (grouped.isEmpty) {
+                      if (stories.isEmpty) {
                         // Show shimmer skeletons while first sync is loading
                         if (syncService.isSyncing || syncService.isFirstSync) {
                           return SizedBox(
@@ -984,22 +999,20 @@ class _HomeContentState extends State<_HomeContent> {
                         }
                         return const SizedBox.shrink();
                       }
-                      final shopIds = grouped.keys.toList();
                       return SizedBox(
                         height: 160,
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
                           padding: EdgeInsets.symmetric(horizontal: hPad),
-                          itemCount: shopIds.length,
+                          itemCount: stories.length,
                           itemBuilder: (context, index) {
-                            final shopId = shopIds[index];
-                            final stories = grouped[shopId]!;
-                            final firstStory = stories.first;
+                            final story = stories[index];
                             return GestureDetector(
+                              key: ValueKey('home_arrivage_${story.id}'),
                               onTap: () {
                                 final sRepo = context.read<StoryRepository>();
-                                sRepo.logStoryView(stories.first.id);
-                                widget.onOpenStory(stories, 0);
+                                sRepo.logStoryView(story.id);
+                                widget.onOpenStory([story], 0);
                               },
                               child: Container(
                                 width: 120,
@@ -1021,10 +1034,8 @@ class _HomeContentState extends State<_HomeContent> {
                                   child: Stack(
                                     fit: StackFit.expand,
                                     children: [
-                                      ImageUtils.buildCachedImage(
-                                        firstStory.mediaUrl.isNotEmpty
-                                            ? firstStory.mediaUrl
-                                            : null,
+                                      ArrivageThumbnail(
+                                        story: story,
                                         fit: BoxFit.contain,
                                       ),
                                       Container(
@@ -1072,7 +1083,7 @@ class _HomeContentState extends State<_HomeContent> {
                                               child: FutureBuilder<Shop?>(
                                                 future: context
                                                     .read<ShopRepository>()
-                                                    .getShopById(shopId),
+                                                    .getShopById(story.shopId),
                                                 builder: (context, snapshot) {
                                                   return Text(
                                                     snapshot.data?.name ??
@@ -1090,27 +1101,6 @@ class _HomeContentState extends State<_HomeContent> {
                                                 },
                                               ),
                                             ),
-                                            if (stories.length > 1)
-                                              Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 4,
-                                                      vertical: 1,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: UzaColors.primary,
-                                                  borderRadius:
-                                                      BorderRadius.circular(6),
-                                                ),
-                                                child: Text(
-                                                  '${stories.length}',
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 8,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
                                           ],
                                         ),
                                       ),

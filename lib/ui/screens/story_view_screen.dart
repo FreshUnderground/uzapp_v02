@@ -37,8 +37,8 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   bool _isPaused = false;
   double _dragOffset = 0.0;
 
-  // Media sub-items for the current story
-  List<StoryMediaData> _currentMediaItems = [];
+  // Media slides for the current story (main + story_media children)
+  List<StoryMediaSlide> _mediaSlides = [];
   int _mediaIndex = 0;
 
   // Video player for video media
@@ -136,7 +136,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   void _loadStory({required Story story, bool animateToPage = true}) {
     _disposeVideoController();
     _mediaIndex = 0;
-    _currentMediaItems = [];
+    _mediaSlides = [];
 
     // Load media items for this story
     _loadMediaItems(story.id);
@@ -151,27 +151,27 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   }
 
   Future<void> _loadMediaItems(int storyId) async {
+    final indexAtStart = _currentIndex;
     try {
       final storyRepo = context.read<StoryRepository>();
-      final story = widget.stories[_currentIndex];
-      final mediaItems = await storyRepo.getStoryMedia(storyId);
+      final story = widget.stories[indexAtStart];
+      if (story.id != storyId) return;
 
-      if (mounted) {
-        setState(() {
-          // Include the story's main mediaUrl as the first item
-          // (it's stored separately from storyMedia child items)
-          _currentMediaItems = mediaItems;
-        });
-        _setupCurrentMedia();
-      }
+      final slides = await storyRepo.getStoryMediaSlides(story);
+
+      if (!mounted || _currentIndex != indexAtStart) return;
+      setState(() {
+        _mediaSlides = slides;
+        _mediaIndex = 0;
+      });
+      _setupCurrentMedia();
     } catch (e) {
-      // Fallback: no media items, use the story's main mediaUrl
-      if (mounted) {
-        setState(() {
-          _currentMediaItems = [];
-        });
-        _setupCurrentMedia();
-      }
+      if (!mounted || _currentIndex != indexAtStart) return;
+      setState(() {
+        _mediaSlides = [];
+        _mediaIndex = 0;
+      });
+      _setupCurrentMedia();
     }
   }
 
@@ -180,65 +180,43 @@ class _StoryViewScreenState extends State<StoryViewScreen>
     return ImageUtils.resolveImageUrl(source);
   }
 
+  StoryMediaSlide? _currentSlide() {
+    if (_mediaSlides.isEmpty) return null;
+    if (_mediaIndex < 0 || _mediaIndex >= _mediaSlides.length) return null;
+    return _mediaSlides[_mediaIndex];
+  }
+
   /// Get the current media URL (either from StoryMedia or the story's main mediaUrl)
   String _getCurrentMediaUrl() {
-    final story = widget.stories[_currentIndex];
-    String? raw;
-
-    if (_currentMediaItems.isNotEmpty) {
-      if (_mediaIndex == 0) {
-        raw = story.mediaUrl.isNotEmpty ? story.mediaUrl : null;
-      } else if (_mediaIndex < _currentMediaItems.length + 1) {
-        raw = _currentMediaItems[_mediaIndex - 1].mediaUrl;
-      }
-    } else {
-      raw = story.mediaUrl.isNotEmpty ? story.mediaUrl : null;
+    final slide = _currentSlide();
+    if (slide != null) {
+      return _resolveMediaSource(slide.mediaUrl) ?? '';
     }
-
-    return _resolveMediaSource(raw) ?? '';
+    final story = widget.stories[_currentIndex];
+    return _resolveMediaSource(
+          story.mediaUrl.isNotEmpty ? story.mediaUrl : null,
+        ) ??
+        '';
   }
 
   String? _getCurrentRawMediaUrl() {
+    final slide = _currentSlide();
+    if (slide != null) return slide.mediaUrl;
     final story = widget.stories[_currentIndex];
-    if (_currentMediaItems.isNotEmpty) {
-      if (_mediaIndex == 0) {
-        return story.mediaUrl.isNotEmpty ? story.mediaUrl : null;
-      }
-      if (_mediaIndex < _currentMediaItems.length + 1) {
-        return _currentMediaItems[_mediaIndex - 1].mediaUrl;
-      }
-    }
     return story.mediaUrl.isNotEmpty ? story.mediaUrl : null;
   }
 
   /// Get the current media type
   String _getCurrentMediaType() {
-    final story = widget.stories[_currentIndex];
-
-    // If we have media items from storyMedia table
-    if (_currentMediaItems.isNotEmpty) {
-      // Index 0 = story's main mediaUrl (first image)
-      // Index 1+ = media items from storyMedia table
-      if (_mediaIndex == 0) {
-        // First image: use story's main mediaType
-        return story.mediaType;
-      } else if (_mediaIndex < _currentMediaItems.length + 1) {
-        // Subsequent images: use storyMedia items (adjust index by -1)
-        return _currentMediaItems[_mediaIndex - 1].mediaType;
-      }
-    }
-
-    // Fallback: no media items, use the story's main mediaType
-    return story.mediaType;
+    final slide = _currentSlide();
+    if (slide != null) return slide.mediaType;
+    return widget.stories[_currentIndex].mediaType;
   }
 
   /// Total media count for current story (includes StoryMedia or just the main one)
   int _getMediaCount() {
-    if (_currentMediaItems.isNotEmpty) {
-      // Count includes story's main mediaUrl + all storyMedia items
-      return _currentMediaItems.length + 1;
-    }
-    return 1; // Fallback to single media
+    if (_mediaSlides.isNotEmpty) return _mediaSlides.length;
+    return 1;
   }
 
   void _onMediaReady() {
@@ -541,7 +519,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   }
 
   Widget _buildMediaProgressBar(int mediaCount) {
-    if (mediaCount <= 1 && _currentMediaItems.isEmpty) {
+    if (mediaCount <= 1 && _mediaSlides.isEmpty) {
       // Single story, single media — show story-level progress bars
       return Row(
         children: widget.stories

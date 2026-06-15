@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
 
+import 'referral_service.dart';
+
 /// Routes incoming native deep links into [GoRouter].
 class DeepLinkService {
   DeepLinkService(this._router);
@@ -37,12 +39,28 @@ class DeepLinkService {
   }
 
   void _handleUri(Uri uri) {
+    _captureReferral(uri);
+
     final path = mapUriToAppPath(uri);
     if (path == null) return;
 
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _router.go(path);
     });
+  }
+
+  static void _captureReferral(Uri uri) {
+    final ref = ReferralService.parseCodeFromUri(uri);
+    if (ref != null) {
+      unawaited(savePendingReferralCode(ref));
+    }
+  }
+
+  /// Web / universal links on first load.
+  static Future<void> captureReferralFromUri(Uri? uri) async {
+    if (uri == null) return;
+    final ref = ReferralService.parseCodeFromUri(uri);
+    if (ref != null) await savePendingReferralCode(ref);
   }
 
   /// Maps https/uzaapp scheme URIs to GoRouter paths.
@@ -61,6 +79,10 @@ class DeepLinkService {
     }
 
     if (uri.host == 'uzaapp.com' || uri.host == 'www.uzaapp.com') {
+      final ref = uri.queryParameters['ref'] ?? uri.queryParameters['referral'];
+      if (ref != null && ref.isNotEmpty && uri.pathSegments.isEmpty) {
+        return '/';
+      }
       final segments = uri.pathSegments;
       if (segments.length >= 2) {
         final type = segments[0];

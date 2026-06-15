@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/product_repository.dart';
+import '../../data/repositories/shop_repository.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/utils/image_utils.dart';
+import '../../core/utils/product_price_utils.dart';
 import '../screens/product_detail_screen.dart';
 import '../components/product_card.dart';
 
@@ -276,6 +279,57 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
                             ),
                           ),
                           const SizedBox(height: 2),
+                          FutureBuilder<Shop?>(
+                            future: context
+                                .read<ShopRepository>()
+                                .getShopById(product.shopId),
+                            builder: (context, shopSnapshot) {
+                              final shop = shopSnapshot.data;
+                              final address = shop?.address?.trim();
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (shop != null && shop.name.isNotEmpty)
+                                    Text(
+                                      shop.name,
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: UzaColors.textSecondary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  if (address != null && address.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.location_on_outlined,
+                                            size: 12,
+                                            color: UzaColors.textSecondary,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              address,
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                color: UzaColors.textSecondary,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 2),
                           Row(
                             children: [
                               if (product.category != null) ...[
@@ -301,15 +355,18 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
                                 ),
                                 const SizedBox(width: 8),
                               ],
-                              if (product.price != null)
-                                Text(
-                                  '\$${product.price!.toStringAsFixed(0)}',
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                    color: UzaColors.secondary,
-                                  ),
+                              Text(
+                                ProductPriceUtils.displayLabel(product),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: ProductPriceUtils.hasVisiblePrice(
+                                    product,
+                                  )
+                                      ? UzaColors.secondary
+                                      : UzaColors.textSecondary,
                                 ),
+                              ),
                             ],
                           ),
                         ],

@@ -6718,6 +6718,17 @@ class $AppPreferencesTable extends AppPreferences
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _pendingReferralCodeMeta =
+      const VerificationMeta('pendingReferralCode');
+  @override
+  late final GeneratedColumn<String> pendingReferralCode =
+      GeneratedColumn<String>(
+        'pending_referral_code',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _lastSyncMeta = const VerificationMeta(
     'lastSync',
   );
@@ -6738,6 +6749,7 @@ class $AppPreferencesTable extends AppPreferences
     isLiteMode,
     biometricEnabled,
     userCommune,
+    pendingReferralCode,
     lastSync,
   ];
   @override
@@ -6806,6 +6818,15 @@ class $AppPreferencesTable extends AppPreferences
         ),
       );
     }
+    if (data.containsKey('pending_referral_code')) {
+      context.handle(
+        _pendingReferralCodeMeta,
+        pendingReferralCode.isAcceptableOrUnknown(
+          data['pending_referral_code']!,
+          _pendingReferralCodeMeta,
+        ),
+      );
+    }
     if (data.containsKey('last_sync')) {
       context.handle(
         _lastSyncMeta,
@@ -6849,6 +6870,10 @@ class $AppPreferencesTable extends AppPreferences
         DriftSqlType.string,
         data['${effectivePrefix}user_commune'],
       ),
+      pendingReferralCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pending_referral_code'],
+      ),
       lastSync: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}last_sync'],
@@ -6870,6 +6895,7 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
   final bool isLiteMode;
   final bool biometricEnabled;
   final String? userCommune;
+  final String? pendingReferralCode;
   final DateTime? lastSync;
   const AppPreference({
     required this.id,
@@ -6879,6 +6905,7 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
     required this.isLiteMode,
     required this.biometricEnabled,
     this.userCommune,
+    this.pendingReferralCode,
     this.lastSync,
   });
   @override
@@ -6892,6 +6919,9 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
     map['biometric_enabled'] = Variable<bool>(biometricEnabled);
     if (!nullToAbsent || userCommune != null) {
       map['user_commune'] = Variable<String>(userCommune);
+    }
+    if (!nullToAbsent || pendingReferralCode != null) {
+      map['pending_referral_code'] = Variable<String>(pendingReferralCode);
     }
     if (!nullToAbsent || lastSync != null) {
       map['last_sync'] = Variable<DateTime>(lastSync);
@@ -6910,6 +6940,9 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
       userCommune: userCommune == null && nullToAbsent
           ? const Value.absent()
           : Value(userCommune),
+      pendingReferralCode: pendingReferralCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pendingReferralCode),
       lastSync: lastSync == null && nullToAbsent
           ? const Value.absent()
           : Value(lastSync),
@@ -6931,6 +6964,9 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
       isLiteMode: serializer.fromJson<bool>(json['isLiteMode']),
       biometricEnabled: serializer.fromJson<bool>(json['biometricEnabled']),
       userCommune: serializer.fromJson<String?>(json['userCommune']),
+      pendingReferralCode: serializer.fromJson<String?>(
+        json['pendingReferralCode'],
+      ),
       lastSync: serializer.fromJson<DateTime?>(json['lastSync']),
     );
   }
@@ -6945,6 +6981,7 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
       'isLiteMode': serializer.toJson<bool>(isLiteMode),
       'biometricEnabled': serializer.toJson<bool>(biometricEnabled),
       'userCommune': serializer.toJson<String?>(userCommune),
+      'pendingReferralCode': serializer.toJson<String?>(pendingReferralCode),
       'lastSync': serializer.toJson<DateTime?>(lastSync),
     };
   }
@@ -6957,6 +6994,7 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
     bool? isLiteMode,
     bool? biometricEnabled,
     Value<String?> userCommune = const Value.absent(),
+    Value<String?> pendingReferralCode = const Value.absent(),
     Value<DateTime?> lastSync = const Value.absent(),
   }) => AppPreference(
     id: id ?? this.id,
@@ -6966,6 +7004,9 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
     isLiteMode: isLiteMode ?? this.isLiteMode,
     biometricEnabled: biometricEnabled ?? this.biometricEnabled,
     userCommune: userCommune.present ? userCommune.value : this.userCommune,
+    pendingReferralCode: pendingReferralCode.present
+        ? pendingReferralCode.value
+        : this.pendingReferralCode,
     lastSync: lastSync.present ? lastSync.value : this.lastSync,
   );
   AppPreference copyWithCompanion(AppPreferencesCompanion data) {
@@ -6987,6 +7028,9 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
       userCommune: data.userCommune.present
           ? data.userCommune.value
           : this.userCommune,
+      pendingReferralCode: data.pendingReferralCode.present
+          ? data.pendingReferralCode.value
+          : this.pendingReferralCode,
       lastSync: data.lastSync.present ? data.lastSync.value : this.lastSync,
     );
   }
@@ -7001,6 +7045,7 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
           ..write('isLiteMode: $isLiteMode, ')
           ..write('biometricEnabled: $biometricEnabled, ')
           ..write('userCommune: $userCommune, ')
+          ..write('pendingReferralCode: $pendingReferralCode, ')
           ..write('lastSync: $lastSync')
           ..write(')'))
         .toString();
@@ -7015,6 +7060,7 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
     isLiteMode,
     biometricEnabled,
     userCommune,
+    pendingReferralCode,
     lastSync,
   );
   @override
@@ -7028,6 +7074,7 @@ class AppPreference extends DataClass implements Insertable<AppPreference> {
           other.isLiteMode == this.isLiteMode &&
           other.biometricEnabled == this.biometricEnabled &&
           other.userCommune == this.userCommune &&
+          other.pendingReferralCode == this.pendingReferralCode &&
           other.lastSync == this.lastSync);
 }
 
@@ -7039,6 +7086,7 @@ class AppPreferencesCompanion extends UpdateCompanion<AppPreference> {
   final Value<bool> isLiteMode;
   final Value<bool> biometricEnabled;
   final Value<String?> userCommune;
+  final Value<String?> pendingReferralCode;
   final Value<DateTime?> lastSync;
   const AppPreferencesCompanion({
     this.id = const Value.absent(),
@@ -7048,6 +7096,7 @@ class AppPreferencesCompanion extends UpdateCompanion<AppPreference> {
     this.isLiteMode = const Value.absent(),
     this.biometricEnabled = const Value.absent(),
     this.userCommune = const Value.absent(),
+    this.pendingReferralCode = const Value.absent(),
     this.lastSync = const Value.absent(),
   });
   AppPreferencesCompanion.insert({
@@ -7058,6 +7107,7 @@ class AppPreferencesCompanion extends UpdateCompanion<AppPreference> {
     this.isLiteMode = const Value.absent(),
     this.biometricEnabled = const Value.absent(),
     this.userCommune = const Value.absent(),
+    this.pendingReferralCode = const Value.absent(),
     this.lastSync = const Value.absent(),
   });
   static Insertable<AppPreference> custom({
@@ -7068,6 +7118,7 @@ class AppPreferencesCompanion extends UpdateCompanion<AppPreference> {
     Expression<bool>? isLiteMode,
     Expression<bool>? biometricEnabled,
     Expression<String>? userCommune,
+    Expression<String>? pendingReferralCode,
     Expression<DateTime>? lastSync,
   }) {
     return RawValuesInsertable({
@@ -7079,6 +7130,8 @@ class AppPreferencesCompanion extends UpdateCompanion<AppPreference> {
       if (isLiteMode != null) 'is_lite_mode': isLiteMode,
       if (biometricEnabled != null) 'biometric_enabled': biometricEnabled,
       if (userCommune != null) 'user_commune': userCommune,
+      if (pendingReferralCode != null)
+        'pending_referral_code': pendingReferralCode,
       if (lastSync != null) 'last_sync': lastSync,
     });
   }
@@ -7091,6 +7144,7 @@ class AppPreferencesCompanion extends UpdateCompanion<AppPreference> {
     Value<bool>? isLiteMode,
     Value<bool>? biometricEnabled,
     Value<String?>? userCommune,
+    Value<String?>? pendingReferralCode,
     Value<DateTime?>? lastSync,
   }) {
     return AppPreferencesCompanion(
@@ -7101,6 +7155,7 @@ class AppPreferencesCompanion extends UpdateCompanion<AppPreference> {
       isLiteMode: isLiteMode ?? this.isLiteMode,
       biometricEnabled: biometricEnabled ?? this.biometricEnabled,
       userCommune: userCommune ?? this.userCommune,
+      pendingReferralCode: pendingReferralCode ?? this.pendingReferralCode,
       lastSync: lastSync ?? this.lastSync,
     );
   }
@@ -7129,6 +7184,11 @@ class AppPreferencesCompanion extends UpdateCompanion<AppPreference> {
     if (userCommune.present) {
       map['user_commune'] = Variable<String>(userCommune.value);
     }
+    if (pendingReferralCode.present) {
+      map['pending_referral_code'] = Variable<String>(
+        pendingReferralCode.value,
+      );
+    }
     if (lastSync.present) {
       map['last_sync'] = Variable<DateTime>(lastSync.value);
     }
@@ -7145,6 +7205,7 @@ class AppPreferencesCompanion extends UpdateCompanion<AppPreference> {
           ..write('isLiteMode: $isLiteMode, ')
           ..write('biometricEnabled: $biometricEnabled, ')
           ..write('userCommune: $userCommune, ')
+          ..write('pendingReferralCode: $pendingReferralCode, ')
           ..write('lastSync: $lastSync')
           ..write(')'))
         .toString();
@@ -9217,6 +9278,27 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _remoteIdMeta = const VerificationMeta(
+    'remoteId',
+  );
+  @override
+  late final GeneratedColumn<String> remoteId = GeneratedColumn<String>(
+    'remote_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _syncedMeta = const VerificationMeta('synced');
+  @override
+  late final GeneratedColumn<int> synced = GeneratedColumn<int>(
+    'synced',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -9249,6 +9331,8 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
     status,
     itemsJson,
     note,
+    remoteId,
+    synced,
     createdAt,
     updatedAt,
   ];
@@ -9303,6 +9387,18 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
         note.isAcceptableOrUnknown(data['note']!, _noteMeta),
       );
     }
+    if (data.containsKey('remote_id')) {
+      context.handle(
+        _remoteIdMeta,
+        remoteId.isAcceptableOrUnknown(data['remote_id']!, _remoteIdMeta),
+      );
+    }
+    if (data.containsKey('synced')) {
+      context.handle(
+        _syncedMeta,
+        synced.isAcceptableOrUnknown(data['synced']!, _syncedMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -9348,6 +9444,14 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
         DriftSqlType.string,
         data['${effectivePrefix}note'],
       ),
+      remoteId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}remote_id'],
+      ),
+      synced: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}synced'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -9372,6 +9476,8 @@ class Order extends DataClass implements Insertable<Order> {
   final String status;
   final String itemsJson;
   final String? note;
+  final String? remoteId;
+  final int synced;
   final DateTime createdAt;
   final DateTime updatedAt;
   const Order({
@@ -9381,6 +9487,8 @@ class Order extends DataClass implements Insertable<Order> {
     required this.status,
     required this.itemsJson,
     this.note,
+    this.remoteId,
+    required this.synced,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -9395,6 +9503,10 @@ class Order extends DataClass implements Insertable<Order> {
     if (!nullToAbsent || note != null) {
       map['note'] = Variable<String>(note);
     }
+    if (!nullToAbsent || remoteId != null) {
+      map['remote_id'] = Variable<String>(remoteId);
+    }
+    map['synced'] = Variable<int>(synced);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -9408,6 +9520,10 @@ class Order extends DataClass implements Insertable<Order> {
       status: Value(status),
       itemsJson: Value(itemsJson),
       note: note == null && nullToAbsent ? const Value.absent() : Value(note),
+      remoteId: remoteId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remoteId),
+      synced: Value(synced),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -9425,6 +9541,8 @@ class Order extends DataClass implements Insertable<Order> {
       status: serializer.fromJson<String>(json['status']),
       itemsJson: serializer.fromJson<String>(json['itemsJson']),
       note: serializer.fromJson<String?>(json['note']),
+      remoteId: serializer.fromJson<String?>(json['remoteId']),
+      synced: serializer.fromJson<int>(json['synced']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -9439,6 +9557,8 @@ class Order extends DataClass implements Insertable<Order> {
       'status': serializer.toJson<String>(status),
       'itemsJson': serializer.toJson<String>(itemsJson),
       'note': serializer.toJson<String?>(note),
+      'remoteId': serializer.toJson<String?>(remoteId),
+      'synced': serializer.toJson<int>(synced),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -9451,6 +9571,8 @@ class Order extends DataClass implements Insertable<Order> {
     String? status,
     String? itemsJson,
     Value<String?> note = const Value.absent(),
+    Value<String?> remoteId = const Value.absent(),
+    int? synced,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => Order(
@@ -9460,6 +9582,8 @@ class Order extends DataClass implements Insertable<Order> {
     status: status ?? this.status,
     itemsJson: itemsJson ?? this.itemsJson,
     note: note.present ? note.value : this.note,
+    remoteId: remoteId.present ? remoteId.value : this.remoteId,
+    synced: synced ?? this.synced,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -9473,6 +9597,8 @@ class Order extends DataClass implements Insertable<Order> {
       status: data.status.present ? data.status.value : this.status,
       itemsJson: data.itemsJson.present ? data.itemsJson.value : this.itemsJson,
       note: data.note.present ? data.note.value : this.note,
+      remoteId: data.remoteId.present ? data.remoteId.value : this.remoteId,
+      synced: data.synced.present ? data.synced.value : this.synced,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -9487,6 +9613,8 @@ class Order extends DataClass implements Insertable<Order> {
           ..write('status: $status, ')
           ..write('itemsJson: $itemsJson, ')
           ..write('note: $note, ')
+          ..write('remoteId: $remoteId, ')
+          ..write('synced: $synced, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -9501,6 +9629,8 @@ class Order extends DataClass implements Insertable<Order> {
     status,
     itemsJson,
     note,
+    remoteId,
+    synced,
     createdAt,
     updatedAt,
   );
@@ -9514,6 +9644,8 @@ class Order extends DataClass implements Insertable<Order> {
           other.status == this.status &&
           other.itemsJson == this.itemsJson &&
           other.note == this.note &&
+          other.remoteId == this.remoteId &&
+          other.synced == this.synced &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -9525,6 +9657,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
   final Value<String> status;
   final Value<String> itemsJson;
   final Value<String?> note;
+  final Value<String?> remoteId;
+  final Value<int> synced;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   const OrdersCompanion({
@@ -9534,6 +9668,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.status = const Value.absent(),
     this.itemsJson = const Value.absent(),
     this.note = const Value.absent(),
+    this.remoteId = const Value.absent(),
+    this.synced = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   });
@@ -9544,6 +9680,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.status = const Value.absent(),
     required String itemsJson,
     this.note = const Value.absent(),
+    this.remoteId = const Value.absent(),
+    this.synced = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   }) : buyerPhone = Value(buyerPhone),
@@ -9556,6 +9694,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     Expression<String>? status,
     Expression<String>? itemsJson,
     Expression<String>? note,
+    Expression<String>? remoteId,
+    Expression<int>? synced,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
   }) {
@@ -9566,6 +9706,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       if (status != null) 'status': status,
       if (itemsJson != null) 'items_json': itemsJson,
       if (note != null) 'note': note,
+      if (remoteId != null) 'remote_id': remoteId,
+      if (synced != null) 'synced': synced,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
     });
@@ -9578,6 +9720,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     Value<String>? status,
     Value<String>? itemsJson,
     Value<String?>? note,
+    Value<String?>? remoteId,
+    Value<int>? synced,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
   }) {
@@ -9588,6 +9732,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       status: status ?? this.status,
       itemsJson: itemsJson ?? this.itemsJson,
       note: note ?? this.note,
+      remoteId: remoteId ?? this.remoteId,
+      synced: synced ?? this.synced,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -9614,6 +9760,12 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     if (note.present) {
       map['note'] = Variable<String>(note.value);
     }
+    if (remoteId.present) {
+      map['remote_id'] = Variable<String>(remoteId.value);
+    }
+    if (synced.present) {
+      map['synced'] = Variable<int>(synced.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -9632,6 +9784,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
           ..write('status: $status, ')
           ..write('itemsJson: $itemsJson, ')
           ..write('note: $note, ')
+          ..write('remoteId: $remoteId, ')
+          ..write('synced: $synced, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -15440,6 +15594,7 @@ typedef $$AppPreferencesTableCreateCompanionBuilder =
       Value<bool> isLiteMode,
       Value<bool> biometricEnabled,
       Value<String?> userCommune,
+      Value<String?> pendingReferralCode,
       Value<DateTime?> lastSync,
     });
 typedef $$AppPreferencesTableUpdateCompanionBuilder =
@@ -15451,6 +15606,7 @@ typedef $$AppPreferencesTableUpdateCompanionBuilder =
       Value<bool> isLiteMode,
       Value<bool> biometricEnabled,
       Value<String?> userCommune,
+      Value<String?> pendingReferralCode,
       Value<DateTime?> lastSync,
     });
 
@@ -15495,6 +15651,11 @@ class $$AppPreferencesTableFilterComposer
 
   ColumnFilters<String> get userCommune => $composableBuilder(
     column: $table.userCommune,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pendingReferralCode => $composableBuilder(
+    column: $table.pendingReferralCode,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -15548,6 +15709,11 @@ class $$AppPreferencesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get pendingReferralCode => $composableBuilder(
+    column: $table.pendingReferralCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get lastSync => $composableBuilder(
     column: $table.lastSync,
     builder: (column) => ColumnOrderings(column),
@@ -15591,6 +15757,11 @@ class $$AppPreferencesTableAnnotationComposer
 
   GeneratedColumn<String> get userCommune => $composableBuilder(
     column: $table.userCommune,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get pendingReferralCode => $composableBuilder(
+    column: $table.pendingReferralCode,
     builder: (column) => column,
   );
 
@@ -15638,6 +15809,7 @@ class $$AppPreferencesTableTableManager
                 Value<bool> isLiteMode = const Value.absent(),
                 Value<bool> biometricEnabled = const Value.absent(),
                 Value<String?> userCommune = const Value.absent(),
+                Value<String?> pendingReferralCode = const Value.absent(),
                 Value<DateTime?> lastSync = const Value.absent(),
               }) => AppPreferencesCompanion(
                 id: id,
@@ -15647,6 +15819,7 @@ class $$AppPreferencesTableTableManager
                 isLiteMode: isLiteMode,
                 biometricEnabled: biometricEnabled,
                 userCommune: userCommune,
+                pendingReferralCode: pendingReferralCode,
                 lastSync: lastSync,
               ),
           createCompanionCallback:
@@ -15658,6 +15831,7 @@ class $$AppPreferencesTableTableManager
                 Value<bool> isLiteMode = const Value.absent(),
                 Value<bool> biometricEnabled = const Value.absent(),
                 Value<String?> userCommune = const Value.absent(),
+                Value<String?> pendingReferralCode = const Value.absent(),
                 Value<DateTime?> lastSync = const Value.absent(),
               }) => AppPreferencesCompanion.insert(
                 id: id,
@@ -15667,6 +15841,7 @@ class $$AppPreferencesTableTableManager
                 isLiteMode: isLiteMode,
                 biometricEnabled: biometricEnabled,
                 userCommune: userCommune,
+                pendingReferralCode: pendingReferralCode,
                 lastSync: lastSync,
               ),
           withReferenceMapper: (p0) => p0
@@ -17558,6 +17733,8 @@ typedef $$OrdersTableCreateCompanionBuilder =
       Value<String> status,
       required String itemsJson,
       Value<String?> note,
+      Value<String?> remoteId,
+      Value<int> synced,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
     });
@@ -17569,6 +17746,8 @@ typedef $$OrdersTableUpdateCompanionBuilder =
       Value<String> status,
       Value<String> itemsJson,
       Value<String?> note,
+      Value<String?> remoteId,
+      Value<int> synced,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
     });
@@ -17626,6 +17805,16 @@ class $$OrdersTableFilterComposer
 
   ColumnFilters<String> get note => $composableBuilder(
     column: $table.note,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get remoteId => $composableBuilder(
+    column: $table.remoteId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get synced => $composableBuilder(
+    column: $table.synced,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -17697,6 +17886,16 @@ class $$OrdersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get remoteId => $composableBuilder(
+    column: $table.remoteId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get synced => $composableBuilder(
+    column: $table.synced,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -17756,6 +17955,12 @@ class $$OrdersTableAnnotationComposer
 
   GeneratedColumn<String> get note =>
       $composableBuilder(column: $table.note, builder: (column) => column);
+
+  GeneratedColumn<String> get remoteId =>
+      $composableBuilder(column: $table.remoteId, builder: (column) => column);
+
+  GeneratedColumn<int> get synced =>
+      $composableBuilder(column: $table.synced, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -17821,6 +18026,8 @@ class $$OrdersTableTableManager
                 Value<String> status = const Value.absent(),
                 Value<String> itemsJson = const Value.absent(),
                 Value<String?> note = const Value.absent(),
+                Value<String?> remoteId = const Value.absent(),
+                Value<int> synced = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
               }) => OrdersCompanion(
@@ -17830,6 +18037,8 @@ class $$OrdersTableTableManager
                 status: status,
                 itemsJson: itemsJson,
                 note: note,
+                remoteId: remoteId,
+                synced: synced,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
               ),
@@ -17841,6 +18050,8 @@ class $$OrdersTableTableManager
                 Value<String> status = const Value.absent(),
                 required String itemsJson,
                 Value<String?> note = const Value.absent(),
+                Value<String?> remoteId = const Value.absent(),
+                Value<int> synced = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
               }) => OrdersCompanion.insert(
@@ -17850,6 +18061,8 @@ class $$OrdersTableTableManager
                 status: status,
                 itemsJson: itemsJson,
                 note: note,
+                remoteId: remoteId,
+                synced: synced,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
               ),

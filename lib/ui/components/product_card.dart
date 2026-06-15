@@ -6,7 +6,7 @@ import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../core/utils/image_utils.dart';
 import '../../core/res/uza_colors.dart';
-import 'condition_badge.dart';
+import '../../core/utils/product_promo_utils.dart';
 
 class ProductCard extends StatefulWidget {
   final Product product;
@@ -93,6 +93,13 @@ class _ProductCardState extends State<ProductCard> {
                         top: 12,
                         left: 12,
                         child: _buildBadge('NOUVEAU', UzaColors.secondary),
+                      ),
+                    if (ProductPromoUtils.isFlashProduct(widget.product))
+                      Positioned(
+                        top: 12,
+                        left: widget.product.isArrival ? 90 : 12,
+                        child: _buildBadge('PROMO', Colors.red,
+                            icon: Icons.local_offer),
                       ),
                     if (widget.product.viewsCount > 50)
                       Positioned(
@@ -202,39 +209,55 @@ class _ProductCardState extends State<ProductCard> {
                           if (shop == null || shop.name.isEmpty) {
                             return const SizedBox.shrink();
                           }
-                          return Row(
+                          final address = shop.address?.trim();
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Text(
-                                  shop.name,
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      shop.name,
+                                      style: TextStyle(
+                                        color: Colors.grey[500],
+                                        fontSize: 7.5,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  if (widget.distanceKm != null)
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.location_on,
+                                          size: 10,
+                                          color: UzaColors.primary,
+                                        ),
+                                        const SizedBox(width: 2),
+                                        Text(
+                                          '~${_formatDistance(widget.distanceKm!)}',
+                                          style: TextStyle(
+                                            color: UzaColors.primary,
+                                            fontSize: 8,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
+                              if (address != null && address.isNotEmpty)
+                                Text(
+                                  address,
                                   style: TextStyle(
-                                    color: Colors.grey[500],
-                                    fontSize: 7.5,
-                                    fontWeight: FontWeight.w500,
+                                    color: Colors.grey[400],
+                                    fontSize: 7,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (widget.distanceKm != null)
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.location_on,
-                                      size: 10,
-                                      color: UzaColors.primary,
-                                    ),
-                                    const SizedBox(width: 2),
-                                    Text(
-                                      '~${_formatDistance(widget.distanceKm!)}',
-                                      style: TextStyle(
-                                        color: UzaColors.primary,
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
                                 ),
                             ],
                           );

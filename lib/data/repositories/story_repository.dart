@@ -4,6 +4,17 @@ import '../local/uza_database.dart';
 import '../services/sync_service.dart';
 import '../../core/utils/image_utils.dart';
 
+/// One displayable slide for a story/arrivage (main media + story_media children).
+class StoryMediaSlide {
+  final String mediaUrl;
+  final String mediaType;
+
+  const StoryMediaSlide({
+    required this.mediaUrl,
+    required this.mediaType,
+  });
+}
+
 /// One feed entry = one media item of an active arrivage.
 /// Stories with no StoryMedia row fall back to their own mediaUrl.
 class ArrivageMediaItem {
@@ -31,6 +42,19 @@ class StoryRepository {
 
   /// 4-day expiry for arrivages
   static const Duration arrivageExpiry = Duration(days: 4);
+
+  /// Most recent story in a shop group — used for feed thumbnails.
+  static Story previewStoryForGroup(List<Story> stories) {
+    assert(stories.isNotEmpty);
+    return stories.reduce(
+      (a, b) => a.createdAt.isAfter(b.createdAt) ? a : b,
+    );
+  }
+
+  static List<Story> activeStoriesOnly(List<Story> stories) {
+    final now = DateTime.now();
+    return stories.where((s) => s.expiresAt.isAfter(now)).toList();
+  }
 
   Future<List<String?>> _collectStoryMediaUrls(int storyId) async {
     final story = await (db.select(db.stories)
@@ -174,6 +198,47 @@ class StoryRepository {
         .get();
   }
 
+  /// Thumbnail for list cards: main mediaUrl, or first story_media row.
+  Future<String?> resolveStoryPreviewUrl(Story story) async {
+    if (story.mediaUrl.isNotEmpty) return story.mediaUrl;
+    final children = await getStoryMedia(story.id);
+    for (final child in children) {
+      if (child.mediaUrl.isNotEmpty) return child.mediaUrl;
+    }
+    return null;
+  }
+
+  /// Ordered slides for story viewer (main + children, no duplicates).
+  Future<List<StoryMediaSlide>> getStoryMediaSlides(Story story) async {
+    final children = await getStoryMedia(story.id);
+    final slides = <StoryMediaSlide>[];
+
+    if (story.mediaUrl.isNotEmpty) {
+      slides.add(
+        StoryMediaSlide(
+          mediaUrl: story.mediaUrl,
+          mediaType: story.mediaType,
+        ),
+      );
+    }
+
+    for (final child in children) {
+      if (child.mediaUrl.isEmpty) continue;
+      final isDuplicate =
+          slides.isNotEmpty && child.mediaUrl == slides.first.mediaUrl;
+      if (!isDuplicate) {
+        slides.add(
+          StoryMediaSlide(
+            mediaUrl: child.mediaUrl,
+            mediaType: child.mediaType,
+          ),
+        );
+      }
+    }
+
+    return slides;
+  }
+
   /// Delete stories that have expired, along with their media items.
   /// Returns the number of stories deleted.
   Future<int> deleteExpiredStories() async {
@@ -231,13 +296,13 @@ class StoryRepository {
     await ImageUtils.evictCachedSources(mediaUrls);
 
     if (syncService != null && serverId != null) {
+      await syncService!.markStoryDeletedRemotely(serverId.toString());
       await syncService!.addToQueue('DELETE', 'stories', {'id': serverId});
       developer.log(
         'Queued story deletion for sync: serverId=$serverId',
         name: 'StoryRepo',
       );
       await syncService!.forcePush();
-      await syncService!.fullResetAndSync();
     } else {
       developer.log(
         'Story deletion NOT synced - missing syncService or serverId',
@@ -397,6 +462,14 @@ class StoryRepository {
         });
   }
 
+  bool _isDisplayableArrivageMedia(ArrivageMediaItem item) {
+    if (item.mediaUrl.isEmpty) return false;
+    if (item.mediaType == 'video') {
+      return ImageUtils.resolveImageUrl(item.mediaUrl)?.isNotEmpty ?? false;
+    }
+    return ImageUtils.hasDisplayableImage(item.mediaUrl);
+  }
+
   /// JOIN stream: one entry per StoryMedia row, fallback to story.mediaUrl.
   /// Re-emits whenever stories OR storyMedia changes — no race condition.
   Stream<List<ArrivageMediaItem>> watchArrivageMediaFeed() {
@@ -428,6 +501,7 @@ class StoryRepository {
         final media = row.readTableOrNull(db.storyMedia);
 
         if (media != null) {
+          if (media.mediaUrl.isEmpty) continue;
           storiesWithMedia.add(story.id);
           items.add(
             ArrivageMediaItem(
@@ -438,7 +512,7 @@ class StoryRepository {
             ),
           );
         } else if (!storiesWithMedia.contains(story.id)) {
-          // No StoryMedia rows: use story’s own mediaUrl
+          if (story.mediaUrl.isEmpty) continue;
           items.add(
             ArrivageMediaItem(
               storyId: story.id,
@@ -450,11 +524,15 @@ class StoryRepository {
         }
       }
 
+      final filtered = items
+          .where((item) => _isDisplayableArrivageMedia(item))
+          .toList();
+
       developer.log(
-        'watchArrivageMediaFeed: ${items.length} media entries',
+        'watchArrivageMediaFeed: ${filtered.length} media entries',
         name: 'StoryRepo',
       );
-      return items;
+      return filtered;
     });
   }
 }

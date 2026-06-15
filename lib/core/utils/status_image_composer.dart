@@ -8,6 +8,11 @@ import 'package:image/image.dart' as img;
 
 import '../res/uza_colors.dart';
 
+enum _ImageFit { cover, contain, realSize }
+
+/// Visual layout for auto-generated status images.
+enum StatusVisualTemplate { classic, minimal, promo, flash }
+
 /// Builds branded 9:16 WhatsApp Status images from product photos.
 class StatusImageComposer {
   static const int canvasWidth = 1080;
@@ -19,6 +24,9 @@ class StatusImageComposer {
     required String shopName,
     Uint8List? shopLogoBytes,
     Uint8List? uzaLogoBytes,
+    StatusVisualTemplate template = StatusVisualTemplate.classic,
+    String? priceLabel,
+    String? promoBadge,
   }) async {
     final productCodec = await ui.instantiateImageCodec(productImageBytes);
     final productFrame = await productCodec.getNextFrame();
@@ -31,9 +39,23 @@ class StatusImageComposer {
     final canvas = Canvas(recorder);
     final size = Size(canvasWidth.toDouble(), canvasHeight.toDouble());
 
-    _drawCoverImage(canvas, productImage, size);
-    _drawVignette(canvas, size);
-    _drawTopBrandBar(canvas, size, shopLogo: shopLogo, uzaLogo: uzaLogo);
+    _drawProductImage(canvas, productImage, size);
+    if (template != StatusVisualTemplate.minimal) {
+      _drawVignette(canvas, size);
+    }
+    if (template != StatusVisualTemplate.minimal) {
+      _drawTopBrandBar(canvas, size, shopLogo: shopLogo, uzaLogo: uzaLogo);
+    }
+    if (template == StatusVisualTemplate.flash ||
+        template == StatusVisualTemplate.promo) {
+      _drawPromoBadge(
+        canvas,
+        size,
+        label: promoBadge ??
+            (template == StatusVisualTemplate.flash ? 'FLASH' : 'PROMO'),
+        priceLabel: priceLabel,
+      );
+    }
     _drawBottomPanel(
       canvas,
       size,
@@ -41,6 +63,8 @@ class StatusImageComposer {
       shopName: shopName,
       shopLogo: shopLogo,
       uzaLogo: uzaLogo,
+      compact: template == StatusVisualTemplate.minimal,
+      priceLabel: priceLabel,
     );
 
     productImage.dispose();
@@ -49,6 +73,61 @@ class StatusImageComposer {
 
     final picture = recorder.endRecording();
     final rendered = await picture.toImage(canvasWidth, canvasHeight);
+    picture.dispose();
+
+    final pngBytes = await _imageToPng(rendered);
+    rendered.dispose();
+
+    return _encodeJpeg(pngBytes);
+  }
+
+  /// Partage produit : photo d'origine + logo UzaApp discret (sans texte ni badges).
+  static Future<Uint8List> composeProductShareImage({
+    required Uint8List productImageBytes,
+    Uint8List? uzaLogoBytes,
+  }) async {
+    final productCodec = await ui.instantiateImageCodec(productImageBytes);
+    final productFrame = await productCodec.getNextFrame();
+    final productImage = productFrame.image;
+    final uzaLogo = await _bytesToImage(uzaLogoBytes);
+
+    final width = productImage.width;
+    final height = productImage.height;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final size = Size(width.toDouble(), height.toDouble());
+
+    canvas.drawImageRect(
+      productImage,
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..filterQuality = FilterQuality.high,
+    );
+
+    if (uzaLogo != null) {
+      final logoRadius =
+          (math.min(size.width, size.height) * 0.06).clamp(36.0, 72.0);
+      final margin = logoRadius * 0.55;
+      _drawLogoCircle(
+        canvas,
+        uzaLogo,
+        Offset(
+          size.width - margin - logoRadius,
+          size.height - margin - logoRadius,
+        ),
+        logoRadius,
+        fallbackLabel: 'U',
+        ringColor: UzaColors.primary,
+        ringPadding: 5,
+        ringStrokeWidth: 3,
+      );
+    }
+
+    productImage.dispose();
+    uzaLogo?.dispose();
+
+    final picture = recorder.endRecording();
+    final rendered = await picture.toImage(width, height);
     picture.dispose();
 
     final pngBytes = await _imageToPng(rendered);
@@ -69,20 +148,68 @@ class StatusImageComposer {
     }
   }
 
-  static void _drawCoverImage(Canvas canvas, ui.Image source, Size size) {
+  static void _drawProductImage(Canvas canvas, ui.Image source, Size size) {
+    final canvasRect = Rect.fromLTWH(0, 0, size.width, size.height);
+
+    canvas.drawRect(canvasRect, Paint()..color = const Color(0xFF141414));
+
+    // Même image en cover + flou pour remplir tout l'écran (style story).
+    _drawScaledImage(
+      canvas,
+      source,
+      size,
+      fit: _ImageFit.cover,
+      paint: Paint()
+        ..imageFilter = ui.ImageFilter.blur(sigmaX: 32, sigmaY: 32),
+    );
+
+    canvas.drawRect(
+      canvasRect,
+      Paint()..color = Colors.black.withValues(alpha: 0.22),
+    );
+
+    // Image nette à sa taille réelle (jamais agrandie), centrée.
+    _drawScaledImage(
+      canvas,
+      source,
+      size,
+      fit: _ImageFit.realSize,
+    );
+  }
+
+  static void _drawScaledImage(
+    Canvas canvas,
+    ui.Image source,
+    Size targetSize, {
+    required _ImageFit fit,
+    Offset offset = Offset.zero,
+    Paint? paint,
+  }) {
     final srcW = source.width.toDouble();
     final srcH = source.height.toDouble();
-    final scale = math.max(size.width / srcW, size.height / srcH);
+    if (srcW <= 0 || srcH <= 0 || targetSize.width <= 0 || targetSize.height <= 0) {
+      return;
+    }
+
+    final scale = switch (fit) {
+      _ImageFit.cover => math.max(targetSize.width / srcW, targetSize.height / srcH),
+      _ImageFit.contain => math.min(targetSize.width / srcW, targetSize.height / srcH),
+      // 1:1 si l'image tient dans le canvas, sinon réduction pour tout voir.
+      _ImageFit.realSize => math.min(
+        1.0,
+        math.min(targetSize.width / srcW, targetSize.height / srcH),
+      ),
+    };
     final drawW = srcW * scale;
     final drawH = srcH * scale;
-    final dx = (size.width - drawW) / 2;
-    final dy = (size.height - drawH) / 2;
+    final dx = offset.dx + (targetSize.width - drawW) / 2;
+    final dy = offset.dy + (targetSize.height - drawH) / 2;
 
     canvas.drawImageRect(
       source,
       Rect.fromLTWH(0, 0, srcW, srcH),
       Rect.fromLTWH(dx, dy, drawW, drawH),
-      Paint(),
+      paint ?? Paint(),
     );
   }
 
@@ -130,13 +257,14 @@ class StatusImageComposer {
     ui.Image? shopLogo,
     ui.Image? uzaLogo,
   }) {
-    const margin = 48.0;
-    const barHeight = 104.0;
-    const logoRadius = 40.0;
-    final barCenterY = 64.0 + barHeight / 2;
+    const margin = 44.0;
+    const barTop = 52.0;
+    const barHeight = 136.0;
+    const logoRadius = 56.0;
+    final barCenterY = barTop + barHeight / 2;
 
     final barRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(margin, 64, size.width - margin * 2, barHeight),
+      Rect.fromLTWH(margin, barTop, size.width - margin * 2, barHeight),
       Radius.circular(barHeight / 2),
     );
 
@@ -152,7 +280,7 @@ class StatusImageComposer {
         ..strokeWidth = 1.5,
     );
 
-    final shopCenter = Offset(margin + logoRadius + 16, barCenterY);
+    final shopCenter = Offset(margin + logoRadius + 18, barCenterY);
     _drawLogoCircle(
       canvas,
       shopLogo,
@@ -160,9 +288,11 @@ class StatusImageComposer {
       logoRadius,
       fallbackIcon: Icons.storefront_rounded,
       ringColor: UzaColors.primary,
+      ringPadding: 7,
+      ringStrokeWidth: 4.5,
     );
 
-    final uzaLogoCenter = Offset(size.width - margin - logoRadius - 16, barCenterY);
+    final uzaLogoCenter = Offset(size.width - margin - logoRadius - 18, barCenterY);
     _drawLogoCircle(
       canvas,
       uzaLogo,
@@ -170,20 +300,54 @@ class StatusImageComposer {
       logoRadius,
       fallbackLabel: 'U',
       ringColor: UzaColors.primary,
+      ringPadding: 7,
+      ringStrokeWidth: 4.5,
     );
+  }
 
+  static void _drawPromoBadge(
+    Canvas canvas,
+    Size size, {
+    required String label,
+    String? priceLabel,
+  }) {
+    final isFlash = label.toUpperCase().contains('FLASH');
+    final badgeColor = isFlash ? const Color(0xFFE53935) : UzaColors.primary;
+    final badgeRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(size.width * 0.5 - 180, 140, 360, priceLabel != null ? 120 : 72),
+      const Radius.circular(20),
+    );
+    canvas.drawRRect(
+      badgeRect,
+      Paint()..color = badgeColor.withValues(alpha: 0.92),
+    );
     _paintText(
       canvas,
-      text: 'UzaApp',
+      text: label.toUpperCase(),
       style: const TextStyle(
         color: Colors.white,
-        fontSize: 30,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.8,
+        fontSize: 42,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 2,
       ),
-      maxWidth: 200,
-      offset: Offset(uzaLogoCenter.dx - 156, barCenterY - 18),
+      maxWidth: 320,
+      offset: Offset(size.width * 0.5 - 160, 158),
+      maxLines: 1,
     );
+    if (priceLabel != null && priceLabel.isNotEmpty) {
+      _paintText(
+        canvas,
+        text: priceLabel,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 36,
+          fontWeight: FontWeight.w700,
+        ),
+        maxWidth: 320,
+        offset: Offset(size.width * 0.5 - 160, 210),
+        maxLines: 1,
+      );
+    }
   }
 
   static void _drawBottomPanel(
@@ -193,11 +357,14 @@ class StatusImageComposer {
     required String shopName,
     ui.Image? shopLogo,
     ui.Image? uzaLogo,
+    bool compact = false,
+    String? priceLabel,
   }) {
     const horizontal = 56.0;
     final maxWidth = size.width - horizontal * 2;
-    const shopLogoRadius = 34.0;
-    const uzaFooterRadius = 28.0;
+    final shopLogoRadius = compact ? 26.0 : 34.0;
+    final uzaFooterRadius = compact ? 22.0 : 28.0;
+    final titleSize = compact ? 40.0 : 50.0;
     const footerStyle = TextStyle(
       color: Colors.white,
       fontSize: 26,
@@ -211,17 +378,26 @@ class StatusImageComposer {
       letterSpacing: 0.2,
     );
 
-    var contentHeight = 40.0;
+    var contentHeight = compact ? 28.0 : 40.0;
     contentHeight += _measureText(
       _truncate(productName, 52),
-      const TextStyle(
-        fontSize: 50,
+      TextStyle(
+        fontSize: titleSize,
         fontWeight: FontWeight.w800,
         height: 1.12,
       ),
       maxWidth,
       maxLines: 2,
     );
+    if (priceLabel != null && priceLabel.isNotEmpty) {
+      contentHeight += 12;
+      contentHeight += _measureText(
+        priceLabel,
+        const TextStyle(fontSize: 32, fontWeight: FontWeight.w700),
+        maxWidth,
+        maxLines: 1,
+      );
+    }
     contentHeight += 20 + 5 + 20;
     contentHeight += shopLogoRadius * 2;
     contentHeight += 14;
@@ -253,9 +429,9 @@ class StatusImageComposer {
     y += _paintText(
       canvas,
       text: _truncate(productName, 52),
-      style: const TextStyle(
+      style: TextStyle(
         color: Colors.white,
-        fontSize: 50,
+        fontSize: titleSize,
         fontWeight: FontWeight.w800,
         height: 1.12,
         letterSpacing: -0.5,
@@ -265,7 +441,24 @@ class StatusImageComposer {
       maxLines: 2,
       shadow: true,
     );
-    y += 20;
+    y += 16;
+
+    if (priceLabel != null && priceLabel.isNotEmpty) {
+      y += _paintText(
+        canvas,
+        text: priceLabel,
+        style: const TextStyle(
+          color: UzaColors.primary,
+          fontSize: 32,
+          fontWeight: FontWeight.w800,
+        ),
+        maxWidth: maxWidth,
+        offset: Offset(horizontal, y),
+        maxLines: 1,
+        shadow: true,
+      );
+      y += 8;
+    }
 
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -315,7 +508,7 @@ class StatusImageComposer {
       ringColor: UzaColors.primary,
     );
 
-    final footerText = 'Disponible sur UzaApp';
+    const footerText = 'Disponible sur UzaApp';
     final footerTextHeight = _measureText(
       footerText,
       footerStyle,
@@ -345,19 +538,22 @@ class StatusImageComposer {
     IconData? fallbackIcon,
     String? fallbackLabel,
     Color ringColor = Colors.white,
+    double ringPadding = 5,
+    double ringStrokeWidth = 3,
   }) {
+    final ringRadius = radius + ringPadding;
     canvas.drawCircle(
       center,
-      radius + 5,
+      ringRadius,
       Paint()..color = ringColor,
     );
     canvas.drawCircle(
       center,
-      radius + 5,
+      ringRadius,
       Paint()
         ..color = Colors.white
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3,
+        ..strokeWidth = ringStrokeWidth,
     );
 
     canvas.save();

@@ -5,10 +5,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../data/repositories/cart_repository.dart';
 import '../../../core/res/uza_colors.dart';
 import '../components/skeletons.dart';
+import '../../core/services/settings_service.dart';
+import '../../core/utils/whatsapp_checkout_utils.dart';
 import '../../core/l10n/tr.dart';
 import '../../core/services/auth_service.dart';
 import '../../data/repositories/order_repository.dart';
 import '../../data/repositories/shop_repository.dart';
+import '../../data/services/sync_service.dart';
 import '../components/mobile_money_sheet.dart';
 
 class CartScreen extends StatefulWidget {
@@ -266,16 +269,35 @@ class _CartScreenState extends State<CartScreen> {
       );
       return;
     }
+    final buyerPhone = context.read<AuthService>().user?.phoneNumber ?? '';
     final total = items.fold<double>(
       0,
       (sum, i) => sum + (i.product.price ?? 0) * i.cartItem.quantity,
     );
+    final orderId = buyerPhone.isNotEmpty
+        ? await context.read<OrderRepository>().createOrder(
+            buyerPhone: buyerPhone,
+            shopId: shopIds.first,
+            items: items
+                .map(
+                  (i) => {
+                    'product_id': i.product.id,
+                    'name': i.product.name,
+                    'quantity': i.cartItem.quantity,
+                  },
+                )
+                .toList(),
+            status: 'pending_payment',
+            syncService: context.read<SyncService>(),
+          )
+        : null;
     await MobileMoneySheet.show(
       context,
       amount: total > 0 ? total : items.length * 1000,
       productNames: items.map((i) => i.product.name).toList(),
       whatsAppPhone: phone,
-      buyerPhone: context.read<AuthService>().user?.phoneNumber,
+      buyerPhone: buyerPhone,
+      orderId: orderId,
     );
   }
 
@@ -317,7 +339,17 @@ class _CartScreenState extends State<CartScreen> {
       return;
     }
 
-    final targetPhone = targetPhoneRaw.replaceAll(RegExp(r'[^0-9]'), '');
+    final settings = context.read<SettingsService>();
+    final buyerPhone = context.read<AuthService>().user?.phoneNumber ?? '';
+
+    final message = WhatsAppCheckoutUtils.cartQuote(
+      shop: shop!,
+      items: items,
+      buyerPhone: buyerPhone.isNotEmpty ? buyerPhone : null,
+      buyerCommune: settings.userCommune,
+    );
+
+    final targetPhone = WhatsAppCheckoutUtils.normalizePhone(targetPhoneRaw);
     if (targetPhone.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -327,29 +359,8 @@ class _CartScreenState extends State<CartScreen> {
       return;
     }
 
-    String message = "🌟 *DEMANDE DE DEVIS UZAAPP*\n";
-    message +=
-        "Bonjour, je souhaite discuter des prix pour ma sélection showroom :\n\n";
+    final url = WhatsAppCheckoutUtils.whatsAppUri(targetPhone, message);
 
-    for (int i = 0; i < items.length; i++) {
-      final item = items[i];
-      message += "📦 *${item.product.name}*\n";
-      message += "   Quantité : ${item.cartItem.quantity}\n";
-      if (item.product.remoteId != null) {
-        message += "   Réf : ${item.product.remoteId}\n";
-      }
-      message += "\n";
-    }
-
-    message += "----------- \n";
-    message += "Pouvez-vous me proposer vos meilleurs tarifs (Gros/Détail) ?\n";
-    message += "_Envoyé via mon showroom Uzaapp_";
-
-    final url = Uri.parse(
-      "https://wa.me/$targetPhone?text=${Uri.encodeComponent(message)}",
-    );
-
-    final buyerPhone = context.read<AuthService>().user?.phoneNumber ?? '';
     if (buyerPhone.isNotEmpty) {
       final orderRepo = context.read<OrderRepository>();
       await orderRepo.createOrder(
@@ -364,6 +375,7 @@ class _CartScreenState extends State<CartScreen> {
               },
             )
             .toList(),
+        syncService: context.read<SyncService>(),
       );
     }
 

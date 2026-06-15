@@ -325,7 +325,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
       await syncService.addToQueue('CREATE', 'stories', syncPayload);
 
       // Trigger immediate push so the story appears on the server
-      syncService.forcePush();
+      await syncService.forcePush();
 
       if (mounted) {
         final scaffoldMessenger = ScaffoldMessenger.of(context);

@@ -3,10 +3,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
+import '../../data/services/sync_service.dart';
 import '../components/product_card.dart';
 import '../components/search_delegate.dart';
 import '../components/search_filters.dart';
 import '../components/staggered_list.dart';
+import '../components/custom_refresh_indicator.dart';
 import '../../core/res/uza_colors.dart';
 import 'product_detail_screen.dart';
 import 'product_scanner_screen.dart';
@@ -160,10 +162,18 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     final productRepo = context.watch<ProductRepository>();
 
-    final content = Center(
+    final content = UzaRefreshIndicator(
+      onRefresh: () async {
+        await context.read<SyncService>().syncNow();
+        if (mounted) {
+          setState(() => _refreshKey++);
+        }
+      },
+      child: Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1200),
         child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             // ─── Search Bar ──────────────────────────────────────
             SliverToBoxAdapter(
@@ -416,68 +426,17 @@ class _SearchScreenState extends State<SearchScreen> {
 
                   final displayItems = snapshot.data!;
 
-                  // When no filters active, show trending + recently added sections
-                  if (!hasFilters) {
-                    return MultiSliver(
-                      slivers: [
-                        headerSliver,
-                        _buildTrendingSection(productRepo),
-                        _buildRecentlyAddedSection(displayItems),
-                      ],
-                    );
-                  }
-
-                  // Filtered results grid with staggered animation
                   return MultiSliver(
                     slivers: [
                       headerSliver,
-                      SliverPadding(
-                        padding: const EdgeInsets.all(16),
-                        sliver: SliverGrid(
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount:
-                                    MediaQuery.of(context).size.width > 1200
-                                    ? 5
-                                    : MediaQuery.of(context).size.width > 800
-                                    ? 3
-                                    : 2,
-                                childAspectRatio:
-                                    MediaQuery.of(context).size.width > 700
-                                    ? 0.75
-                                    : 0.86,
-                                crossAxisSpacing: 16,
-                                mainAxisSpacing: 16,
-                              ),
-                          delegate: SliverChildBuilderDelegate((
-                            context,
-                            index,
-                          ) {
-                            final product = displayItems[index];
-                            return StaggeredListItem(
-                              index: index,
-                              child: ProductCard(
-                                product: product,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          ProductDetailScreen(product: product),
-                                    ),
-                                  );
-                                },
-                              ),
-                            );
-                          }, childCount: displayItems.length),
-                        ),
-                      ),
+                      _buildProductsGridSliver(displayItems),
                     ],
                   );
                 },
               ),
           ],
         ),
+      ),
       ),
     );
 
@@ -530,142 +489,46 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  // ─── Trending Section ────────────────────────────────────────────
+  // ─── Products Grid (vertical, like Populaires on home) ───────────
 
-  Widget _buildTrendingSection(ProductRepository productRepo) {
-    return SliverToBoxAdapter(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: UzaColors.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.trending_up,
-                    color: UzaColors.primary,
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  'Tendances',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(
-            height: 200,
-            child: StreamBuilder<List<Product>>(
-              stream: productRepo.watchTrendingProducts(limit: 8),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return _buildHorizontalSkeleton();
-                }
-                final products = snapshot.data!;
-                return ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: products.length,
-                  itemBuilder: (context, index) {
-                    final product = products[index];
-                    return Container(
-                      width: 140,
-                      margin: const EdgeInsets.only(right: 12),
-                      child: StaggeredListItem(
-                        index: index,
-                        child: ProductCard(
-                          product: product,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  ProductDetailScreen(product: product),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
+  Widget _buildProductsGridSliver(List<Product> products) {
+    final screenWidth = MediaQuery.of(context).size.width;
+
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(
+        horizontal: screenWidth < 360 ? 10 : 16,
+        vertical: 8,
       ),
-    );
-  }
-
-  // ─── Recently Added Section ──────────────────────────────────────
-
-  Widget _buildRecentlyAddedSection(List<Product> products) {
-    // Take up to 8 recently added
-    final recent = products.take(8).toList();
-
-    return SliverToBoxAdapter(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: UzaColors.secondary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.access_time,
-                    color: UzaColors.secondary,
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  'Récemment ajoutés',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(
-            height: 200,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: recent.length,
-              itemBuilder: (context, index) {
-                final product = recent[index];
-                return Container(
-                  width: 140,
-                  margin: const EdgeInsets.only(right: 12),
-                  child: StaggeredListItem(
-                    index: index,
-                    child: ProductCard(
-                      product: product,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ProductDetailScreen(product: product),
-                        ),
-                      ),
-                    ),
+      sliver: SliverGrid(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: screenWidth > 1200
+              ? 5
+              : screenWidth > 700
+              ? 4
+              : 2,
+          childAspectRatio: screenWidth < 360
+              ? 0.78
+              : (screenWidth > 700 ? 0.75 : 0.86),
+          crossAxisSpacing: screenWidth > 700 ? 12 : 16,
+          mainAxisSpacing: screenWidth > 700 ? 12 : 16,
+        ),
+        delegate: SliverChildBuilderDelegate((context, index) {
+          final product = products[index];
+          return StaggeredListItem(
+            index: index,
+            child: ProductCard(
+              product: product,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ProductDetailScreen(product: product),
                   ),
                 );
               },
             ),
-          ),
-          const SizedBox(height: 16),
-        ],
+          );
+        }, childCount: products.length),
       ),
     );
   }
@@ -770,24 +633,6 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildHorizontalSkeleton() {
-    return ListView.builder(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      itemCount: 4,
-      itemBuilder: (context, index) {
-        return Container(
-          width: 140,
-          margin: const EdgeInsets.only(right: 12),
-          decoration: BoxDecoration(
-            color: Colors.grey[200],
-            borderRadius: BorderRadius.circular(16),
-          ),
-        );
-      },
     );
   }
 

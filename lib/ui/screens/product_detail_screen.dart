@@ -19,6 +19,7 @@ import '../components/tap_animator.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import '../components/product_metadata_display.dart';
+import '../components/product_extras_section.dart';
 import '../../core/utils/category_helper.dart';
 import '../../core/l10n/tr.dart';
 import '../../core/services/api_service.dart';
@@ -124,6 +125,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     _buildProductHeader(),
                     const SizedBox(height: 16),
                     _buildPriceSection(),
+                    const SizedBox(height: 12),
+                    ProductExtrasSection(product: widget.product),
                     const SizedBox(height: 32),
                     const Text(
                       'Description',
@@ -338,6 +341,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       _buildProductHeader(),
                       const SizedBox(height: 16),
                       _buildPriceSection(),
+                      const SizedBox(height: 12),
+                      ProductExtrasSection(product: widget.product),
                       const SizedBox(height: 24),
                       _buildDescriptionCard(),
                       const SizedBox(height: 16),
@@ -1923,6 +1928,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       phone: effectivePhone,
                       entityType: 'product',
                       entityId: widget.product.id,
+                      buyerPhone:
+                          context.read<AuthService>().user?.phoneNumber,
                       name: widget.product.name.toUpperCase(),
                       imageUrl:
                           ImageUtils.getDecryptedList(

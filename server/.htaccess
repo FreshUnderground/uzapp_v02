@@ -2,11 +2,9 @@
 
   RewriteEngine On
 
-
-
   RewriteRule ^api/ - [L]
 
-
+  RewriteRule ^statistiques/?$ /api/statistiques.php [L,QSA]
 
   RewriteCond %{QUERY_STRING} (^|&)web=1(&|$) [NC]
 

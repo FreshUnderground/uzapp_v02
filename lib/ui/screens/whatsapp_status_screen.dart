@@ -2,12 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/res/platform_brands.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/services/contact_service.dart';
+import '../../core/services/push_notification_service.dart';
+import '../../core/services/system_push_notifier.dart';
+import '../../core/services/web_notification_service.dart';
 import '../../core/services/whatsapp_status_scheduler.dart';
 import '../../core/services/whatsapp_status_service.dart';
+import '../../core/utils/status_image_composer.dart';
+import '../../core/utils/status_template_prefs.dart';
 import '../../data/local/uza_database.dart';
 import '../utils/page_transitions.dart';
 import 'manage_products_screen.dart';
@@ -33,16 +40,58 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
   int _randomCount = 0;
   bool _isSharing = false;
   bool _isRegenerating = false;
+  bool _isTikTokGenerating = false;
   bool _fromDailyBatch = false;
   DateTime? _batchPreparedAt;
   DateTime? _batchNextAt;
   String? _error;
+  StatusVisualTemplate _template = StatusVisualTemplate.classic;
+  bool _customSchedule = false;
+  TimeOfDay _scheduleTime = const TimeOfDay(hour: 18, minute: 0);
   final GlobalKey _shareButtonKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
+    unawaited(_loadPrefs());
+    unawaited(_ensureNotificationPermission());
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadAndPrepare());
+  }
+
+  Future<void> _loadPrefs() async {
+    final template = await StatusTemplatePrefs.loadTemplate();
+    final schedule = await StatusTemplatePrefs.loadSchedule();
+    if (!mounted) return;
+    setState(() {
+      _template = template;
+      _customSchedule = schedule.enabled;
+      _scheduleTime = TimeOfDay(hour: schedule.hour, minute: schedule.minute);
+    });
+  }
+
+  Future<void> _ensureNotificationPermission() async {
+    if (kIsWeb) {
+      await WebNotificationService.requestPermission();
+      return;
+    }
+    final granted = await PushNotificationService.ensureNotificationsEnabled();
+    if (!granted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Activez les notifications pour être alerté quand la vidéo est prête.',
+          ),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Autoriser',
+            onPressed: () {
+              unawaited(PushNotificationService.ensureNotificationsEnabled());
+            },
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _loadAndPrepare() async {
@@ -135,6 +184,7 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
       final images = await service.prepareCollection(
         shop: widget.shop,
         products: selected,
+        template: _template,
         onProgress: (current, total) {
           if (!mounted) return;
           setState(() {
@@ -159,6 +209,26 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
         _phase = _StatusPhase.result;
         _isRegenerating = false;
       });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '✅ ${images.length} image(s) prête(s) — notification envoyée',
+            ),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+
+      unawaited(
+        SystemPushNotifier.notifyStatusGenerationComplete(
+          shopId: widget.shop.id,
+          shopName: widget.shop.name,
+          imageCount: images.length,
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -169,17 +239,210 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
     }
   }
 
+  Future<void> _ensureProductsLoaded() async {
+    if (_products.isNotEmpty) return;
+    final service = context.read<WhatsAppStatusService>();
+    final products = await service.getEligibleProducts(widget.shop.id);
+    if (!mounted) return;
+    _products = products;
+  }
+
   Future<void> _regenerate() async {
-    if (_isRegenerating || _products.isEmpty) return;
-    setState(() => _isRegenerating = true);
-    _applyRandomSelection();
-    await _prepareCollection();
+    if (_isRegenerating) return;
+
+    setState(() {
+      _isRegenerating = true;
+      _fromDailyBatch = false;
+      _preparedImages = [];
+      _error = null;
+    });
+
+    try {
+      await _ensureProductsLoaded();
+      if (!mounted) return;
+
+      if (_products.isEmpty) {
+        setState(() {
+          _error = 'Aucun produit avec photo disponible.';
+          _phase = _StatusPhase.empty;
+          _isRegenerating = false;
+        });
+        return;
+      }
+
+      _applyRandomSelection();
+      await _prepareCollection();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Impossible de régénérer les images.';
+        _phase = _StatusPhase.empty;
+        _isRegenerating = false;
+      });
+    }
   }
 
   Rect? _shareOriginRect() {
     final box = _shareButtonKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return null;
     return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  Future<void> _shareToFacebook() async {
+    if (_preparedImages.isEmpty || _isSharing) return;
+    setState(() => _isSharing = true);
+    try {
+      final statusService = context.read<WhatsAppStatusService>();
+      final contactService = context.read<ContactService>();
+      final (xfiles, tempPaths) = await statusService.toShareableFiles(
+        widget.shop.id,
+        _preparedImages,
+      );
+      if (!mounted) return;
+      await contactService.shareStatusToFacebook(
+        shop: widget.shop,
+        images: xfiles,
+        tempPaths: tempPaths.isEmpty ? null : tempPaths,
+        sharePositionOrigin: _shareOriginRect(),
+        rawImagesForWebFallback: _preparedImages,
+      );
+      if (mounted && kIsWeb) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Images partagées ou téléchargées selon votre navigateur.'),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Partage Facebook impossible.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSharing = false);
+    }
+  }
+
+  Future<void> _shareToTikTok() async {
+    if (_preparedImages.isEmpty || _isTikTokGenerating) return;
+
+    setState(() => _isTikTokGenerating = true);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '🎬 Vidéo TikTok en préparation en arrière-plan…',
+          ),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
+
+    final shop = widget.shop;
+    final images = List<Uint8List>.from(_preparedImages);
+    final contactService = context.read<ContactService>();
+    final shareOrigin = _shareOriginRect();
+
+    unawaited(_generateTikTokInBackground(
+      shop: shop,
+      images: images,
+      contactService: contactService,
+      shareOrigin: shareOrigin,
+    ));
+  }
+
+  Future<void> _generateTikTokInBackground({
+    required Shop shop,
+    required List<Uint8List> images,
+    required ContactService contactService,
+    Rect? shareOrigin,
+  }) async {
+    try {
+      // Let the snackbar paint before heavy encode work starts.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final export = await contactService.buildTikTokStatusExport(
+        shop: shop,
+        images: images,
+      );
+
+      final notified = await SystemPushNotifier.notifyTikTokVideoReady(
+        shopId: shop.id,
+        shopName: shop.name,
+      );
+
+      if (!mounted) return;
+
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            notified
+                ? 'Vidéo TikTok prête — notification envoyée'
+                : 'Vidéo TikTok prête',
+          ),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 10),
+          action: SnackBarAction(
+            label: 'Partager',
+            onPressed: () {
+              unawaited(
+                contactService.shareTikTokStatusExport(
+                  shop: shop,
+                  export: export,
+                  fallbackImages: images,
+                  sharePositionOrigin: shareOrigin,
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      if (!notified) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Notifications désactivées — autorisez-les dans les réglages du téléphone.',
+            ),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'Autoriser',
+              onPressed: () {
+                unawaited(PushNotificationService.ensureNotificationsEnabled());
+              },
+            ),
+          ),
+        );
+      }
+
+      if (kIsWeb && export == null) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Sur le web, partagez les images (MP4 disponible sur mobile).',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Création vidéo TikTok impossible.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isTikTokGenerating = false);
+    }
   }
 
   Future<void> _shareCollection() async {
@@ -232,7 +495,8 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
         backgroundColor: UzaColors.primary,
         foregroundColor: Colors.white,
         actions: [
-          if (_phase == _StatusPhase.result && _products.isNotEmpty)
+          if (_phase == _StatusPhase.result &&
+              (_products.isNotEmpty || _preparedImages.isNotEmpty))
             IconButton(
               tooltip: 'Nouvelle sélection aléatoire',
               onPressed: _isRegenerating ? null : _regenerate,
@@ -402,13 +666,10 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
                   style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                 ),
               ],
-              const SizedBox(height: 4),
-              Text(
-                kIsWeb
-                    ? 'Partagez ou téléchargez via votre navigateur.'
-                    : 'Partagez via WhatsApp ou une autre app.',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-              ),
+              const SizedBox(height: 12),
+              _buildTemplateSelector(),
+              const SizedBox(height: 8),
+              _buildScheduleSelector(),
             ],
           ),
         ),
@@ -437,6 +698,74 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
     );
   }
 
+  Widget _buildTemplateSelector() {
+    const labels = {
+      StatusVisualTemplate.classic: 'Classique',
+      StatusVisualTemplate.minimal: 'Minimal',
+      StatusVisualTemplate.promo: 'Promo',
+      StatusVisualTemplate.flash: 'Flash',
+    };
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: StatusVisualTemplate.values.map((t) {
+        final selected = _template == t;
+        return ChoiceChip(
+          label: Text(labels[t]!),
+          selected: selected,
+          onSelected: (v) async {
+            if (!v) return;
+            setState(() => _template = t);
+            await StatusTemplatePrefs.saveTemplate(t);
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildScheduleSelector() {
+    return Row(
+      children: [
+        Switch(
+          value: _customSchedule,
+          onChanged: (v) async {
+            setState(() => _customSchedule = v);
+            await StatusTemplatePrefs.saveSchedule(
+              enabled: v,
+              hour: _scheduleTime.hour,
+              minute: _scheduleTime.minute,
+            );
+          },
+        ),
+        Expanded(
+          child: Text(
+            _customSchedule
+                ? 'Planifié à ${_scheduleTime.hour.toString().padLeft(2, '0')}:${_scheduleTime.minute.toString().padLeft(2, '0')}'
+                : 'Préparation auto toutes les 24h30',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+          ),
+        ),
+        if (_customSchedule)
+          TextButton(
+            onPressed: () async {
+              final picked = await showTimePicker(
+                context: context,
+                initialTime: _scheduleTime,
+              );
+              if (picked == null) return;
+              setState(() => _scheduleTime = picked);
+              await StatusTemplatePrefs.saveSchedule(
+                enabled: true,
+                hour: picked.hour,
+                minute: picked.minute,
+              );
+            },
+            child: const Text('Changer'),
+          ),
+      ],
+    );
+  }
+
   String _formatRelative(DateTime time, {bool future = false}) {
     final diff = future ? time.difference(DateTime.now()) : DateTime.now().difference(time);
     final hours = diff.inHours;
@@ -456,45 +785,132 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
         child: Row(
           children: [
             Expanded(
-              child: OutlinedButton(
-                onPressed: _isRegenerating || _isSharing ? null : _regenerate,
-                child: _isRegenerating
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Regénérer'),
+              child: _SharePlatformButton(
+                label: 'Regénérer',
+                icon: Icons.shuffle_rounded,
+                color: UzaColors.primary,
+                onPressed: _isRegenerating ? null : _regenerate,
+                iconOnly: true,
+                loading: _isRegenerating,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
             Expanded(
-              flex: 2,
-              child: FilledButton.icon(
+              child: _SharePlatformButton(
                 key: _shareButtonKey,
-                onPressed: _isSharing || _isRegenerating ? null : _shareCollection,
-                icon: _isSharing
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.share),
-                label: Text(kIsWeb ? 'Partager / Télécharger' : 'Partager'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: UzaColors.primary,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(48),
-                ),
+                label: 'WhatsApp',
+                icon: PlatformBrands.whatsAppIcon,
+                color: PlatformBrands.whatsApp,
+                onPressed: _isSharing ? null : _shareCollection,
+                iconOnly: true,
+                loading: _isSharing,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _SharePlatformButton(
+                label: 'Facebook',
+                icon: PlatformBrands.facebookIcon,
+                color: PlatformBrands.facebook,
+                onPressed: _isSharing ? null : _shareToFacebook,
+                iconOnly: true,
+                loading: _isSharing,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _SharePlatformButton(
+                label: 'TikTok',
+                icon: PlatformBrands.tikTokIcon,
+                color: PlatformBrands.tikTok,
+                onPressed: _isTikTokGenerating ? null : _shareToTikTok,
+                iconOnly: true,
+                loading: _isTikTokGenerating,
               ),
             ),
           ],
         ),
       ),
     );
+  }
+}
+
+class _SharePlatformButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onPressed;
+  final bool iconOnly;
+  final bool loading;
+
+  const _SharePlatformButton({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+    this.iconOnly = false,
+    this.loading = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const barHeight = 52.0;
+
+    return Semantics(
+      button: true,
+      label: label,
+      enabled: onPressed != null,
+      child: GestureDetector(
+        onTap: onPressed,
+        child: Container(
+          height: barHeight,
+          padding: iconOnly
+              ? EdgeInsets.zero
+              : const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withValues(alpha: 0.22)),
+          ),
+          child: iconOnly
+              ? Center(child: _buildContent())
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildContent(),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: color,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    if (loading) {
+      return SizedBox(
+        width: 22,
+        height: 22,
+        child: CircularProgressIndicator(strokeWidth: 2, color: color),
+      );
+    }
+    if (PlatformBrands.isFontAwesomeBrand(icon)) {
+      return FaIcon(icon, color: color, size: iconOnly ? 22 : 20);
+    }
+    return Icon(icon, color: color, size: iconOnly ? 22 : 20);
   }
 }

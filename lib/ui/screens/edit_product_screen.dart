@@ -12,9 +12,9 @@ import '../../core/services/api_service.dart';
 import '../../core/utils/picker_utils.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
-import '../../core/utils/image_prepare_utils.dart';
 import '../../data/services/sync_service.dart';
 import 'dart:convert';
+import 'dart:async';
 import '../components/category_forms/vehicule_form.dart';
 import '../components/category_forms/restaurant_form.dart';
 import '../components/category_forms/phone_tablet_form.dart';
@@ -23,6 +23,9 @@ import '../components/category_forms/gadget_form.dart';
 import '../components/category_forms/style_form.dart';
 import '../components/category_forms/autre_form.dart';
 import '../../core/utils/category_helper.dart';
+import '../../core/utils/product_promo_utils.dart';
+import '../../core/utils/b2b_pricing_utils.dart';
+import '../../core/services/product_upload_service.dart';
 
 class ProductImage {
   final Uint8List? bytes;
@@ -85,6 +88,12 @@ class _EditProductScreenState extends State<EditProductScreen> {
       TextEditingController();
 
   Map<String, dynamic>? _existingMetadata;
+  bool _isFlashOffer = false;
+  late TextEditingController _promoPriceController;
+  DateTime? _promoEndsAt;
+
+  final List<({TextEditingController minQty, TextEditingController unitPrice})>
+      _b2bTierRows = [];
 
   @override
   void initState() {
@@ -104,6 +113,24 @@ class _EditProductScreenState extends State<EditProductScreen> {
     _hidePrice = widget.product?.hidePrice ?? false;
     _showStock = widget.product?.showStock ?? false;
     _boostStatus = widget.product?.boostStatus ?? 0;
+    _isFlashOffer = widget.product?.isPromotion ?? false;
+    _promoPriceController = TextEditingController();
+    if (widget.product != null) {
+      final promo = ProductPromoUtils.parse(widget.product);
+      if (promo.promoPrice != null) {
+        _promoPriceController.text = promo.promoPrice!.toString();
+      }
+      _promoEndsAt = promo.endsAt;
+    }
+
+    if (widget.product != null) {
+      for (final tier in B2bPricingUtils.parseTiers(widget.product!)) {
+        _b2bTierRows.add((
+          minQty: TextEditingController(text: tier.minQty.toString()),
+          unitPrice: TextEditingController(text: tier.unitPrice.toString()),
+        ));
+      }
+    }
 
     // Parse existing metadata for category forms
     if (widget.product?.metadata != null &&
@@ -133,7 +160,12 @@ class _EditProductScreenState extends State<EditProductScreen> {
     _priceController.dispose();
     _stockController.dispose();
     _promoMsgController.dispose();
+    _promoPriceController.dispose();
     _newCustomCategoryController.dispose();
+    for (final row in _b2bTierRows) {
+      row.minQty.dispose();
+      row.unitPrice.dispose();
+    }
     super.dispose();
   }
 
@@ -508,60 +540,28 @@ class _EditProductScreenState extends State<EditProductScreen> {
 
     try {
       final apiService = context.read<ApiService>();
-      List<String> finalUrls = [];
-      var imagesToUpload = 0;
-      var uploadFailures = 0;
+      final pendingUploads = <({int slot, Uint8List bytes})>[];
+      final urlsBySlot = List<String>.filled(_productImages.length, '');
 
       for (int i = 0; i < _productImages.length; i++) {
         final img = _productImages[i];
         if (img.bytes != null) {
-          imagesToUpload++;
-          try {
-            final prepared = await ImagePrepareUtils.prepareForUpload(
-              img.bytes!,
-              maxWidth: 1080,
-              quality: 70,
-              prefix: 'prod_$i',
-            );
-            final bytesToUpload = await ImagePrepareUtils.ensureUploadSize(
-              prepared.bytes,
-            );
-
-            final uploadedUrl = await apiService.uploadFileOrThrow(
-              bytesToUpload,
-              prepared.fileName,
-              folder: 'produits',
-              timeout: const Duration(seconds: 45),
-            );
-            finalUrls.add(uploadedUrl);
-          } catch (e) {
-            uploadFailures++;
-            debugPrint('Product image upload failed slot $i: $e');
-          }
+          pendingUploads.add((slot: i, bytes: img.bytes!));
         } else if (img.url != null) {
           final resolved = ImageUtils.resolveImageUrl(img.url);
           if (resolved != null && resolved.isNotEmpty) {
-            finalUrls.add(resolved);
+            urlsBySlot[i] = resolved;
           }
         }
       }
 
-      if (imagesToUpload > 0 && finalUrls.isEmpty) {
-        throw Exception(
-          'Échec de l\'envoi des photos. Vérifiez votre connexion et réessayez.',
-        );
+      Map<int, String>? pendingPaths;
+      if (pendingUploads.isNotEmpty) {
+        pendingPaths =
+            await ProductUploadService.persistPendingImages(pendingUploads);
       }
-      if (uploadFailures > 0 && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '$uploadFailures photo(s) sur $imagesToUpload n\'ont pas pu '
-              'être envoyées. Le produit sera enregistré avec '
-              '${finalUrls.length} photo(s).',
-            ),
-          ),
-        );
-      }
+
+      final finalUrls = urlsBySlot.where((u) => u.isNotEmpty).toList();
 
       final encryptedImages = finalUrls.isEmpty
           ? ''
@@ -626,9 +626,24 @@ class _EditProductScreenState extends State<EditProductScreen> {
       }
 
       final categoryFormData = _collectCategoryFormData();
-      final metadataJson = categoryFormData != null
-          ? jsonEncode(categoryFormData)
-          : null;
+      final withPromo = ProductPromoUtils.mergeFlashIntoMetadata(
+        categoryFormData ?? _existingMetadata,
+        isFlash: _isFlashOffer,
+        promoPrice: double.tryParse(_promoPriceController.text),
+        endsAt: _promoEndsAt,
+      );
+      var mergedMetadata = B2bPricingUtils.mergeTiersIntoMetadata(
+        withPromo,
+        _collectB2bTiers(),
+      );
+      if (pendingPaths != null && pendingPaths.isNotEmpty) {
+        mergedMetadata = ProductUploadService.mergePendingPaths(
+          mergedMetadata,
+          pendingPaths,
+        );
+      }
+      final metadataJson =
+          mergedMetadata.isNotEmpty ? jsonEncode(mergedMetadata) : null;
 
       final companion = ProductsCompanion(
         id: widget.product != null
@@ -648,9 +663,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
         isArrival: widget.product != null
             ? drift.Value(widget.product!.isArrival)
             : const drift.Value(false),
-        isPromotion: widget.product != null
-            ? drift.Value(widget.product!.isPromotion)
-            : const drift.Value(false),
+        isPromotion: drift.Value(_isFlashOffer),
         hidePrice: drift.Value(_hidePrice),
         showStock: drift.Value(_showStock),
         boostStatus: drift.Value(_boostStatus),
@@ -703,7 +716,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
         'category': categoryName,
         'stock_count': int.tryParse(_stockController.text),
         'is_arrival': widget.product?.isArrival ?? false,
-        'is_promotion': widget.product?.isPromotion ?? false,
+        'is_promotion': _isFlashOffer,
         'hide_price': _hidePrice,
         'show_stock': _showStock,
         'boost_status': _boostStatus,
@@ -711,11 +724,21 @@ class _EditProductScreenState extends State<EditProductScreen> {
         'metadata': metadataJson,
       });
 
-      // Trigger immediate push so the product appears on the server
-      syncService.forcePush();
-
-      if (!mounted) return;
       navigator.pop();
+
+      if (pendingUploads.isNotEmpty) {
+        unawaited(
+          _finishPendingUploads(
+            productId: productId,
+            apiService: apiService,
+            productRepo: productRepo,
+            shopRepo: shopRepo,
+            syncService: syncService,
+          ),
+        );
+      } else {
+        unawaited(syncService.forcePush());
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -1030,6 +1053,67 @@ class _EditProductScreenState extends State<EditProductScreen> {
           onChanged: (v) => setState(() => _showStock = v),
         ),
         const Divider(),
+        SwitchListTile(
+          title: const Text('Offre flash'),
+          subtitle: const Text(
+            'Badge promo sur le produit et visuels WhatsApp auto',
+          ),
+          value: _isFlashOffer,
+          onChanged: (v) => setState(() => _isFlashOffer = v),
+        ),
+        if (_isFlashOffer) ...[
+          TextFormField(
+            controller: _promoPriceController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Prix promo (CDF)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Fin de l\'offre'),
+            subtitle: Text(
+              _promoEndsAt != null
+                  ? '${_promoEndsAt!.day}/${_promoEndsAt!.month}/${_promoEndsAt!.year} '
+                      '${_promoEndsAt!.hour.toString().padLeft(2, '0')}:'
+                      '${_promoEndsAt!.minute.toString().padLeft(2, '0')}'
+                  : 'Non définie',
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.calendar_today),
+              onPressed: () async {
+                final date = await showDatePicker(
+                  context: context,
+                  initialDate: _promoEndsAt ?? DateTime.now().add(const Duration(days: 1)),
+                  firstDate: DateTime.now(),
+                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                );
+                if (date == null || !mounted) return;
+                final time = await showTimePicker(
+                  context: context,
+                  initialTime: TimeOfDay.fromDateTime(
+                    _promoEndsAt ?? DateTime.now().add(const Duration(hours: 2)),
+                  ),
+                );
+                if (time == null || !mounted) return;
+                setState(() {
+                  _promoEndsAt = DateTime(
+                    date.year,
+                    date.month,
+                    date.day,
+                    time.hour,
+                    time.minute,
+                  );
+                });
+              },
+            ),
+          ),
+        ],
+        const Divider(),
+        _buildB2bPricingSection(),
+        const Divider(),
         _buildStatusInfo(
           'Booster ce produit 🚀',
           _boostStatus,
@@ -1051,6 +1135,120 @@ class _EditProductScreenState extends State<EditProductScreen> {
         ],
       ],
     );
+  }
+
+  List<B2bPriceTier> _collectB2bTiers() {
+    final tiers = <B2bPriceTier>[];
+    for (final row in _b2bTierRows) {
+      final minQty = int.tryParse(row.minQty.text.trim());
+      final unitPrice = double.tryParse(row.unitPrice.text.trim());
+      if (minQty != null && minQty > 1 && unitPrice != null && unitPrice > 0) {
+        tiers.add(B2bPriceTier(minQty: minQty, unitPrice: unitPrice));
+      }
+    }
+    tiers.sort((a, b) => a.minQty.compareTo(b.minQty));
+    return tiers;
+  }
+
+  Widget _buildB2bPricingSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Tarifs de gros (B2B)',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                setState(() {
+                  _b2bTierRows.add((
+                    minQty: TextEditingController(text: '10'),
+                    unitPrice: TextEditingController(),
+                  ));
+                });
+              },
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Palier'),
+            ),
+          ],
+        ),
+        const Text(
+          'Prix unitaire selon la quantité commandée (ex: 10+ pièces).',
+          style: TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 8),
+        if (_b2bTierRows.isEmpty)
+          Text(
+            'Aucun palier — prix catalogue uniquement.',
+            style: TextStyle(color: Colors.grey[600], fontSize: 13),
+          ),
+        for (var i = 0; i < _b2bTierRows.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _b2bTierRows[i].minQty,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Qté min.',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: _b2bTierRows[i].unitPrice,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Prix unitaire (CDF)',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () {
+                    setState(() {
+                      _b2bTierRows[i].minQty.dispose();
+                      _b2bTierRows[i].unitPrice.dispose();
+                      _b2bTierRows.removeAt(i);
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _finishPendingUploads({
+    required int productId,
+    required ApiService apiService,
+    required ProductRepository productRepo,
+    required ShopRepository shopRepo,
+    required SyncService syncService,
+  }) async {
+    final product = await productRepo.getProductById(productId);
+    if (product == null) return;
+    await ProductUploadService.processPendingForProduct(
+      product: product,
+      api: apiService,
+      productRepo: productRepo,
+      shopRepo: shopRepo,
+      syncService: syncService,
+    );
+    await syncService.forcePush();
   }
 
   Widget _buildStatusInfo(

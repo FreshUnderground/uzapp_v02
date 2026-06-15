@@ -18,6 +18,9 @@ import '../../data/services/sync_service.dart';
 import '../components/shop_share_sheet.dart';
 import '../components/shop_video_player.dart';
 import '../components/skeletons.dart';
+import '../components/custom_refresh_indicator.dart';
+import '../components/empty_state.dart';
+import '../../core/l10n/tr.dart';
 import '../utils/page_transitions.dart';
 import 'product_detail_screen.dart';
 import 'shop_profile_screen.dart';
@@ -32,13 +35,8 @@ class DiscoverFeedScreen extends StatefulWidget {
 class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
   final PageController _pageController = PageController();
   List<dynamic> _feed = [];
-  int _lastProductCount = -1;
-  int _lastArrivageMediaCount = -1;
+  int _lastFeedSignature = -1;
   final Random _rng = Random();
-  
-  // Cache to prevent UI flickering during sync
-  List<dynamic> _cachedFeed = [];
-  bool _isFirstBuild = true;
   bool _requestedGuestSync = false;
 
   void _maybeBootstrapSync(
@@ -62,9 +60,29 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
     super.dispose();
   }
 
+  int _computeFeedSignature(
+    List<Product> products,
+    List<ArrivageMediaItem> mediaItems,
+  ) {
+    var signature = products.length ^ (mediaItems.length * 31);
+    for (final product in products.take(12)) {
+      signature ^= product.id;
+      signature ^= product.updatedAt.millisecondsSinceEpoch;
+    }
+    for (final media in mediaItems.take(12)) {
+      signature ^= media.storyId;
+      signature ^= media.mediaUrl.hashCode;
+    }
+    return signature;
+  }
+
   /// Synchronous — JOIN stream already expands media items, just shuffle.
   /// Prioritizes videos while maintaining randomness.
   void _buildFeed(List<Product> products, List<ArrivageMediaItem> mediaItems) {
+    final availableProducts = products
+        .where((p) => !p.isSold && _productHasDisplayableImage(p))
+        .toList();
+
     // Separate videos from other media
     final videos = mediaItems.where((m) => m.mediaType == 'video').toList();
     final otherMedia = mediaItems.where((m) => m.mediaType != 'video').toList();
@@ -84,18 +102,7 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
       otherMedia[j] = tmp;
     }
 
-    // Image filter first, then shuffle within each group
-    final productsWithImages = <Product>[];
-    final productsWithoutImages = <Product>[];
-    for (final product in products) {
-      if (ImageUtils.hasDisplayableImage(product.imageUrls)) {
-        productsWithImages.add(product);
-      } else {
-        productsWithoutImages.add(product);
-      }
-    }
-
-    void shuffleList(List<Product> list) {
+    void shuffleList<T>(List<T> list) {
       for (var i = list.length - 1; i > 0; i--) {
         final j = _rng.nextInt(i + 1);
         final tmp = list[i];
@@ -104,9 +111,8 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
       }
     }
 
-    shuffleList(productsWithImages);
-    shuffleList(productsWithoutImages);
-    final shuffledProducts = [...productsWithImages, ...productsWithoutImages];
+    shuffleList(availableProducts);
+    final shuffledProducts = availableProducts;
 
     // Build feed: interleave with video priority
     // Strategy: videos get ~40% of feed, other media ~30%, products ~30%
@@ -117,8 +123,7 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
     if (totalItems == 0) {
       setState(() {
         _feed = [];
-        _lastProductCount = products.length;
-        _lastArrivageMediaCount = mediaItems.length;
+        _lastFeedSignature = _computeFeedSignature(products, mediaItems);
       });
       return;
     }
@@ -163,9 +168,12 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
 
     setState(() {
       _feed = mixed;
-      _lastProductCount = products.length;
-      _lastArrivageMediaCount = mediaItems.length;
+      _lastFeedSignature = _computeFeedSignature(products, mediaItems);
     });
+  }
+
+  bool _productHasDisplayableImage(Product product) {
+    return ImageUtils.hasDisplayableImage(product.imageUrls);
   }
 
   @override
@@ -177,12 +185,39 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
     return SizedBox.expand(
       child: ColoredBox(
         color: Colors.black,
-        child: StreamBuilder<List<Product>>(
+        child: UzaRefreshIndicator(
+          onRefresh: () async {
+            await syncService.syncNow();
+            if (mounted) {
+              setState(() {
+                _feed = [];
+                _lastFeedSignature = -1;
+              });
+            }
+          },
+          child: StreamBuilder<List<Product>>(
           stream: productRepo.watchAllProducts(),
           builder: (context, productSnap) {
             return StreamBuilder<List<ArrivageMediaItem>>(
               stream: storyRepo.watchArrivageMediaFeed(),
               builder: (context, mediaSnap) {
+                if (productSnap.hasError || mediaSnap.hasError) {
+                  return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.7,
+                        child: EmptyState(
+                          icon: Icons.error_outline,
+                          title: tr(context, 'load_error'),
+                          actionLabel: tr(context, 'retry'),
+                          onAction: () => syncService.syncNow(),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+
                 final products = productSnap.data ?? [];
                 final mediaItems = mediaSnap.data ?? [];
                 _maybeBootstrapSync(products, mediaItems, syncService);
@@ -199,6 +234,7 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
 
                 if (streamsLoading || syncRunningNoData) {
                   return ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     itemCount: 3,
                     itemBuilder: (_, __) => const Padding(
                       padding: EdgeInsets.symmetric(vertical: 8),
@@ -207,19 +243,27 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
                   );
                 }
 
-                if (_lastProductCount != products.length ||
-                    _lastArrivageMediaCount != mediaItems.length) {
+                final signature = _computeFeedSignature(products, mediaItems);
+                if (_lastFeedSignature != signature) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (mounted) _buildFeed(products, mediaItems);
                   });
                 }
 
                 if (_feed.isEmpty && products.isEmpty && mediaItems.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'Aucun contenu disponible',
-                      style: TextStyle(color: Colors.white),
-                    ),
+                  return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.7,
+                        child: Center(
+                          child: Text(
+                            tr(context, 'no_popular'),
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
                   );
                 }
 
@@ -240,7 +284,7 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
                     if (item is Product) {
                       return _ProductPage(product: item);
                     } else if (item is ArrivageMediaItem) {
-                      return _ArrivagePage(entry: item);
+                      return _ArrivagePage(entry: item, singleSlide: true);
                     }
                     return const SizedBox.shrink();
                   },
@@ -248,6 +292,7 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
               },
             );
           },
+        ),
         ),
       ),
     );
@@ -532,7 +577,12 @@ class _ProductPageState extends State<_ProductPage> {
 
 class _ArrivagePage extends StatefulWidget {
   final ArrivageMediaItem entry;
-  const _ArrivagePage({required this.entry});
+  final bool singleSlide;
+
+  const _ArrivagePage({
+    required this.entry,
+    this.singleSlide = false,
+  });
 
   @override
   State<_ArrivagePage> createState() => _ArrivagePageState();
@@ -568,33 +618,41 @@ class _ArrivagePageState extends State<_ArrivagePage> {
   }
 
   Future<void> _loadMediaItems() async {
+    if (widget.singleSlide) {
+      if (!mounted) return;
+      setState(() => _mediaItems = [entry]);
+      return;
+    }
+
     final storyRepo = context.read<StoryRepository>();
-    final mediaData = await storyRepo.getStoryMedia(entry.storyId);
+    final story = await storyRepo.getStoryById(entry.storyId);
 
-    if (mounted) {
-      final items = <ArrivageMediaItem>[];
+    if (!mounted) return;
 
-      // If no media items found, use the entry itself
-      if (mediaData.isEmpty) {
-        items.add(entry);
-      } else {
-        // Convert StoryMediaData to ArrivageMediaItem
-        for (final media in mediaData) {
-          items.add(
-            ArrivageMediaItem(
+    if (story == null) {
+      setState(() => _mediaItems = [entry]);
+      return;
+    }
+
+    final slides = await storyRepo.getStoryMediaSlides(story);
+    if (!mounted) return;
+
+    setState(() {
+      if (slides.isEmpty) {
+        _mediaItems = [entry];
+        return;
+      }
+      _mediaItems = slides
+          .map(
+            (slide) => ArrivageMediaItem(
               storyId: entry.storyId,
               shopId: entry.shopId,
-              mediaUrl: media.mediaUrl,
-              mediaType: media.mediaType,
+              mediaUrl: slide.mediaUrl,
+              mediaType: slide.mediaType,
             ),
-          );
-        }
-      }
-
-      setState(() {
-        _mediaItems = items;
-      });
-    }
+          )
+          .toList();
+    });
   }
 
   @override

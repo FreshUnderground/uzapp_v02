@@ -8,13 +8,16 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:drift/drift.dart' as drift;
 import '../../data/local/uza_database.dart';
+import '../../data/repositories/product_repository.dart';
 import '../utils/crypto_utils.dart';
 import '../utils/image_utils.dart';
 import '../utils/phone_utils.dart';
 import '../utils/product_price_utils.dart';
 import '../utils/shop_qr_utils.dart';
+import '../utils/app_share_messages.dart';
 import '../utils/shop_share_messages.dart';
-import '../utils/status_share_messages.dart';
+import '../utils/status_image_composer.dart';
+import '../utils/status_slideshow_video.dart' show StatusSlideshowExport, StatusSlideshowVideo;
 import '../utils/status_temp_files.dart';
 import '../utils/status_web_download.dart';
 
@@ -27,6 +30,7 @@ class ContactService {
     required String phone,
     required String entityType,
     required int entityId,
+    String? buyerPhone,
     String? name,
     String? category,
     String? imageUrl,
@@ -83,7 +87,12 @@ class ContactService {
     try {
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
-        await _logInteraction(entityType, entityId, 'whatsapp');
+        await _logInteraction(
+          entityType,
+          entityId,
+          'whatsapp',
+          buyerPhone: buyerPhone,
+        );
       } else {
         debugPrint('Cannot launch WhatsApp URL');
       }
@@ -96,6 +105,7 @@ class ContactService {
     required String phone,
     required String entityType,
     required int entityId,
+    String? buyerPhone,
   }) async {
     final tel = PhoneUtils.forTelUri(phone);
     if (tel.isEmpty) return;
@@ -106,7 +116,12 @@ class ContactService {
       if (await canLaunchUrl(url)) {
         // Use platformDefaultLaunchMode for tel: URLs to work on all platforms
         await launchUrl(url, mode: LaunchMode.platformDefault);
-        await _logInteraction(entityType, entityId, 'call');
+        await _logInteraction(
+          entityType,
+          entityId,
+          'call',
+          buyerPhone: buyerPhone,
+        );
       } else {
         debugPrint('Cannot launch phone dialer');
       }
@@ -120,6 +135,7 @@ class ContactService {
     String? message,
     required String entityType,
     required int entityId,
+    String? buyerPhone,
   }) async {
     final cleanPhone = PhoneUtils.forSms(phone);
     if (cleanPhone.isEmpty) return;
@@ -131,7 +147,12 @@ class ContactService {
     try {
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.platformDefault);
-        await _logInteraction(entityType, entityId, 'sms');
+        await _logInteraction(
+          entityType,
+          entityId,
+          'sms',
+          buyerPhone: buyerPhone,
+        );
       } else {
         debugPrint('Cannot launch SMS app');
       }
@@ -155,8 +176,9 @@ class ContactService {
   Future<void> _logInteraction(
     String entityType,
     int entityId,
-    String type,
-  ) async {
+    String type, {
+    String? buyerPhone,
+  }) async {
     // 1. Log to generic analytics table
     await db
         .into(db.analytics)
@@ -189,7 +211,9 @@ class ContactService {
             .insert(
               UserContactsCompanion.insert(
                 shopId: shopId,
-                userPhone: 'Client', // Future: get from active user profile
+                userPhone: (buyerPhone != null && buyerPhone.trim().isNotEmpty)
+                    ? buyerPhone.trim()
+                    : 'Client',
                 contactType: type,
                 productId: drift.Value(productId),
               ),
@@ -230,6 +254,36 @@ class ContactService {
     } finally {
       await xfile.$2?.delete();
     }
+  }
+
+  Future<void> shareAppInvite() async {
+    await Share.share(
+      AppShareMessages.merchantInvite(),
+      subject: AppShareMessages.merchantInviteSubject(),
+    );
+  }
+
+  Future<void> shareShopCatalog(Shop shop) async {
+    final catalog = await ProductRepository(db).getShareableCatalog(shop.id);
+
+    final now = DateTime.now();
+    final arrivageStories = await (db.select(db.stories)..where(
+          (t) =>
+              t.shopId.equals(shop.id) &
+              t.isArrivage.equals(true) &
+              t.expiresAt.isBiggerThanValue(now),
+        ))
+        .get();
+
+    final text = ShopShareMessages.catalogShare(
+      shop,
+      arrivals: catalog.arrivals,
+      products: catalog.products,
+      activeArrivageStories: arrivageStories.length,
+    );
+
+    await _shareText(text);
+    await _logInteraction('shop', shop.id, 'catalog_share');
   }
 
   Future<void> shareShop(Shop shop) async {
@@ -299,25 +353,21 @@ class ContactService {
         '📲 Téléchargez UzaApp — Le marché en ligne N°1 en RDC\n\n'
         '#UzaApp #Shopping #RDC #Kinshasa';
 
-    // Try to share with product image (works on mobile & web)
-    final images = ImageUtils.getDecryptedList(product.imageUrls);
-    if (images.isNotEmpty && images.first.isNotEmpty) {
+    final composedImage = await _composeProductShareImage(product);
+    if (composedImage != null) {
       try {
-        final response = await http.get(Uri.parse(images.first));
-        if (response.statusCode == 200) {
-          final xfile = await _buildXFile(
-            response.bodyBytes,
-            'product_share_${product.id}.jpg',
-          );
-          await Share.shareXFiles(
-            [xfile.$1],
-            text: text,
-            subject: '✨ ${product.name} | UzaApp',
-          );
-          await xfile.$2?.delete();
-          await _logInteraction('product', product.id, 'share');
-          return;
-        }
+        final xfile = await _buildXFile(
+          composedImage,
+          'product_share_${product.id}.jpg',
+        );
+        await Share.shareXFiles(
+          [xfile.$1],
+          text: text,
+          subject: '✨ ${product.name} | UzaApp',
+        );
+        await xfile.$2?.delete();
+        await _logInteraction('product', product.id, 'share');
+        return;
       } catch (e) {
         debugPrint('Product image share failed, using text fallback: $e');
       }
@@ -325,6 +375,30 @@ class ContactService {
 
     await _shareText(text);
     await _logInteraction('product', product.id, 'share');
+  }
+
+  Future<Uint8List?> _composeProductShareImage(Product product) async {
+    final images = ImageUtils.getDecryptedList(product.imageUrls);
+    if (images.isEmpty) return null;
+
+    Uint8List? productBytes;
+    for (final url in images) {
+      productBytes = await ImageUtils.downloadImageBytes(url);
+      if (productBytes != null && productBytes.isNotEmpty) break;
+    }
+    if (productBytes == null) return null;
+
+    final uzaLogoBytes = await ImageUtils.loadUzaLogoBytes();
+
+    try {
+      return await StatusImageComposer.composeProductShareImage(
+        productImageBytes: productBytes,
+        uzaLogoBytes: uzaLogoBytes,
+      );
+    } catch (e) {
+      debugPrint('Product share image compose failed: $e');
+      return null;
+    }
   }
 
   /// Returns (XFile, File?) — File is non-null on mobile so caller can delete it.
@@ -363,6 +437,130 @@ class ContactService {
     }
   }
 
+  Future<void> _shareStatusFilesOnly({
+    required List<XFile> files,
+    Rect? sharePositionOrigin,
+    Future<void> Function()? onShareUnavailable,
+  }) async {
+    try {
+      await Share.shareXFiles(
+        files,
+        sharePositionOrigin: kIsWeb ? null : sharePositionOrigin,
+      );
+    } catch (e) {
+      debugPrint('shareStatusFilesOnly failed: $e');
+      if (onShareUnavailable != null) {
+        await onShareUnavailable();
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> shareStatusToFacebook({
+    required Shop shop,
+    required List<XFile> images,
+    List<String>? tempPaths,
+    Rect? sharePositionOrigin,
+    List<Uint8List>? rawImagesForWebFallback,
+  }) async {
+    if (images.isEmpty) return;
+
+    try {
+      await _shareStatusFilesOnly(
+        files: images,
+        sharePositionOrigin: sharePositionOrigin,
+        onShareUnavailable: rawImagesForWebFallback != null &&
+                rawImagesForWebFallback.isNotEmpty
+            ? () => downloadStatusImages(shop.id, rawImagesForWebFallback)
+            : null,
+      );
+      await _logInteraction('shop', shop.id, 'facebook_status');
+    } finally {
+      if (tempPaths != null && tempPaths.isNotEmpty) {
+        await deleteStatusTempFiles(tempPaths);
+      }
+    }
+  }
+
+  Future<StatusSlideshowExport?> buildTikTokStatusExport({
+    required Shop shop,
+    required List<Uint8List> images,
+  }) async {
+    if (images.isEmpty) return null;
+    return StatusSlideshowVideo.exportForTikTok(
+      images: images,
+      shopId: shop.id,
+      shopName: shop.name,
+    );
+  }
+
+  Future<void> shareTikTokStatusExport({
+    required Shop shop,
+    required StatusSlideshowExport? export,
+    required List<Uint8List> fallbackImages,
+    Rect? sharePositionOrigin,
+  }) async {
+    if (fallbackImages.isEmpty) return;
+
+    File? tempVideoFile;
+    try {
+      if (export == null) {
+        final slides =
+            fallbackImages.take(StatusSlideshowVideo.tikTokMaxSlides).toList();
+        final (xfiles, tempPaths) = await writeStatusShareFiles(
+          shop.id,
+          slides,
+        );
+        try {
+          await _shareStatusFilesOnly(
+            files: xfiles,
+            sharePositionOrigin: sharePositionOrigin,
+            onShareUnavailable: kIsWeb
+                ? () => downloadStatusImages(shop.id, slides)
+                : null,
+          );
+        } finally {
+          if (tempPaths.isNotEmpty) {
+            await deleteStatusTempFiles(tempPaths);
+          }
+        }
+      } else {
+        tempVideoFile = File(export.filePath);
+        await _shareStatusFilesOnly(
+          files: [
+            XFile(
+              export.filePath,
+              mimeType: 'video/mp4',
+              name: 'uza_tiktok_${shop.id}.mp4',
+            ),
+          ],
+          sharePositionOrigin: sharePositionOrigin,
+        );
+      }
+      await _logInteraction('shop', shop.id, 'tiktok_status');
+    } finally {
+      if (tempVideoFile != null && await tempVideoFile.exists()) {
+        await tempVideoFile.delete();
+      }
+    }
+  }
+
+  Future<void> shareStatusToTikTok({
+    required Shop shop,
+    required List<Uint8List> images,
+    Rect? sharePositionOrigin,
+  }) async {
+    if (images.isEmpty) return;
+    final export = await buildTikTokStatusExport(shop: shop, images: images);
+    await shareTikTokStatusExport(
+      shop: shop,
+      export: export,
+      fallbackImages: images,
+      sharePositionOrigin: sharePositionOrigin,
+    );
+  }
+
   Future<void> shareStatusCollection({
     required Shop shop,
     required List<XFile> images,
@@ -372,41 +570,19 @@ class ContactService {
   }) async {
     if (images.isEmpty) return;
 
-    final String text = StatusShareMessages.collectionShare(
-      shop,
-      imageCount: images.length,
-    );
-
     try {
-      if (kIsWeb) {
-        try {
-          await Share.shareXFiles(
-            images,
-            text: text,
-            subject: StatusShareMessages.collectionShareSubject(shop),
-          );
-        } catch (e) {
-          debugPrint('Web shareXFiles failed, trying download: $e');
-          if (rawImagesForWebFallback != null &&
-              rawImagesForWebFallback.isNotEmpty) {
-            await downloadStatusImages(shop.id, rawImagesForWebFallback);
-          } else {
-            await Share.share(text);
-          }
-        }
-      } else {
-        await Share.shareXFiles(
-          images,
-          text: text,
-          subject: StatusShareMessages.collectionShareSubject(shop),
-          sharePositionOrigin: sharePositionOrigin,
-        );
-      }
+      await _shareStatusFilesOnly(
+        files: images,
+        sharePositionOrigin: sharePositionOrigin,
+        onShareUnavailable: rawImagesForWebFallback != null &&
+                rawImagesForWebFallback.isNotEmpty
+            ? () => downloadStatusImages(shop.id, rawImagesForWebFallback)
+            : null,
+      );
       await _logInteraction('shop', shop.id, 'whatsapp_status');
     } catch (e) {
       debugPrint('shareStatusCollection failed: $e');
-      if (kIsWeb &&
-          rawImagesForWebFallback != null &&
+      if (rawImagesForWebFallback != null &&
           rawImagesForWebFallback.isNotEmpty) {
         await downloadStatusImages(shop.id, rawImagesForWebFallback);
         await _logInteraction('shop', shop.id, 'whatsapp_status');

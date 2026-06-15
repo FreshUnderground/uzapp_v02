@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
+import '../../core/services/contact_service.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/settings_service.dart';
@@ -160,16 +160,10 @@ class SettingsScreen extends StatelessWidget {
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 _buildTile(
                   context,
-                  Icons.share,
+                  Icons.group_add_rounded,
                   tr(context, 'invite_friends'),
                   tr(context, 'share_app'),
-                  onTap: () {
-                    const message =
-                        "Découvrez UzaApp - Le catalogue de produits #1 en RDC!\n\n"
-                        "Téléchargez l'application: https://uzaapp.com\n\n"
-                        "Envoyé depuis UzaApp";
-                    Share.share(message, subject: 'Téléchargez UzaApp');
-                  },
+                  onTap: () => context.read<ContactService>().shareAppInvite(),
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 _buildTile(

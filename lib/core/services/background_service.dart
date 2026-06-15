@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
+import 'daily_engagement_scheduler.dart';
 import 'push_notification_service.dart';
 import 'whatsapp_status_scheduler.dart';
 import '../../data/local/uza_database.dart';
@@ -28,12 +29,20 @@ class BackgroundService {
 
     Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
 
-    // Register periodic task: check for new arrivages every 2 hours
+    // Bootstrap daily notifications once in background (not on each app open).
+    Workmanager().registerOneOffTask(
+      'engagementBootstrap',
+      _kTaskCheckNewArrivages,
+      initialDelay: const Duration(minutes: 1),
+      constraints: Constraints(networkType: NetworkType.not_required),
+    );
+
+    // Register periodic task: daily engagement + arrivages every 2 hours
     Workmanager().registerPeriodicTask(
       _kTaskCheckNewArrivages,
       _kTaskCheckNewArrivages,
       frequency: const Duration(hours: 2),
-      constraints: Constraints(networkType: NetworkType.connected),
+      constraints: Constraints(networkType: NetworkType.not_required),
       existingWorkPolicy: ExistingWorkPolicy.keep,
     );
 
@@ -81,6 +90,14 @@ void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     debugPrint('Background task executed: $task');
 
+    if (!kIsWeb) {
+      try {
+        await PushNotificationService.ensureReady(requestPermission: false);
+      } catch (e) {
+        debugPrint('Background push bootstrap error: $e');
+      }
+    }
+
     try {
       switch (task) {
         case _kTaskCheckNewArrivages:
@@ -108,25 +125,8 @@ void callbackDispatcher() {
 
 Future<void> _checkNewArrivages() async {
   try {
-    final prefs = await SharedPreferences.getInstance();
-    final lastCheckStr = prefs.getString('last_arrivage_check');
-    final lastCheck = lastCheckStr != null
-        ? DateTime.tryParse(lastCheckStr)
-        : null;
-
-    // For simplicity, we show a generic notification.
-    // In production this could query the server for new stories
-    // from followed shops and only notify if there are new ones.
-    final now = DateTime.now();
-
-    // Only notify if we haven't checked in the last hour (avoid duplicates)
-    if (lastCheck == null || now.difference(lastCheck).inHours >= 1) {
-      await PushNotificationService.showLocalNotification(
-        title: 'Nouveaux arrivages!',
-        body: 'Decouvrez les nouveaux arrivages sur UzaApp!',
-      );
-      await prefs.setString('last_arrivage_check', now.toIso8601String());
-    }
+    final database = UzaDatabase();
+    await DailyEngagementScheduler.planOnAppOpen(database);
   } catch (e) {
     debugPrint('checkNewArrivages error: $e');
   }
@@ -156,10 +156,8 @@ Future<void> _inactivityReminder() async {
     final now = DateTime.now();
 
     if (lastOpen == null || now.difference(lastOpen).inHours >= 6) {
-      await PushNotificationService.showLocalNotification(
-        title: 'Nouveaux arrivages!',
-        body: 'Decouvrez les nouveaux arrivages sur UzaApp!',
-      );
+      final database = UzaDatabase();
+    await DailyEngagementScheduler.planOnAppOpen(database);
     }
   } catch (e) {
     debugPrint('inactivityReminder error: $e');

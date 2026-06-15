@@ -226,6 +226,8 @@ class Orders extends Table {
   TextColumn get status => text().withDefault(const Constant('requested'))();
   TextColumn get itemsJson => text()();
   TextColumn get note => text().nullable()();
+  TextColumn get remoteId => text().nullable()();
+  IntColumn get synced => integer().withDefault(const Constant(0))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
@@ -251,6 +253,7 @@ class AppPreferences extends Table {
   BoolColumn get biometricEnabled =>
       boolean().withDefault(const Constant(false))();
   TextColumn get userCommune => text().nullable()();
+  TextColumn get pendingReferralCode => text().nullable()();
 
   DateTimeColumn get lastSync => dateTime().nullable()();
 
@@ -285,7 +288,7 @@ class UzaDatabase extends _$UzaDatabase {
   UzaDatabase() : super(ensureConnection());
 
   @override
-  int get schemaVersion => 26;
+  int get schemaVersion => 27;
 
   @override
   MigrationStrategy get migration {
@@ -409,6 +412,11 @@ class UzaDatabase extends _$UzaDatabase {
         if (from < 26) {
           await m.createTable(orders);
           await m.createTable(chatMessages);
+        }
+        if (from < 27) {
+          await m.addColumn(orders, orders.remoteId);
+          await m.addColumn(orders, orders.synced);
+          await m.addColumn(appPreferences, appPreferences.pendingReferralCode);
         }
       },
     );

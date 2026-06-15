@@ -143,6 +143,26 @@ class LocationService {
     }
   }
 
+  /// Open location in Waze (falls back to Google Maps directions).
+  static Future<void> openInWaze({
+    required double latitude,
+    required double longitude,
+  }) async {
+    if (!_hasValidCoordinates(latitude, longitude)) return;
+
+    if (kIsWeb) {
+      await getDirections(latitude: latitude, longitude: longitude);
+      return;
+    }
+
+    final wazeUri = Uri.parse(
+      'waze://?ll=$latitude,$longitude&navigate=yes',
+    );
+    if (await _safeLaunch(wazeUri)) return;
+
+    await getDirections(latitude: latitude, longitude: longitude);
+  }
+
   /// Open directions to location in Google Maps (native app or fallback to web)
   static Future<void> getDirections({
     required double latitude,

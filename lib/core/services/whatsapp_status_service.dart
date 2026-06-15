@@ -2,22 +2,22 @@ import 'dart:math';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../data/local/uza_database.dart';
 import '../utils/image_utils.dart';
+import '../utils/product_price_utils.dart';
+import '../utils/product_promo_utils.dart';
 import '../utils/status_image_composer.dart';
+import '../utils/status_template_prefs.dart';
 import '../utils/status_temp_files.dart';
 
-const int kMaxStatusImages = 20;
-const int kDefaultRandomStatusCount = 10;
+const int kMaxStatusImages = 5;
+const int kDefaultRandomStatusCount = 5;
 
 class WhatsAppStatusService {
   final UzaDatabase db;
   final Random _random = Random();
-
-  static Uint8List? _cachedUzaLogoBytes;
 
   WhatsAppStatusService(this.db);
 
@@ -58,26 +58,22 @@ class WhatsAppStatusService {
 
   int pickRandomTargetCount(int available) {
     if (available <= 0) return 0;
-    const options = [5, 10, 15, 20];
-    final valid = options.where((c) => c <= available).toList();
-    if (valid.isEmpty) {
-      return available.clamp(1, kMaxStatusImages);
-    }
-    valid.shuffle(_random);
-    return valid.first;
+    return available.clamp(1, kMaxStatusImages);
   }
 
   Future<List<Uint8List>> prepareCollection({
     required Shop shop,
     required List<Product> products,
     void Function(int current, int total)? onProgress,
+    StatusVisualTemplate? template,
   }) async {
     final selected = products.take(kMaxStatusImages).toList();
     final total = selected.length;
     final results = <Uint8List>[];
 
     final shopLogoBytes = await _downloadImageBytes(shop.logoUrl);
-    final uzaLogoBytes = await _loadUzaLogoBytes();
+    final uzaLogoBytes = await ImageUtils.loadUzaLogoBytes();
+    final visualTemplate = template ?? await StatusTemplatePrefs.loadTemplate();
 
     for (var i = 0; i < selected.length; i++) {
       final product = selected[i];
@@ -92,12 +88,31 @@ class WhatsAppStatusService {
       }
 
       try {
+        final promo = ProductPromoUtils.parse(product);
+        final isFlash = ProductPromoUtils.isFlashProduct(product);
+        final effectiveTemplate = isFlash
+            ? StatusVisualTemplate.flash
+            : (product.isPromotion
+                  ? StatusVisualTemplate.promo
+                  : visualTemplate);
+        final priceLabel = ProductPriceUtils.shareLine(product);
+        final promoBadge = isFlash
+            ? (promo.countdownLabel() != null
+                  ? 'FLASH · ${promo.countdownLabel()}'
+                  : 'OFFRE FLASH')
+            : (product.promotionMessage?.trim().isNotEmpty == true
+                  ? product.promotionMessage!.trim()
+                  : 'PROMO');
+
         final composed = await StatusImageComposer.composeStatusImage(
           productImageBytes: bytes,
           productName: product.name,
           shopName: shop.name,
           shopLogoBytes: shopLogoBytes,
           uzaLogoBytes: uzaLogoBytes,
+          template: effectiveTemplate,
+          priceLabel: product.hidePrice ? null : priceLabel,
+          promoBadge: promoBadge,
         );
         results.add(composed);
       } catch (e) {
@@ -108,18 +123,6 @@ class WhatsAppStatusService {
     }
 
     return results;
-  }
-
-  Future<Uint8List?> _loadUzaLogoBytes() async {
-    if (_cachedUzaLogoBytes != null) return _cachedUzaLogoBytes;
-    try {
-      final data = await rootBundle.load('assets/logo.png');
-      _cachedUzaLogoBytes = data.buffer.asUint8List();
-      return _cachedUzaLogoBytes;
-    } catch (e) {
-      debugPrint('WhatsAppStatusService: UzaApp logo load failed: $e');
-      return null;
-    }
   }
 
   Future<Uint8List?> _downloadImageBytes(String? source) async {

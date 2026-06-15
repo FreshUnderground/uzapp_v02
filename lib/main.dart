@@ -12,6 +12,8 @@ import 'core/router/app_router.dart';
 import 'core/services/api_service.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/background_service.dart';
+import 'core/services/daily_engagement_scheduler.dart';
+import 'core/services/system_push_notifier.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/contact_service.dart';
 import 'core/services/whatsapp_status_service.dart';
@@ -23,6 +25,7 @@ import 'core/services/settings_service.dart';
 import 'core/services/deep_link_service.dart';
 import 'core/services/fcm_service.dart';
 import 'core/theme/uza_theme.dart';
+import 'core/l10n/app_translations.dart';
 import 'core/l10n/tr.dart';
 import 'data/local/uza_database.dart';
 import 'data/repositories/auth_repository.dart';
@@ -33,7 +36,12 @@ import 'data/repositories/product_repository.dart';
 import 'data/repositories/shop_repository.dart';
 import 'data/repositories/story_repository.dart';
 import 'data/repositories/cash_repository.dart';
+import 'data/repositories/review_repository.dart';
+import 'core/services/platform_analytics_service.dart';
+import 'core/services/product_alerts_service.dart';
+import 'core/services/referral_service.dart';
 import 'data/services/sync_service.dart';
+import 'ui/components/async_content.dart';
 import 'ui/components/error_boundary.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/product_detail_screen.dart';
@@ -45,6 +53,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (kIsWeb) {
     usePathUrlStrategy();
+    unawaited(DeepLinkService.captureReferralFromUri(Uri.base));
   }
 
   // Set up global error handler
@@ -57,18 +66,30 @@ void main() async {
   // Allow fetching fonts from the internet if AssetManifest.json is missing on web
   GoogleFonts.config.allowRuntimeFetching = true;
 
+  // Init plugin + channels early; OS permission dialog runs after first frame.
+  if (!kIsWeb) {
+    try {
+      await PushNotificationService.ensureReady(requestPermission: false);
+    } catch (e) {
+      debugPrint('PushNotificationService bootstrap error: $e');
+    }
+  } else {
+    try {
+      await WebNotificationService.requestPermission();
+    } catch (e) {
+      debugPrint('WebNotificationService permission error: $e');
+    }
+  }
+
   // Initialize background tasks (Workmanager) - non-blocking
   if (!kIsWeb) {
     try {
-      // Don't await - let it initialize in background
       BackgroundService.initialize();
     } catch (e) {
       debugPrint('BackgroundService initialization error: $e');
     }
   }
 
-  // Run app immediately with splash screen
-  // Database and services will initialize asynchronously
   runApp(const UzaApp());
 }
 
@@ -100,6 +121,19 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_runWaStatusScheduler());
+      final api = _services?.apiService;
+      final phone = _services?.authService.user?.phoneNumber;
+      if (api != null) {
+        unawaited(PlatformAnalyticsService.trackSessionResume(
+          api,
+          userPhone: phone,
+        ));
+      }
+      final db = _services?.database;
+      if (db != null) {
+        unawaited(DailyEngagementScheduler.planOnAppOpen(db));
+        unawaited(SystemPushNotifier.notifyRandomAfterAppOpen(db));
+      }
     }
   }
 
@@ -107,8 +141,12 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Initialize services asynchronously without blocking UI
     _initializationFuture = _initializeServices();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!kIsWeb) {
+        unawaited(PushNotificationService.requestOsPermissions());
+      }
+    });
   }
 
   Future<void> _runWaStatusScheduler() async {
@@ -148,12 +186,15 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
 
       const String baseUrl = 'https://uzaapp.com/api';
 
+      await applyPendingReferralToDb(database);
+
       // Set up providers
       if (!mounted) return;
 
       final notificationService = NotificationService();
       final connectivityService = ConnectivityService();
       final apiService = ApiService(baseUrl: baseUrl);
+      unawaited(PlatformAnalyticsService.trackAppOpen(apiService));
       final syncService = SyncService(
         database,
         apiService,
@@ -163,6 +204,7 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
         database,
         syncService: syncService,
       );
+      syncService.storyRepository = storyRepository;
       final authRepository = AuthRepository(database);
       final authService = AuthService(authRepository);
       final shopRepository = ShopRepository(database, syncService: syncService);
@@ -172,6 +214,10 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
       );
       final cartRepository = CartRepository(database);
       final orderRepository = OrderRepository(database);
+      syncService.productRepository = productRepository;
+      syncService.shopRepository = shopRepository;
+      syncService.orderRepository = orderRepository;
+      syncService.productAlertsService = ProductAlertsService();
       final messageRepository = MessageRepository(database);
       final contactService = ContactService(database);
       final whatsAppStatusService = WhatsAppStatusService(database);
@@ -233,16 +279,18 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
         }),
       );
 
-      // Initialize local notifications
+      // Attach deep-link handler (plugin already bootstrapped in main()).
       try {
-        if (!kIsWeb) {
-          final pushService = PushNotificationService(
-            notificationService: notificationService,
-          );
-          await pushService.initialize();
-        } else {
-          await WebNotificationService.requestPermission();
-        }
+        PushNotificationService.attachDeepLinkHandler(notificationService);
+        PushNotificationService.attachNotificationsGate(
+          () => settingsService.notificationsEnabled,
+        );
+        notificationService.setEnabled(settingsService.notificationsEnabled);
+        settingsService.addListener(() {
+          notificationService.setEnabled(settingsService.notificationsEnabled);
+        });
+        await DailyEngagementScheduler.planOnAppOpen(database);
+        unawaited(SystemPushNotifier.notifyRandomAfterAppOpen(database));
         _listenForNotificationDeepLinks(
           notificationService,
           shopRepository,
@@ -270,6 +318,7 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
     } catch (e, stack) {
       debugPrint('Service initialization error: $e');
       debugPrint('Stack trace: $stack');
+      rethrow;
     }
   }
 
@@ -316,21 +365,13 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
   ) {
     navigator.push(
       MaterialPageRoute(
-        builder: (_) => FutureBuilder<Shop?>(
-          future: repo.getShopById(shopId),
-          builder: (_, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (!snapshot.hasData || snapshot.data == null) {
-              return Scaffold(
-                body: Center(child: Text(tr(context, 'shop_not_found'))),
-              );
-            }
-            return WhatsAppStatusScreen(shop: snapshot.data!);
-          },
+        builder: (_) => FutureRouteContent<Shop>(
+          load: () => repo.resolveShopById(shopId),
+          isNotFound: (shop) => shop == null,
+          notFound: Scaffold(
+            body: Center(child: Text(tr(context, 'shop_not_found'))),
+          ),
+          builder: (shop) => WhatsAppStatusScreen(shop: shop),
         ),
       ),
     );
@@ -339,21 +380,13 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
   void _navigateToShop(NavigatorState navigator, ShopRepository repo, int id) {
     navigator.push(
       MaterialPageRoute(
-        builder: (_) => FutureBuilder<Shop?>(
-          future: repo.resolveShopById(id),
-          builder: (_, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (!snapshot.hasData || snapshot.data == null) {
-              return Scaffold(
-                body: Center(child: Text(tr(context, 'shop_not_found'))),
-              );
-            }
-            return ShopProfileScreen(shop: snapshot.data!);
-          },
+        builder: (_) => FutureRouteContent<Shop>(
+          load: () => repo.resolveShopById(id),
+          isNotFound: (shop) => shop == null,
+          notFound: Scaffold(
+            body: Center(child: Text(tr(context, 'shop_not_found'))),
+          ),
+          builder: (shop) => ShopProfileScreen(shop: shop),
         ),
       ),
     );
@@ -417,24 +450,22 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
   ) {
     navigator.push(
       MaterialPageRoute(
-        builder: (_) => FutureBuilder<Product?>(
-          future: repo.resolveProductById(id),
-          builder: (_, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (!snapshot.hasData || snapshot.data == null) {
-              return Scaffold(
-                body: Center(child: Text(tr(context, 'product_not_found'))),
-              );
-            }
-            return ProductDetailScreen(product: snapshot.data!);
-          },
+        builder: (_) => FutureRouteContent<Product>(
+          load: () => repo.resolveProductById(id),
+          isNotFound: (product) => product == null,
+          notFound: Scaffold(
+            body: Center(child: Text(tr(context, 'product_not_found'))),
+          ),
+          builder: (product) => ProductDetailScreen(product: product),
         ),
       ),
     );
+  }
+
+  void _retryInitialization() {
+    setState(() {
+      _initializationFuture = _initializeServices();
+    });
   }
 
   @override
@@ -442,13 +473,32 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
     return FutureBuilder<void>(
       future: _initializationFuture,
       builder: (context, snapshot) {
-        // Show splash screen while initializing
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildSplashScreen();
         }
 
+        if (snapshot.hasError ||
+            (snapshot.connectionState == ConnectionState.done &&
+                _services == null)) {
+          return _buildInitErrorScreen();
+        }
+
         return _buildMainApp();
       },
+    );
+  }
+
+  Widget _buildInitErrorScreen() {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Uzaapp',
+      theme: UzaTheme.lightTheme,
+      home: Scaffold(
+        body: ErrorFallback(
+          message: AppTranslations.translate('init_error_hint', 'fr'),
+          onRetry: _retryInitialization,
+        ),
+      ),
     );
   }
 
@@ -560,10 +610,20 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
           create: (context) => _services!.settingsService,
         ),
         Provider<CashRepository>.value(value: _services!.cashRepository),
+        Provider<ReviewRepository>(
+          create: (_) => ReviewRepository(_services!.database),
+        ),
+        Provider<ProductAlertsService>(
+          create: (_) => ProductAlertsService(),
+        ),
+        Provider<ReferralService>(
+          create: (_) => ReferralService(),
+        ),
       ],
       child: ErrorBoundary(
         child: Consumer<SettingsService>(
           builder: (context, settings, child) {
+            _services!.syncService.liteMode = settings.isLiteMode;
             _router ??= AppRouter.create(_rootNavigatorKey);
             _deepLinkService ??= DeepLinkService(_router!)..init();
             return MaterialApp.router(

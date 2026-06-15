@@ -6,6 +6,8 @@ import '../../data/local/uza_database.dart';
 import '../../data/services/sync_service.dart';
 import '../../core/l10n/tr.dart';
 import '../../core/services/auth_service.dart';
+import '../components/async_content.dart';
+import '../components/empty_state.dart';
 import 'package:drift/drift.dart' as drift;
 
 class AdminValidationScreen extends StatelessWidget {
@@ -55,14 +57,18 @@ class _PendingShopsList extends StatelessWidget {
     return StreamBuilder<List<Shop>>(
       stream: shopRepo.watchPendingPromotions(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(child: Text('Aucune demande en attente.'));
-        }
-
+        return AsyncContent<List<Shop>>(
+          snapshot: snapshot,
+          isEmpty: (shops) => shops.isEmpty,
+          empty: () => EmptyState(
+            icon: Icons.store_outlined,
+            title: tr(context, 'no_pending_requests'),
+          ),
+          builder: (shops) {
         return ListView.builder(
-          itemCount: snapshot.data!.length,
+          itemCount: shops.length,
           itemBuilder: (context, index) {
-            final shop = snapshot.data![index];
+            final shop = shops[index];
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Padding(
@@ -123,6 +129,8 @@ class _PendingShopsList extends StatelessWidget {
             );
           },
         );
+          },
+        );
       },
     );
   }
@@ -160,14 +168,18 @@ class _PendingProductsList extends StatelessWidget {
     return StreamBuilder<List<Product>>(
       stream: productRepo.watchPendingBoosts(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(child: Text('Aucun boost produit en attente.'));
-        }
-
+        return AsyncContent<List<Product>>(
+          snapshot: snapshot,
+          isEmpty: (products) => products.isEmpty,
+          empty: () => EmptyState(
+            icon: Icons.rocket_launch_outlined,
+            title: tr(context, 'no_pending_requests'),
+          ),
+          builder: (products) {
         return ListView.builder(
-          itemCount: snapshot.data!.length,
+          itemCount: products.length,
           itemBuilder: (context, index) {
-            final product = snapshot.data![index];
+            final product = products[index];
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: ListTile(
@@ -188,6 +200,8 @@ class _PendingProductsList extends StatelessWidget {
                 ),
               ),
             );
+          },
+        );
           },
         );
       },

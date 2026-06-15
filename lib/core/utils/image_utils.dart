@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -21,6 +22,21 @@ class UzaImageCache {
 class ImageUtils {
   // Proxy URL for external images (to avoid CORS on web)
   static const String _proxyBaseUrl = 'https://uzaapp.com/api/proxy.php?url=';
+
+  static Uint8List? _cachedUzaLogoBytes;
+
+  /// Logo UzaApp embarqué (partage produit, statuts WhatsApp, etc.).
+  static Future<Uint8List?> loadUzaLogoBytes() async {
+    if (_cachedUzaLogoBytes != null) return _cachedUzaLogoBytes;
+    try {
+      final data = await rootBundle.load('assets/logo.png');
+      _cachedUzaLogoBytes = data.buffer.asUint8List();
+      return _cachedUzaLogoBytes;
+    } catch (e) {
+      debugPrint('ImageUtils: UzaApp logo load failed: $e');
+      return null;
+    }
+  }
 
   /// URLs that failed to load after retries — used to deprioritize products.
   static final Set<String> _failedImageUrls = <String>{};

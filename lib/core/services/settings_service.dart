@@ -13,12 +13,14 @@ class SettingsService extends ChangeNotifier {
   bool _notificationsEnabled = true;
   bool _isLiteMode = false;
   bool _waStatusAutoEnabled = true;
+  String? _userCommune;
   bool get isDarkMode => _isDarkMode;
   String get language => _language;
   String get currentLanguage => _language;
   bool get notificationsEnabled => _notificationsEnabled;
   bool get isLiteMode => _isLiteMode;
   bool get waStatusAutoEnabled => _waStatusAutoEnabled;
+  String? get userCommune => _userCommune;
 
   SettingsService(this._db) {
     _loadSettings();
@@ -37,6 +39,7 @@ class SettingsService extends ChangeNotifier {
       _language = prefs.language;
       _notificationsEnabled = prefs.notificationsEnabled;
       _isLiteMode = prefs.isLiteMode;
+      _userCommune = prefs.userCommune;
       if (prefs.biometricEnabled) {
         await (_db.update(_db.appPreferences)..where((t) => t.id.equals(1)))
             .write(const AppPreferencesCompanion(
@@ -83,6 +86,14 @@ class SettingsService extends ChangeNotifier {
     _isLiteMode = value;
     notifyListeners();
     await _updateDb();
+  }
+
+  Future<void> setUserCommune(String? commune) async {
+    _userCommune = commune;
+    notifyListeners();
+    await (_db.update(_db.appPreferences)..where((t) => t.id.equals(1))).write(
+      AppPreferencesCompanion(userCommune: Value(commune)),
+    );
   }
 
   Future<void> toggleWaStatusAuto(bool value) async {

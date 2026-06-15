@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../ui/components/async_content.dart';
 import '../../core/l10n/tr.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/product_repository.dart';
@@ -104,21 +105,13 @@ class AppRouter {
                 body: Center(child: Text(tr(context, 'shop_not_found'))),
               );
             }
-            return FutureBuilder<Shop?>(
-              future: context.read<ShopRepository>().resolveShopById(id),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                if (!snapshot.hasData || snapshot.data == null) {
-                  return Scaffold(
-                    body: Center(child: Text(tr(context, 'shop_not_found'))),
-                  );
-                }
-                return ShopProfileScreen(shop: snapshot.data!);
-              },
+            return FutureRouteContent<Shop>(
+              load: () => context.read<ShopRepository>().resolveShopById(id),
+              isNotFound: (shop) => shop == null,
+              notFound: Scaffold(
+                body: Center(child: Text(tr(context, 'shop_not_found'))),
+              ),
+              builder: (shop) => ShopProfileScreen(shop: shop),
             );
           },
         ),
@@ -131,23 +124,16 @@ class AppRouter {
                 body: Center(child: Text(tr(context, 'product_not_found'))),
               );
             }
-            return FutureBuilder<Product?>(
-              future: context.read<ProductRepository>().resolveProductById(id),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                if (!snapshot.hasData || snapshot.data == null) {
-                  return Scaffold(
-                    body: Center(
-                      child: Text(tr(context, 'product_not_found')),
-                    ),
-                  );
-                }
-                return ProductDetailScreen(product: snapshot.data!);
-              },
+            return FutureRouteContent<Product>(
+              load: () =>
+                  context.read<ProductRepository>().resolveProductById(id),
+              isNotFound: (product) => product == null,
+              notFound: Scaffold(
+                body: Center(
+                  child: Text(tr(context, 'product_not_found')),
+                ),
+              ),
+              builder: (product) => ProductDetailScreen(product: product),
             );
           },
         ),

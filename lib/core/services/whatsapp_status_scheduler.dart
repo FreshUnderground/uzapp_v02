@@ -5,9 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/local/uza_database.dart';
 import '../utils/status_batch_storage.dart';
+import 'platform_system_notifier.dart';
 import 'push_notification_service.dart';
 import 'web_notification_service.dart';
 import 'whatsapp_status_service.dart';
+import '../utils/status_template_prefs.dart';
 
 /// Interval between automatic WhatsApp status preparations.
 const Duration kWaStatusInterval = Duration(hours: 24, minutes: 30);
@@ -38,6 +40,20 @@ class WhatsAppStatusScheduler {
   }
 
   static Future<DateTime> computeNextRun(DateTime from) async {
+    final schedule = await StatusTemplatePrefs.loadSchedule();
+    if (schedule.enabled) {
+      var next = DateTime(
+        from.year,
+        from.month,
+        from.day,
+        schedule.hour,
+        schedule.minute,
+      );
+      if (!next.isAfter(from)) {
+        next = next.add(const Duration(days: 1));
+      }
+      return next;
+    }
     return from.add(kWaStatusInterval);
   }
 
@@ -204,23 +220,17 @@ class WhatsAppStatusScheduler {
       'id': shopId,
     });
 
+    await PlatformSystemNotifier.show(
+      title: title,
+      body: body,
+      payload: payload,
+      channelId: PushNotificationService.kWaStatusChannelId,
+      notificationId: kWaStatusNotificationId,
+      tag: 'wa_status_ready',
+    );
     if (kIsWeb) {
-      await WebNotificationService.show(
-        title: title,
-        body: body,
-        tag: 'wa_status_ready',
-      );
       await WebNotificationService.syncNextReminder(nextRun);
-    } else {
-      await PushNotificationService.showLocalNotification(
-        title: title,
-        body: body,
-        payload: payload,
-        channelId: PushNotificationService.kWaStatusChannelId,
-        notificationId: kWaStatusNotificationId,
-      );
     }
-    await WebNotificationService.syncNextReminder(nextRun);
   }
 }
 
@@ -255,6 +265,9 @@ class PreparedWaStatusBatch {
 /// Top-level entry for Workmanager — must stay free of instance state.
 Future<void> runWhatsAppStatusBackgroundPrep() async {
   try {
+    if (!kIsWeb) {
+      await PushNotificationService.ensureReady(requestPermission: false);
+    }
     final db = UzaDatabase();
     final service = WhatsAppStatusService(db);
     final scheduler = WhatsAppStatusScheduler(db, service);

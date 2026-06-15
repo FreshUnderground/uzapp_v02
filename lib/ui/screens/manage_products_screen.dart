@@ -4,12 +4,17 @@ import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/services/sync_service.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/l10n/tr.dart';
 import '../../core/utils/image_utils.dart';
 
 import 'edit_product_screen.dart';
 import 'seller_dashboard_screen.dart';
 
+import '../components/async_content.dart';
+import '../components/custom_refresh_indicator.dart';
+import '../components/empty_state.dart';
 import '../components/responsive_layout.dart';
+import '../components/skeletons.dart';
 
 class ManageProductsScreen extends StatelessWidget {
   final int shopId;
@@ -35,41 +40,72 @@ class ManageProductsScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: StreamBuilder<List<Product>>(
-        stream: productRepo.watchProductsByShop(shopId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final products = snapshot.data ?? [];
-          if (products.isEmpty) {
-            return const Center(child: Text('Aucun produit. Ajoutez-en un !'));
-          }
-
-          return ResponsiveLayout(
-            mobile: ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: products.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 16),
-              itemBuilder: (context, index) {
-                return _ProductManagementCard(product: products[index]);
-              },
-            ),
-            desktop: GridView.builder(
-              padding: const EdgeInsets.all(32),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 450,
-                mainAxisExtent: 140,
-                crossAxisSpacing: 24,
-                mainAxisSpacing: 24,
-              ),
-              itemCount: products.length,
-              itemBuilder: (context, index) {
-                return _ProductManagementCard(product: products[index]);
-              },
-            ),
-          );
+      body: UzaRefreshIndicator(
+        onRefresh: () async {
+          await context.read<SyncService>().syncNow();
         },
+        child: StreamBuilder<List<Product>>(
+          stream: productRepo.watchProductsByShop(shopId),
+          builder: (context, snapshot) {
+            return AsyncContent<List<Product>>(
+              snapshot: snapshot,
+              loading: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                itemCount: 4,
+                itemBuilder: (_, __) => const Padding(
+                  padding: EdgeInsets.only(bottom: 16),
+                  child: ProductCardSkeleton(),
+                ),
+              ),
+              isEmpty: (products) => products.isEmpty,
+              empty: () => ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  SizedBox(
+                    height: MediaQuery.of(context).size.height * 0.55,
+                    child: EmptyState(
+                      icon: Icons.inventory_2_outlined,
+                      title: tr(context, 'no_products_manage'),
+                      subtitle: tr(context, 'no_products_manage_hint'),
+                      actionLabel: tr(context, 'retry'),
+                      onAction: () =>
+                          context.read<SyncService>().syncNow(),
+                    ),
+                  ),
+                ],
+              ),
+              builder: (products) {
+                return ResponsiveLayout(
+                  mobile: ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: products.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 16),
+                    itemBuilder: (context, index) {
+                      return _ProductManagementCard(product: products[index]);
+                    },
+                  ),
+                  desktop: GridView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(32),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 450,
+                      mainAxisExtent: 140,
+                      crossAxisSpacing: 24,
+                      mainAxisSpacing: 24,
+                    ),
+                    itemCount: products.length,
+                    itemBuilder: (context, index) {
+                      return _ProductManagementCard(product: products[index]);
+                    },
+                  ),
+                );
+              },
+            );
+          },
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => Navigator.push(
