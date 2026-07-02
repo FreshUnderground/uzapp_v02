@@ -1,4 +1,5 @@
 import '../../data/local/uza_database.dart';
+import 'share_message_labels.dart';
 
 class ProductPriceUtils {
   static bool hasVisiblePrice(Product product) {
@@ -16,14 +17,14 @@ class ProductPriceUtils {
 
   /// Libellé affiché dans l'app (fiche produit, cartes, etc.).
   static String displayLabel(Product product) {
-    if (!hasVisiblePrice(product)) return 'À discuter';
+    if (!hasVisiblePrice(product)) return 'Prix à discuter';
     return formatAmount(product.price!);
   }
 
   /// Ligne prix pour les messages WhatsApp / partage.
   static String shareLine(Product product) {
-    if (!hasVisiblePrice(product)) return '💬 Prix : à discuter';
-    return '💰 Prix : ${formatAmount(product.price!)}';
+    if (!hasVisiblePrice(product)) return ShareMessageLabels.priceDiscuss();
+    return ShareMessageLabels.price(formatAmount(product.price!));
   }
 
   static String shareLineFromValues({
@@ -31,8 +32,8 @@ class ProductPriceUtils {
     bool hidePrice = false,
   }) {
     if (hidePrice || price == null || price <= 0) {
-      return '💬 Prix : à discuter';
+      return ShareMessageLabels.priceDiscuss();
     }
-    return '💰 Prix : ${formatAmount(price)}';
+    return ShareMessageLabels.price(formatAmount(price));
   }
 }

@@ -8,6 +8,7 @@ import 'product_detail_screen.dart';
 import 'shop_profile_screen.dart';
 import 'package:intl/intl.dart';
 import '../../core/l10n/tr.dart';
+import '../components/uza_secondary_app_bar.dart';
 
 class NotificationScreen extends StatelessWidget {
   const NotificationScreen({super.key});
@@ -17,9 +18,10 @@ class NotificationScreen extends StatelessWidget {
     final notificationService = context.watch<NotificationService>();
     final notifications = notificationService.notifications;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(tr(context, 'notifications')),
+    return UzaBackScope(
+      child: Scaffold(
+      appBar: UzaSecondaryAppBar(
+        title: tr(context, 'notifications'),
         actions: [
           TextButton(
             onPressed: () => notificationService.clearAll(),
@@ -104,6 +106,7 @@ class NotificationScreen extends StatelessWidget {
                 );
               },
             ),
+      ),
     );
   }
 }

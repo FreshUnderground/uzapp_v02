@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../core/utils/image_utils.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../components/contact_seller_sheet.dart';
+import '../components/marketing_share_sheet.dart';
 
 class StoryViewScreen extends StatefulWidget {
   final List<Story> stories;
@@ -40,6 +41,9 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   // Media slides for the current story (main + story_media children)
   List<StoryMediaSlide> _mediaSlides = [];
   int _mediaIndex = 0;
+  bool _isLoadingSlides = false;
+  bool _mediaUnavailable = false;
+  String? _activeMediaSource;
 
   // Video player for video media
   VideoPlayerController? _videoController;
@@ -136,9 +140,8 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   void _loadStory({required Story story, bool animateToPage = true}) {
     _disposeVideoController();
     _mediaIndex = 0;
-    _mediaSlides = [];
-
-    // Load media items for this story
+    _mediaUnavailable = false;
+    _setupCurrentMedia();
     _loadMediaItems(story.id);
 
     if (animateToPage && _pageController.hasClients) {
@@ -152,6 +155,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
 
   Future<void> _loadMediaItems(int storyId) async {
     final indexAtStart = _currentIndex;
+    if (mounted) setState(() => _isLoadingSlides = true);
     try {
       final storyRepo = context.read<StoryRepository>();
       final story = widget.stories[indexAtStart];
@@ -163,13 +167,21 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       setState(() {
         _mediaSlides = slides;
         _mediaIndex = 0;
+        _isLoadingSlides = false;
+        _mediaUnavailable = slides.isEmpty &&
+            story.mediaUrl.isEmpty &&
+            ImageUtils.resolveImageUrl(story.mediaUrl) == null;
       });
       _setupCurrentMedia();
     } catch (e) {
+      debugPrint('StoryViewScreen: media load error: $e');
       if (!mounted || _currentIndex != indexAtStart) return;
+      final story = widget.stories[indexAtStart];
       setState(() {
         _mediaSlides = [];
         _mediaIndex = 0;
+        _isLoadingSlides = false;
+        _mediaUnavailable = story.mediaUrl.isEmpty;
       });
       _setupCurrentMedia();
     }
@@ -228,14 +240,23 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   }
 
   void _setupCurrentMedia() {
-    _disposeVideoController();
-    _animController.stop();
-    _animController.reset();
-    _isMediaReady = false;
+    final rawSource = _getCurrentRawMediaUrl();
+    final sameSource = rawSource != null &&
+        rawSource.isNotEmpty &&
+        rawSource == _activeMediaSource &&
+        _isMediaReady;
+
+    if (!sameSource) {
+      _disposeVideoController();
+      _animController.stop();
+      _animController.reset();
+      _isMediaReady = false;
+    }
+    _activeMediaSource = rawSource;
 
     final mediaType = _getCurrentMediaType();
     if (mediaType == 'video') {
-      _setupVideoPlayer();
+      if (!sameSource) _setupVideoPlayer();
     } else {
       _animController.duration = const Duration(seconds: 5);
     }
@@ -489,19 +510,48 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       }
     }
 
-    if (mediaUrl.isEmpty) {
+    final rawUrl = _getCurrentRawMediaUrl();
+    final hasSource = rawUrl != null && rawUrl.isNotEmpty;
+
+    if (!hasSource) {
+      if (_isLoadingSlides) {
+        return Container(
+          key: ValueKey('img_loading_$_mediaIndex'),
+          color: Colors.black,
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          ),
+        );
+      }
       return Container(
-        key: ValueKey('img_empty_$_mediaIndex'),
-        color: Colors.black,
-        child: const Center(
-          child: CircularProgressIndicator(color: Colors.white),
+        key: ValueKey('img_unavailable_$_mediaIndex'),
+        color: Colors.grey[900],
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.broken_image, color: Colors.white54, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                'Média indisponible',
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+              ),
+              if (_mediaUnavailable) ...[
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: _advanceMediaOrStory,
+                  child: Text(tr(context, 'skip')),
+                ),
+              ],
+            ],
+          ),
         ),
       );
     }
 
     return ImageUtils.buildFullscreenContainedImage(
-      _getCurrentRawMediaUrl(),
-      key: ValueKey('img_$_mediaIndex'),
+      rawUrl,
+      key: ValueKey('img_${rawUrl}_$_mediaIndex'),
       onImageLoaded: _onMediaReady,
       placeholder: Container(
         color: Colors.black,
@@ -511,8 +561,23 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       ),
       errorWidget: Container(
         color: Colors.grey[900],
-        child: const Center(
-          child: Icon(Icons.broken_image, color: Colors.white54, size: 48),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.broken_image, color: Colors.white54, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                'Impossible de charger l\'image',
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: _advanceMediaOrStory,
+                child: Text(tr(context, 'skip')),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -677,19 +742,16 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   Future<void> _openWhatsApp(Story story) async {
     Shop? shop = widget.shopLookup[story.shopId];
 
-    // If shop not in lookup, fetch it from the repository
     if (shop == null) {
       final shopRepo = context.read<ShopRepository>();
       shop = await shopRepo.getShopById(story.shopId);
     }
 
-    final number = shop?.whatsapp ?? shop?.phone;
-
-    if (number == null || number.isEmpty) {
+    if (shop == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Numéro WhatsApp non disponible'),
+          SnackBar(
+            content: Text(tr(context, 'shop_not_found')),
             duration: Duration(seconds: 2),
           ),
         );
@@ -697,26 +759,41 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       return;
     }
 
-    final cleanNumber = number.replaceAll(RegExp(r'[\s\-\(\)]'), '');
-    final uri = Uri.parse('https://wa.me/$cleanNumber');
-
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
+    final number = shop.whatsapp ?? shop.phone;
+    if (number == null || number.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Impossible d'ouvrir WhatsApp"),
+          SnackBar(
+            content: Text(tr(context, 'whatsapp_unavailable')),
             duration: Duration(seconds: 2),
           ),
         );
       }
+      return;
     }
+
+    if (!mounted) return;
+    final imageUrl = _getCurrentMediaUrl();
+    await ContactSellerSheet.show(
+      context,
+      shop: shop,
+      storyId: story.id,
+      imageUrlOverride: imageUrl.isNotEmpty ? imageUrl : null,
+    );
   }
 
-  void _shareStory(Story story) {
-    final mediaUrl = _getCurrentMediaUrl();
-    Share.share('Découvrez cette offre sur UzaApp: $mediaUrl');
+  Future<void> _shareStory(Story story) async {
+    Shop? shop = widget.shopLookup[story.shopId];
+    shop ??= await context.read<ShopRepository>().getShopById(story.shopId);
+    if (!mounted || shop == null) return;
+
+    final imageUrl = _getCurrentMediaUrl();
+    await MarketingShareSheet.showStory(
+      context,
+      story: story,
+      shop: shop,
+      imageUrl: imageUrl.isNotEmpty ? imageUrl : null,
+    );
   }
 
   void _toggleLike() {

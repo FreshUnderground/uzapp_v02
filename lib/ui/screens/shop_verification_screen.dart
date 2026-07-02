@@ -75,7 +75,7 @@ class _ShopVerificationScreenState extends State<ShopVerificationScreen>
   Future<void> _sendOtp() async {
     if (_phoneNumber == null || _phoneNumber!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Numero de telephone non disponible')),
+        SnackBar(content: Text(tr(context, 'phone_unavailable'))),
       );
       return;
     }
@@ -104,7 +104,15 @@ class _ShopVerificationScreenState extends State<ShopVerificationScreen>
           });
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text('Erreur: ${e.message}')));
+          ).showSnackBar(
+            SnackBar(
+              content: Text(
+                trf(context, 'error_with_message', {
+                  'message': e.message ?? '',
+                }),
+              ),
+            ),
+          );
         }
       },
     );
@@ -238,9 +246,8 @@ class _ShopVerificationScreenState extends State<ShopVerificationScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Vérifier la boutique'),
-        backgroundColor: Colors.white,
-        foregroundColor: UzaColors.textPrimary,
+        title: Text(tr(context, 'verify_shop')),
+        foregroundColor: UzaColors.onSurface(context),
       ),
       body: SafeArea(
         child: SingleChildScrollView(

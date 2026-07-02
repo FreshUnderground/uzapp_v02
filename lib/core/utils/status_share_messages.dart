@@ -46,4 +46,35 @@ class StatusShareMessages {
 
   static String collectionShareSubject(Shop shop) =>
       '🔥 Nouveautés ${shop.name} | UzaApp';
+
+  /// Story ou arrivage partagé depuis le fil / viewer.
+  static String storyShare(
+    Shop shop, {
+    bool isArrivage = false,
+  }) {
+    final url = ShopQrUtils.shopUrl(shop);
+    if (isArrivage) {
+      return '🔥 *NOUVEL ARRIVAGE — ${shop.name.toUpperCase()}* 🔥\n\n'
+          'Des produits frais viennent d\'arriver chez *${shop.name}* !\n'
+          'Stock limité — contactez le vendeur vite sur UzaApp.\n\n'
+          '${_locationLine(shop)}'
+          '${_verifiedLine(shop)}'
+          '👉 *Voir l\'arrivage :*\n$url\n\n'
+          '📲 *UzaApp* — Le marché en ligne N°1 en RDC\n'
+          'Shoppez malin. Shoppez local. 💪\n\n'
+          '#UzaApp #Arrivage #Nouveautés #RDC #${shop.name.replaceAll(RegExp(r'\s+'), '')}';
+    }
+
+    return '✨ *${shop.name.toUpperCase()}* — Offre du moment ✨\n\n'
+        'Découvrez cette nouveauté sur UzaApp : photos, prix et contact direct avec le vendeur.\n\n'
+        '${_locationLine(shop)}'
+        '${_verifiedLine(shop)}'
+        '👉 *Voir la boutique :*\n$url\n\n'
+        '📲 *UzaApp* — Le marché en ligne N°1 en RDC\n'
+        'Le commerce de proximité, digitalisé. 🇨🇩\n\n'
+        '#UzaApp #Story #Shopping #RDC';
+  }
+
+  static String storyShareSubject(Shop shop, {bool isArrivage = false}) =>
+      isArrivage ? '📦 Arrivage ${shop.name} | UzaApp' : '✨ ${shop.name} | UzaApp';
 }

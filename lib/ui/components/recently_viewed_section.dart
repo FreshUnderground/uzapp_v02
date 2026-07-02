@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import '../../data/repositories/recently_viewed_repository.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/utils/image_utils.dart';
@@ -36,7 +37,7 @@ class RecentlyViewedSection extends StatelessWidget {
               ),
               TextButton(
                 onPressed: onClear,
-                child: const Text('Effacer'),
+                child: Text(tr(context, 'clear')),
               ),
             ],
           ),

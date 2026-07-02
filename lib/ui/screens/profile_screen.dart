@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../core/services/referral_service.dart';
-import 'package:share_plus/share_plus.dart';
 import '../../core/services/auth_service.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../core/res/uza_colors.dart';
@@ -18,15 +18,15 @@ import 'b2b_hub_screen.dart';
 import 'orders_screen.dart';
 import 'messages_screen.dart';
 import 'auth/login_screen.dart';
-import 'admin_validation_screen.dart';
-import 'cash_management_screen.dart';
 import '../components/responsive_layout.dart';
+import '../components/uza_back_button.dart';
 import '../components/arrivage_thumbnail.dart';
 import '../components/modern_card.dart';
 import '../components/tap_animator.dart';
 import '../components/empty_state.dart';
 import '../components/async_content.dart';
 import '../components/seller_quick_actions.dart';
+import '../components/marketing_share_sheet.dart';
 import '../components/shop_qr_dialog.dart';
 import '../components/shop_share_sheet.dart';
 import '../utils/page_transitions.dart';
@@ -38,6 +38,7 @@ import 'whatsapp_status_screen.dart';
 import 'edit_shop_screen.dart';
 import 'story_view_screen.dart';
 import 'shop_profile_screen.dart';
+import 'shop_stats_screen.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../core/utils/image_utils.dart';
 import '../../core/utils/picker_utils.dart';
@@ -66,8 +67,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _confirmPasswordController = TextEditingController();
   bool _isEditing = false;
   bool _isSaving = false;
-  bool _hasReconnectedShops = false;
   bool _isChangingPassword = false;
+  bool _hasReconnectedShops = false;
+  String? _lastAuthUid;
   bool _showCurrentPassword = false;
   bool _showNewPassword = false;
   bool _showConfirmPassword = false;
@@ -92,7 +94,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         .read<AuthRepository>()
         .watchCurrentUser()
         .listen((profile) {
-          if (profile != null && mounted && !_isUploadingAvatar) {
+          if (!mounted || _authService.user == null) return;
+          if (profile != null && !_isUploadingAvatar) {
             setState(() => _avatarUrl = profile.avatarUrl);
           }
         });
@@ -101,12 +104,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _onAuthChanged() {
     final user = _authService.user;
-    if (user != null && mounted) {
+    if (!mounted) return;
+    final uid = user?.uid;
+    if (uid != _lastAuthUid) {
+      _lastAuthUid = uid;
+      _hasReconnectedShops = false;
+    }
+    if (user != null) {
       setState(() {
         _nameController.text = user.displayName ?? '';
         _phoneController.text = user.phoneNumber ?? '';
       });
+    } else {
+      _clearLoggedOutUi();
     }
+  }
+
+  void _clearLoggedOutUi() {
+    setState(() {
+      _nameController.clear();
+      _phoneController.clear();
+      _isEditing = false;
+      _avatarUrl = null;
+      _avatarBytes = null;
+      _coverBytes = null;
+      _failedAvatarUrls.clear();
+    });
   }
 
   Future<void> _loadUserData() async {
@@ -117,14 +140,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _phoneController.text = authService.user!.phoneNumber ?? '';
     }
 
-    // Always load latest avatar (and fallback name/phone) from repository
+    // Load avatar from DB only when a session is active.
     final profile = await context.read<AuthRepository>().getCurrentUser();
-    if (profile != null && mounted) {
+    if (profile != null && mounted && authService.user != null) {
       setState(() {
-        if (authService.user == null) {
-          _nameController.text = profile.name ?? '';
-          _phoneController.text = profile.phone;
-        }
+        _nameController.text = authService.user!.displayName ?? profile.name ?? '';
+        _phoneController.text = authService.user!.phoneNumber ?? profile.phone;
         _avatarUrl = profile.avatarUrl;
       });
     }
@@ -263,7 +284,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Modifier le mot de passe'),
+        title: Text(tr(context, 'edit_password_title')),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -339,7 +360,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _newPasswordController.clear();
               _confirmPasswordController.clear();
             },
-            child: const Text('Annuler'),
+            child: Text(tr(context, 'cancel')),
           ),
           ElevatedButton(
             onPressed: _isSaving ? null : _changePassword,
@@ -349,7 +370,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Modifier'),
+                : Text(tr(context, 'edit_action')),
           ),
         ],
       ),
@@ -374,7 +395,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       color: Theme.of(context).scaffoldBackgroundColor,
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 800),
+          constraints: const BoxConstraints(maxWidth: 1200),
           child: _buildProfileWithShop(authService, isMobile: false),
         ),
       ),
@@ -415,6 +436,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
       stream: context.read<ShopRepository>().watchUserShop(user.uid),
       builder: (context, snapshot) {
         final shop = snapshot.data;
+        if (!isMobile && user != null) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.only(bottom: 100),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 360,
+                  child: _buildGradientHeader(authService, shop: shop),
+                ),
+                const SizedBox(width: 24),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 24, right: 24),
+                    child: _buildContentForUser(authService),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
         return SingleChildScrollView(
           padding: const EdgeInsets.only(bottom: 100),
           child: Column(
@@ -544,11 +586,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildGradientHeader(AuthService authService, {Shop? shop}) {
     final user = authService.user;
-    final hasShopProfile = shop != null;
+    final hasShopProfile = user != null && shop != null;
     final displayName = hasShopProfile
-        ? shop.name
-        : (user?.displayName ?? _nameController.text);
-    final phoneNumber = user?.phoneNumber ?? _phoneController.text;
+        ? shop!.name
+        : (user?.displayName ?? '');
+    final phoneNumber = user?.phoneNumber ?? '';
     final hasBanner = hasShopProfile &&
         shop.bannerUrl != null &&
         shop.bannerUrl!.isNotEmpty &&
@@ -563,7 +605,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          minHeight: hasShopProfile ? 240 : 200,
+          minHeight: hasShopProfile ? 160 : 160,
         ),
         child: Stack(
           clipBehavior: Clip.hardEdge,
@@ -623,10 +665,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             Padding(
               padding: EdgeInsets.only(
-                top: MediaQuery.of(context).padding.top + 12,
+                top: MediaQuery.of(context).padding.top + 8,
                 left: 16,
                 right: 16,
-                bottom: 48,
+                bottom: 32,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -636,10 +678,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               widget.showAppBar
-                  ? IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => Navigator.maybePop(context),
-                    )
+                  ? const UzaBackButton(onDarkBackground: true)
                   : const SizedBox(width: 48),
               if (_isEditing && user != null)
                 Row(
@@ -822,41 +861,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
           const SizedBox(height: 4),
-          // Phone (editable or display)
-          if (_isEditing && user != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: TextField(
-                controller: _phoneController,
-                enabled: false,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  fontSize: 14,
-                ),
-                textAlign: TextAlign.center,
-                decoration: InputDecoration(
-                  labelText: tr(context, 'phone_number'),
-                  labelStyle: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.5),
+          if (user != null)
+            if (_isEditing)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: TextField(
+                  controller: _phoneController,
+                  enabled: false,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontSize: 14,
                   ),
-                  disabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.3),
+                  textAlign: TextAlign.center,
+                  decoration: InputDecoration(
+                    labelText: tr(context, 'phone_number'),
+                    labelStyle: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.5),
+                    ),
+                    disabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.3),
+                      ),
                     ),
                   ),
                 ),
+              )
+            else
+              Text(
+                phoneNumber,
+                style: TextStyle(
+                  color: phoneNumber.isEmpty
+                      ? Colors.white.withValues(alpha: 0.5)
+                      : Colors.white.withValues(alpha: 0.85),
+                  fontSize: 14,
+                ),
               ),
-            )
-          else
-            Text(
-              phoneNumber,
-              style: TextStyle(
-                color: phoneNumber.isEmpty
-                    ? Colors.white.withValues(alpha: 0.5)
-                    : Colors.white.withValues(alpha: 0.85),
-                fontSize: 14,
-              ),
-            ),
                 ],
               ),
             ),
@@ -887,6 +926,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildStatsRow(shop),
+            if (shop != null) ...[
+              const SizedBox(height: 12),
+              _buildShopStatsEntry(shop),
+            ],
             const SizedBox(height: 20),
             if (hasShop) ...[
               _buildSectionTitle(tr(context, 'my_shops')),
@@ -982,13 +1025,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: _statCardWidget(
               icon: Icons.visibility_outlined,
               label: tr(context, 'views'),
+              onTap: shop != null
+                  ? () => _openShopStats(shop)
+                  : null,
               valueWidget: shop != null
                   ? FutureBuilder<Map<String, int>>(
                       future: context.read<ShopRepository>().getShopStats(
                         shop.id,
                       ),
                       builder: (context, snap) => Text(
-                        '${snap.data?['product_view_global'] ?? 0}',
+                        '${snap.data?['totalViews'] ?? 0}',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
@@ -1039,6 +1085,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  void _openShopStats(Shop shop) {
+    Navigator.push(
+      context,
+      SlideUpRoute(page: ShopStatsScreen(shopId: shop.id)),
+    );
+  }
+
+  Widget _buildShopStatsEntry(Shop shop) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: ModernCard(
+        padding: EdgeInsets.zero,
+        onTap: () => _openShopStats(shop),
+        child: ListTile(
+          leading: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: Colors.deepPurple.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.analytics_outlined, color: Colors.deepPurple),
+          ),
+          title: Text(
+            tr(context, 'show_stats'),
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          subtitle: FutureBuilder<Map<String, int>>(
+            future: context.read<ShopRepository>().getWeeklyStats(shop.id),
+            builder: (context, snap) {
+              final weekly = snap.data ?? {};
+              final views = weekly['weeklyViews'] ?? 0;
+              final contacts = weekly['weeklyContacts'] ?? 0;
+              return Text(
+                '$views vues · $contacts contacts (7 jours)',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              );
+            },
+          ),
+          trailing: const Icon(Icons.chevron_right, size: 20),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+        ),
       ),
     );
   }
@@ -1799,7 +1891,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               context,
               SlideUpRoute(page: const LoginScreen()),
             ),
-            child: const Text('J\'ai déjà un compte'),
+            child: Text(tr(context, 'already_have_account')),
           ),
         ],
       ),
@@ -2148,15 +2240,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const Divider(height: 1, indent: 12, endIndent: 12),
-          SwitchListTile(
-            secondary: Icon(Icons.dark_mode_outlined, color: Colors.indigo),
+          ListTile(
+            leading: Icon(Icons.dark_mode_outlined, color: Colors.indigo),
             title: Text(
               tr(context, 'dark_mode'),
               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
             ),
-            value: settings.isDarkMode,
-            onChanged: (val) => settings.toggleDarkMode(val),
-            activeThumbColor: UzaColors.primary,
+            subtitle: Text(
+              trThemeMode(context, settings.themeModePreference),
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+            trailing: Icon(
+              Icons.chevron_right,
+              size: 20,
+              color: Colors.grey[400],
+            ),
+            onTap: () => Navigator.push(
+              context,
+              SlideUpRoute(page: const SettingsScreen()),
+            ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
           ),
           const Divider(height: 1, indent: 12, endIndent: 12),
@@ -2251,10 +2353,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           if (authService.user?.isAdmin == true) ...[
             const Divider(height: 1, indent: 12, endIndent: 12),
             TapAnimator(
-              onTap: () => Navigator.push(
-                context,
-                SlideUpRoute(page: const AdminValidationScreen()),
-              ),
+              onTap: () => context.push('/admin'),
               child: ListTile(
                 leading: Container(
                   padding: const EdgeInsets.all(8),
@@ -2269,41 +2368,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
                 title: Text(
-                  tr(context, 'promo_validation'),
+                  tr(context, 'admin_panel'),
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
                   ),
                 ),
-                trailing: const Icon(Icons.chevron_right, size: 20),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-              ),
-            ),
-            const Divider(height: 1, indent: 12, endIndent: 12),
-            TapAnimator(
-              onTap: () => Navigator.push(
-                context,
-                SlideUpRoute(page: const CashManagementScreen()),
-              ),
-              child: ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: UzaColors.secondary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.account_balance_wallet_outlined,
-                    color: UzaColors.secondary,
-                    size: 20,
-                  ),
-                ),
-                title: const Text(
-                  'Gestion Caisse',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
+                subtitle: Text(
+                  tr(context, 'admin_panel_hint'),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
                 trailing: const Icon(Icons.chevron_right, size: 20),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
@@ -2414,12 +2487,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               final referral = context.read<ReferralService>();
               final code = await referral.getOrCreateCode(phone);
               final shop = await context.read<ShopRepository>().getUserShop(phone);
-              await Share.share(
-                referral.inviteMessage(
+              if (!context.mounted) return;
+              await MarketingShareSheet.showReferralInvite(
+                context,
+                message: referral.inviteMessage(
                   referralCode: code,
                   shopName: shop?.name,
                 ),
-                subject: 'Rejoignez UzaApp',
               );
             },
             child: ListTile(
@@ -2472,12 +2546,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Supprimer ?'),
-        content: Text('Voulez-vous vraiment supprimer "${product.name}" ?'),
+        title: Text(tr(context, 'delete_confirm_title')),
+        content: Text(
+          trf(context, 'delete_product_named', {'name': product.name}),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
+            child: Text(tr(context, 'cancel')),
           ),
           TextButton(
             onPressed: () async {
@@ -2488,14 +2564,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               await syncService.forcePush();
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Produit supprimé avec succès'),
+                  SnackBar(
+                    content: Text(tr(context, 'product_deleted_success')),
                     duration: Duration(seconds: 2),
                   ),
                 );
               }
             },
-            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+            child: Text(tr(context, 'delete'), style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -2506,7 +2582,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Supprimer ?'),
+        title: Text(tr(context, 'delete_confirm_title')),
         content: Text(
           story.isArrivage
               ? 'Voulez-vous vraiment supprimer cet arrivage ?'
@@ -2515,7 +2591,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
+            child: Text(tr(context, 'cancel')),
           ),
           TextButton(
             onPressed: () async {
@@ -2525,14 +2601,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               );
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Supprimé avec succès'),
+                  SnackBar(
+                    content: Text(tr(context, 'deleted_success')),
                     duration: Duration(seconds: 2),
                   ),
                 );
               }
             },
-            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+            child: Text(tr(context, 'delete'), style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -2696,15 +2772,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         children: [
-          SwitchListTile(
-            secondary: Icon(Icons.dark_mode_outlined, color: Colors.indigo),
+          ListTile(
+            leading: Icon(Icons.dark_mode_outlined, color: Colors.indigo),
             title: Text(
               tr(context, 'dark_mode'),
               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
             ),
-            value: settings.isDarkMode,
-            onChanged: settings.toggleDarkMode,
-            activeThumbColor: UzaColors.primary,
+            subtitle: Text(
+              trThemeMode(context, settings.themeModePreference),
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+            trailing: Icon(
+              Icons.chevron_right,
+              size: 20,
+              color: Colors.grey[400],
+            ),
+            onTap: () => Navigator.push(
+              context,
+              SlideUpRoute(page: const SettingsScreen()),
+            ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
           ),
           const Divider(height: 1, indent: 12, endIndent: 12),

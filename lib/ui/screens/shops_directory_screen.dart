@@ -10,6 +10,7 @@ import '../../core/l10n/tr.dart';
 import '../components/verification_badge.dart';
 import '../components/responsive_layout.dart';
 import '../components/skeletons.dart';
+import '../components/shop_visibility_widgets.dart';
 import '../utils/page_transitions.dart';
 import 'shop_profile_screen.dart';
 import 'nearby_shops_screen.dart';
@@ -283,7 +284,11 @@ class _ShopsDirectoryScreenState extends State<ShopsDirectoryScreen> {
                   _maybeBootstrapSync(allShops, syncService);
                   final filteredByType = _applyFilter(allShops);
                   final filteredByGeo = _applyGeoFilter(filteredByType);
-                  final shops = _applySearch(filteredByGeo);
+                  final filteredBySearch = _applySearch(filteredByGeo);
+                  final shops = shopRepo.applyDirectoryVisibility(
+                    filteredBySearch,
+                    showAll: false,
+                  );
 
                   if (shops.isEmpty) {
                     return _buildEmptyState(
@@ -605,6 +610,11 @@ class _ShopDirectoryCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  Positioned(
+                    top: 8,
+                    right: hasCoordinates ? 48 : 8,
+                    child: ShopActiveBadge(shop: shop),
+                  ),
                   // Itinerary button (if coordinates exist)
                   if (hasCoordinates)
                     Positioned(
@@ -632,7 +642,7 @@ class _ShopDirectoryCard extends StatelessWidget {
                               mainAxisSize: MainAxisSize.min,
                               children: const [
                                 Icon(
-                                  Icons.navigation,
+                                  Icons.map,
                                   color: Colors.white,
                                   size: 14,
                                 ),

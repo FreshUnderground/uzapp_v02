@@ -12,13 +12,13 @@
 
 
 
-  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
+  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|WhatsApp|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
 
   RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1 [L,QSA]
 
 
 
-  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
+  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|WhatsApp|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
 
   RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1 [L,QSA]
 
@@ -26,13 +26,13 @@
 
   RewriteCond %{HTTP_USER_AGENT} (Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera\sMini) [NC]
 
-  RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1&bridge=1 [L,QSA]
+  RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1 [L,QSA]
 
 
 
   RewriteCond %{HTTP_USER_AGENT} (Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera\sMini) [NC]
 
-  RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1&bridge=1 [L,QSA]
+  RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1 [L,QSA]
 
 
 

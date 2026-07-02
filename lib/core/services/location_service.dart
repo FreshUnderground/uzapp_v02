@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/tr.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 import '../res/uza_colors.dart';
@@ -68,6 +69,49 @@ class LocationService {
     } catch (e) {
       debugPrint('Error getting location: $e');
       return null;
+    }
+  }
+
+  /// Opens GPS/navigation when coordinates exist, otherwise searches by address text.
+  static Future<void> openShopLocation({
+    required double? latitude,
+    required double? longitude,
+    String? destinationName,
+    String? addressQuery,
+  }) async {
+    if (latitude != null &&
+        longitude != null &&
+        _hasValidCoordinates(latitude, longitude)) {
+      await getDirections(
+        latitude: latitude,
+        longitude: longitude,
+        destinationName: destinationName,
+      );
+      return;
+    }
+
+    final query = addressQuery?.trim();
+    if (query != null && query.isNotEmpty) {
+      await openMapsSearch(query);
+    }
+  }
+
+  /// Open a maps search for a free-text address or place name.
+  static Future<void> openMapsSearch(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+
+    if (!kIsWeb && Platform.isAndroid) {
+      final geoUri = Uri.parse('geo:0,0?q=${Uri.encodeComponent(trimmed)}');
+      if (await _safeLaunch(geoUri)) return;
+    }
+
+    final uri = Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': trimmed,
+    });
+    if (!await _safeLaunch(uri, preferExternal: !kIsWeb)) {
+      debugPrint('Could not launch Maps search for: $trimmed');
     }
   }
 
@@ -250,28 +294,28 @@ class LocationService {
           children: [
             Icon(Icons.security, color: UzaColors.secondary),
             const SizedBox(width: 8),
-            const Text('Sécurité & Confidentialité'),
+            Text(tr(context, 'security_privacy')),
           ],
         ),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Pour des raisons de sécurité, nous vous recommandons de prendre la localisation de votre entreprise et non de votre domicile.',
-              style: TextStyle(fontSize: 14),
+              tr(context, 'location_security_body'),
+              style: const TextStyle(fontSize: 14),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             Text(
-              'Cette localisation sera visible par les clients potentiels pour les aider à trouver votre boutique.',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
+              tr(context, 'location_security_footer'),
+              style: const TextStyle(fontSize: 13, color: Colors.grey),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Compris'),
+            child: Text(tr(context, 'understood')),
           ),
         ],
       ),
@@ -286,30 +330,30 @@ class LocationService {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
-            title: const Row(
+            title: Row(
               children: [
                 Icon(Icons.location_on, color: UzaColors.secondary),
                 SizedBox(width: 8),
-                Text('Localiser la boutique'),
+                Text(tr(context, 'locate_shop')),
               ],
             ),
-            content: const Column(
+            content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Voulez-vous capturer votre position actuelle pour aider les clients à trouver votre boutique?',
-                  style: TextStyle(fontSize: 14),
+                  tr(context, 'location_capture_question'),
+                  style: const TextStyle(fontSize: 14),
                 ),
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 Row(
                   children: [
-                    Icon(Icons.info_outline, size: 16, color: Colors.orange),
-                    SizedBox(width: 8),
+                    const Icon(Icons.info_outline, size: 16, color: Colors.orange),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Utilisez la localisation de votre entreprise, pas votre domicile.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                        tr(context, 'location_business_hint'),
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ),
                   ],
@@ -319,12 +363,12 @@ class LocationService {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Plus tard'),
+                child: Text(tr(context, 'later')),
               ),
               ElevatedButton.icon(
                 onPressed: () => Navigator.pop(context, true),
                 icon: const Icon(Icons.my_location),
-                label: const Text('Capturer'),
+                label: Text(tr(context, 'capture')),
                 style: ElevatedButton.styleFrom(backgroundColor: UzaColors.secondary),
               ),
             ],
@@ -345,13 +389,13 @@ class LocationService {
           children: [
             const CircularProgressIndicator(color: UzaColors.secondary),
             const SizedBox(height: 24),
-            const Text(
-              'Capturer la position...',
-              style: TextStyle(fontWeight: FontWeight.bold),
+            Text(
+              tr(context, 'location_capturing'),
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
-              'Veuillez patienter quelques secondes',
+              tr(context, 'location_please_wait'),
               style: TextStyle(color: Colors.grey[600], fontSize: 13),
               textAlign: TextAlign.center,
             ),
@@ -375,16 +419,14 @@ class LocationService {
           children: [
             Icon(Icons.check_circle, color: Colors.green[700]),
             const SizedBox(width: 8),
-            const Text('Position capturée'),
+            Text(tr(context, 'position_captured')),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'La localisation de votre boutique a été enregistrée avec succès.',
-            ),
+            Text(tr(context, 'delivery_gps_captured')),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(8),
@@ -393,7 +435,10 @@ class LocationService {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                'Lat: ${latitude.toStringAsFixed(6)}\nLng: ${longitude.toStringAsFixed(6)}',
+                trf(context, 'location_coords', {
+                  'lat': latitude.toStringAsFixed(6),
+                  'lng': longitude.toStringAsFixed(6),
+                }),
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
               ),
             ),
@@ -402,7 +447,7 @@ class LocationService {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: Text(tr(context, 'ok')),
           ),
         ],
       ),

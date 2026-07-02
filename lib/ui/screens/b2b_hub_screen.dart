@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../../core/l10n/tr.dart';
+import '../components/uza_secondary_app_bar.dart';
 import '../components/product_card.dart';
 import '../components/skeletons.dart';
 import 'product_detail_screen.dart';
@@ -15,12 +16,10 @@ class B2BHubScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final productRepo = context.watch<ProductRepository>();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          tr(context, 'b2b_hub_title'),
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
+    return UzaBackScope(
+      child: Scaffold(
+      appBar: UzaSecondaryAppBar(
+        title: tr(context, 'b2b_hub_title'),
         backgroundColor: UzaColors.secondary,
         foregroundColor: Colors.white,
       ),
@@ -67,6 +66,7 @@ class B2BHubScreen extends StatelessWidget {
             },
           );
         },
+      ),
       ),
     );
   }

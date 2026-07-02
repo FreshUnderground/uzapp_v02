@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' show Rect;
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -9,22 +9,109 @@ import 'package:http/http.dart' as http;
 import 'package:drift/drift.dart' as drift;
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/product_repository.dart';
-import '../utils/crypto_utils.dart';
+import '../../data/services/sync_service.dart';
+import '../utils/shop_stats_types.dart';
 import '../utils/image_utils.dart';
 import '../utils/phone_utils.dart';
 import '../utils/product_price_utils.dart';
 import '../utils/shop_qr_utils.dart';
 import '../utils/app_share_messages.dart';
 import '../utils/shop_share_messages.dart';
+import '../utils/product_share_messages.dart';
+import '../utils/share_message_labels.dart';
 import '../utils/status_image_composer.dart';
+import '../utils/status_share_messages.dart';
+import '../utils/status_web_download.dart';
+import '../utils/web_native_share.dart';
+import '../utils/web_whatsapp_launcher.dart';
+import '../utils/whatsapp_platform_share.dart';
 import '../utils/status_slideshow_video.dart' show StatusSlideshowExport, StatusSlideshowVideo;
 import '../utils/status_temp_files.dart';
-import '../utils/status_web_download.dart';
+
+/// Preview of what the buyer sends when contacting a seller on WhatsApp.
+class ContactPreview {
+  final String message;
+  final String? imageUrl;
+  final String entityType;
+  final int entityId;
+
+  const ContactPreview({
+    required this.message,
+    required this.imageUrl,
+    required this.entityType,
+    required this.entityId,
+  });
+}
 
 class ContactService {
   final UzaDatabase db;
+  final SyncService? syncService;
 
-  ContactService(this.db);
+  ContactService(this.db, {this.syncService});
+
+  ContactPreview buildProductContactPreview(Product product, Shop shop) {
+    return ContactPreview(
+      message: _buildProductContactMessage(product, shop),
+      imageUrl: ImageUtils.getDecryptedList(product.imageUrls).firstOrNull,
+      entityType: 'product',
+      entityId: product.id,
+    );
+  }
+
+  ContactPreview buildShopContactPreview(Shop shop, {String? imageUrl}) {
+    return ContactPreview(
+      message: _buildShopBuyerContactMessage(shop),
+      imageUrl: imageUrl ?? shop.logoUrl,
+      entityType: 'shop',
+      entityId: shop.id,
+    );
+  }
+
+  ContactPreview buildArrivageContactPreview({
+    required Shop shop,
+    required int storyId,
+    required String imageUrl,
+  }) {
+    return ContactPreview(
+      message: _buildArrivageBuyerContactMessage(shop),
+      imageUrl: imageUrl,
+      entityType: 'arrivage',
+      entityId: storyId,
+    );
+  }
+
+  Future<void> sendContactPreview({
+    required String phone,
+    required ContactPreview preview,
+    String? buyerPhone,
+    Uint8List? precomposedImage,
+  }) {
+    return launchWhatsApp(
+      phone: phone,
+      entityType: preview.entityType,
+      entityId: preview.entityId,
+      buyerPhone: buyerPhone,
+      imageUrl: preview.imageUrl,
+      preview: preview,
+      precomposedImage: precomposedImage,
+    );
+  }
+
+  /// Prépare l'image marketing (logo UzaApp) pour l'aperçu contact / partage web.
+  Future<Uint8List?> composePreviewImage(ContactPreview preview) {
+    return _composeBrandedShareImage(
+      entityType: preview.entityType,
+      imageUrl: preview.imageUrl,
+    );
+  }
+
+  Future<Uint8List?> composeProductShareImage(Product product) {
+    final source = ImageUtils.getDecryptedList(product.imageUrls).firstOrNull;
+    return _composeBrandedShareImage(
+      entityType: 'product',
+      imageUrl: source,
+    );
+  }
 
   Future<void> launchWhatsApp({
     required String phone,
@@ -38,21 +125,488 @@ class ContactService {
     double? price,
     bool hidePrice = false,
     String? condition,
+    ContactPreview? preview,
+    Uint8List? precomposedImage,
   }) async {
     final cleanPhone = PhoneUtils.forWhatsApp(phone);
 
-    if (cleanPhone.isEmpty) {
-      debugPrint('launchWhatsApp: empty phone number, aborting launch');
+    if (!PhoneUtils.isValidDrc(cleanPhone)) {
+      throw Exception('Numéro WhatsApp invalide pour ce vendeur');
+    }
+
+    final resolved = preview ??
+        await _resolveWhatsAppContactPayload(
+          entityType: entityType,
+          entityId: entityId,
+          name: name,
+          category: category,
+          imageUrl: imageUrl,
+          productUrl: productUrl,
+          price: price,
+          hidePrice: hidePrice,
+          condition: condition,
+        );
+    final message = resolved.message;
+    final imageSource = resolved.imageUrl;
+
+    final composedImage = precomposedImage ??
+        await _composeBrandedShareImage(
+          entityType: entityType,
+          imageUrl: imageSource,
+        );
+
+    // Android : conversation directe avec image dans le chat vendeur.
+    if (composedImage != null &&
+        composedImage.isNotEmpty &&
+        !kIsWeb &&
+        Platform.isAndroid) {
+      final sharedWithImage = await _shareWhatsAppWithImage(
+        cleanPhone: cleanPhone,
+        message: message,
+        composedImage: composedImage,
+        entityId: entityId,
+      );
+      if (sharedWithImage) {
+        await _logInteraction(
+          entityType,
+          entityId,
+          'whatsapp',
+          buyerPhone: buyerPhone,
+        );
+        return;
+      }
+    }
+
+    // Web/PWA : télécharger l'image puis ouvrir le chat du vendeur (pas le menu partage).
+    if (kIsWeb &&
+        composedImage != null &&
+        composedImage.isNotEmpty) {
+      try {
+        await downloadStatusImages(entityId, [composedImage]);
+      } catch (e) {
+        debugPrint('Contact image download failed: $e');
+      }
+    }
+
+    await _openWhatsAppDirect(cleanPhone: cleanPhone, message: message);
+    await _logInteraction(
+      entityType,
+      entityId,
+      'whatsapp',
+      buyerPhone: buyerPhone,
+    );
+  }
+
+  /// Ouvre directement la conversation WhatsApp avec [cleanPhone] (pas le menu partage).
+  Future<void> _openWhatsAppDirect({
+    required String cleanPhone,
+    required String message,
+  }) async {
+    if (kIsWeb) {
+      await _launchWhatsAppWeb(cleanPhone: cleanPhone, message: message);
       return;
     }
 
-    // Build rich WhatsApp message
+    final webUrl = Uri.parse(
+      'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(message)}',
+    );
+    final appUrl = Uri.parse(
+      'whatsapp://send?phone=$cleanPhone&text=${Uri.encodeComponent(message)}',
+    );
+
+    debugPrint('Launching WhatsApp direct: $webUrl');
+
+    try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        try {
+          if (await canLaunchUrl(appUrl)) {
+            await launchUrl(appUrl, mode: LaunchMode.externalApplication);
+            return;
+          }
+        } catch (e) {
+          debugPrint('WhatsApp app scheme failed: $e');
+        }
+      }
+
+      if (await canLaunchUrl(webUrl)) {
+        await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint('Error launching WhatsApp: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _launchWhatsAppWeb({
+    String? cleanPhone,
+    required String message,
+  }) async {
+    if (kIsWeb) {
+      final opened = await openWhatsAppShare(
+        phone: cleanPhone,
+        message: message,
+      );
+      if (opened) return;
+    }
+
+    final digits = cleanPhone?.replaceAll(RegExp(r'\D'), '') ?? '';
+    final url = digits.isNotEmpty
+        ? Uri.parse(
+            'https://wa.me/$digits?text=${Uri.encodeComponent(message)}',
+          )
+        : Uri.parse(
+            'https://wa.me/?text=${Uri.encodeComponent(message)}',
+          );
+
+    try {
+      final launched = await launchUrl(
+        url,
+        mode: LaunchMode.externalApplication,
+      );
+      if (launched) return;
+    } catch (e) {
+      debugPrint('WhatsApp external launch failed: $e');
+    }
+
+    try {
+      final launched = await launchUrl(url, mode: LaunchMode.platformDefault);
+      if (launched) return;
+    } catch (e) {
+      debugPrint('WhatsApp platform launch failed: $e');
+    }
+
+    await Clipboard.setData(ClipboardData(text: message));
+    throw Exception(
+      'Impossible d\'ouvrir WhatsApp — le message a été copié',
+    );
+  }
+
+  Future<bool> _shareWhatsAppWithImage({
+    required String cleanPhone,
+    required String message,
+    required Uint8List composedImage,
+    required int entityId,
+  }) async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+
+    File? tempFile;
+    try {
+      final xfile = await _buildXFile(
+        composedImage,
+        'uza_contact_$entityId.jpg',
+      );
+      tempFile = xfile.$2;
+
+      final shared = await WhatsappPlatformShare.shareToChat(
+        phone: cleanPhone,
+        text: message,
+        imagePath: tempFile?.path,
+      );
+      if (shared && tempFile != null) {
+        // WhatsApp reads the file asynchronously after startActivity().
+        final fileToDelete = tempFile;
+        Future<void>.delayed(const Duration(minutes: 2), () async {
+          if (await fileToDelete.exists()) {
+            await fileToDelete.delete();
+          }
+        });
+        tempFile = null;
+      }
+      return shared;
+    } catch (e) {
+      debugPrint('WhatsApp image share failed: $e');
+      return false;
+    } finally {
+      await tempFile?.delete();
+    }
+  }
+
+  /// Partage marketing image + texte (menu partage / WhatsApp générique).
+  Future<bool> _shareImageWithText({
+    required Uint8List image,
+    required String message,
+    required int entityId,
+  }) async {
+    final trimmed = message.trim();
+
+    try {
+      final xfile = await _buildXFile(image, 'uzaapp_$entityId.jpg');
+      await Share.shareXFiles(
+        [xfile.$1],
+        text: trimmed.isNotEmpty ? trimmed : null,
+        subject: 'UzaApp',
+      );
+      await xfile.$2?.delete();
+      return true;
+    } catch (e) {
+      debugPrint('shareXFiles failed: $e');
+    }
+
+    if (kIsWeb) {
+      if (trimmed.isNotEmpty) {
+        final shared = await shareImageAndTextOnWeb(
+          imageBytes: image,
+          text: trimmed,
+          filename: 'uzaapp_$entityId.jpg',
+        );
+        if (shared) return true;
+      }
+
+      try {
+        await downloadStatusImages(entityId, [image]);
+      } catch (e) {
+        debugPrint('Image download fallback failed: $e');
+      }
+
+      if (trimmed.isNotEmpty) {
+        await _launchWhatsAppWeb(message: trimmed);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// Web/PWA: image produit + message (comme avant : partage natif ou download + WhatsApp).
+  Future<void> _sharePreparedOnWeb({
+    required int downloadId,
+    List<Uint8List>? images,
+    String? text,
+  }) async {
+    final message = text?.trim() ?? '';
+    if (images != null && images.isNotEmpty) {
+      await _shareImageWithText(
+        image: images.first,
+        message: message,
+        entityId: downloadId,
+      );
+      return;
+    }
+
+    if (message.isEmpty) return;
+
+    try {
+      await Share.share(message);
+      return;
+    } catch (e) {
+      debugPrint('Web Share.share failed: $e');
+    }
+
+    await _launchWhatsAppWeb(message: message);
+  }
+
+  Future<ContactPreview> _resolveWhatsAppContactPayload({
+    required String entityType,
+    required int entityId,
+    String? name,
+    String? category,
+    String? imageUrl,
+    String? productUrl,
+    double? price,
+    bool hidePrice = false,
+    String? condition,
+  }) async {
+    if (entityType == 'product') {
+      final product = await (db.select(db.products)
+            ..where((t) => t.id.equals(entityId)))
+          .getSingleOrNull();
+      if (product != null) {
+        final shop = await (db.select(db.shops)
+              ..where((t) => t.id.equals(product.shopId)))
+            .getSingleOrNull();
+        return ContactPreview(
+          message: _buildProductContactMessage(
+            product,
+            shop,
+            productUrlOverride: productUrl,
+          ),
+          imageUrl:
+              imageUrl ??
+              ImageUtils.getDecryptedList(product.imageUrls).firstOrNull,
+          entityType: 'product',
+          entityId: product.id,
+        );
+      }
+    }
+
+    if (entityType == 'shop') {
+      final shop = await (db.select(db.shops)
+            ..where((t) => t.id.equals(entityId)))
+          .getSingleOrNull();
+      if (shop != null) {
+        return ContactPreview(
+          message: _buildShopBuyerContactMessage(shop),
+          imageUrl: imageUrl ?? shop.logoUrl,
+          entityType: 'shop',
+          entityId: shop.id,
+        );
+      }
+    }
+
+    if (entityType == 'arrivage') {
+      final story = await (db.select(db.stories)
+            ..where((t) => t.id.equals(entityId)))
+          .getSingleOrNull();
+      if (story != null) {
+        final shop = await (db.select(db.shops)
+              ..where((t) => t.id.equals(story.shopId)))
+            .getSingleOrNull();
+        if (shop != null) {
+          final storyImage = imageUrl ?? ImageUtils.resolveImageUrl(story.mediaUrl);
+          return ContactPreview(
+            message: _buildArrivageBuyerContactMessage(shop),
+            imageUrl: storyImage ?? shop.logoUrl,
+            entityType: 'arrivage',
+            entityId: entityId,
+          );
+        }
+      }
+    }
+
+    return ContactPreview(
+      message: _buildWhatsAppMessage(
+        entityType: entityType,
+        entityId: entityId,
+        name: name,
+        category: category,
+        productUrl: productUrl,
+        price: price,
+        hidePrice: hidePrice,
+        condition: condition,
+      ),
+      imageUrl: imageUrl,
+      entityType: entityType,
+      entityId: entityId,
+    );
+  }
+
+  String _buildProductContactMessage(
+    Product product,
+    Shop? shop, {
+    String? productUrlOverride,
+  }) {
+    final productRef =
+        (product.remoteId != null && product.remoteId!.isNotEmpty)
+        ? product.remoteId!
+        : product.id.toString();
+    final url = productUrlOverride ?? 'https://uzaapp.com/product/$productRef';
+
+    final conditionLine = product.condition == 'new'
+        ? ShareMessageLabels.conditionNew()
+        : ShareMessageLabels.conditionUsed();
+    final priceText = ProductPriceUtils.shareLine(product);
+    final descLine =
+        (product.description != null && product.description!.isNotEmpty)
+        ? '${ShareMessageLabels.description(product.description!.length > 120 ? '${product.description!.substring(0, 120)}...' : product.description!)}\n'
+        : '';
+    final shopLine = shop != null
+        ? '${ShareMessageLabels.shop(shop.name)}\n'
+        : '';
+    final promoLine =
+        (product.promotionMessage != null &&
+            product.promotionMessage!.trim().isNotEmpty)
+        ? '${ShareMessageLabels.promo(product.promotionMessage!.trim())}\n'
+        : '';
+    final categoryLine =
+        (product.category != null && product.category!.trim().isNotEmpty)
+        ? '${ShareMessageLabels.category(product.category!.trim())}\n'
+        : '';
+    final productImages = ImageUtils.getDecryptedList(product.imageUrls);
+    final directImageUrl = productImages.isNotEmpty &&
+            productImages.first.startsWith('http')
+        ? '\n${productImages.first}\n'
+        : '';
+
+    return 'Bonjour, je vous contacte depuis UzaApp.\n'
+        'Je suis très intéressé(e) par votre article :\n\n'
+        '${ShareMessageLabels.productTitle(product.name)}\n'
+        '$descLine'
+        '$categoryLine'
+        '$promoLine'
+        '$conditionLine\n'
+        '$priceText\n'
+        '$shopLine'
+        '$directImageUrl'
+        '\n'
+        '${ShareMessageLabels.productLink(url)}\n\n'
+        'Cet article est-il toujours disponible ?\n\n'
+        '${ShareMessageLabels.footerCatalog}\n\n'
+        '${ShareMessageLabels.hashtagsShopping}';
+  }
+
+  String _buildShopBuyerContactMessage(Shop shop) {
+    final url = ShopQrUtils.shopUrl(shop);
+    final locationParts = <String>[
+      if (shop.commune?.trim().isNotEmpty == true) shop.commune!.trim(),
+      if (shop.city?.trim().isNotEmpty == true) shop.city!.trim(),
+    ];
+    final locationLine = locationParts.isNotEmpty
+        ? '${ShareMessageLabels.location(locationParts.join(', '))}\n'
+        : (shop.address?.trim().isNotEmpty == true
+              ? '${ShareMessageLabels.location(shop.address!.trim())}\n'
+              : '');
+    final verifiedLine =
+        shop.isVerified ? '${ShareMessageLabels.verifiedShop()}\n' : '';
+    final logoUrl = ImageUtils.resolveImageUrl(shop.logoUrl) ??
+        ImageUtils.resolveImageUrl(shop.bannerUrl);
+    final logoLine = logoUrl != null && logoUrl.startsWith('http')
+        ? '\n$logoUrl\n'
+        : '';
+
+    return 'Bonjour, je vous contacte depuis UzaApp.\n'
+        'Je suis intéressé(e) par votre boutique :\n\n'
+        '${ShareMessageLabels.productTitle(shop.name)}\n'
+        '$locationLine'
+        '$verifiedLine'
+        '$logoLine'
+        '\n'
+        '${ShareMessageLabels.shopLink(url)}\n\n'
+        'Auriez-vous des articles disponibles pour moi ?\n\n'
+        '${ShareMessageLabels.footerCatalog}\n\n'
+        '${ShareMessageLabels.hashtagsShop}';
+  }
+
+  String _buildArrivageBuyerContactMessage(Shop shop) {
+    final url = ShopQrUtils.shopUrl(shop);
+    return 'Bonjour, je vous contacte depuis UzaApp.\n'
+        'Je suis très intéressé(e) par votre *nouvel arrivage* :\n\n'
+        '${ShareMessageLabels.arrivageTitle(shop.name)}\n'
+        '\n'
+        '${ShareMessageLabels.shopLink(url)}\n\n'
+        'Est-ce que ces articles sont encore disponibles ?\n\n'
+        '${ShareMessageLabels.footerCatalog}\n\n'
+        '${ShareMessageLabels.hashtagsArrivage}';
+  }
+
+  String _buildWhatsAppMessage({
+    required String entityType,
+    required int entityId,
+    String? name,
+    String? category,
+    String? productUrl,
+    double? price,
+    bool hidePrice = false,
+    String? condition,
+  }) {
     final StringBuffer buf = StringBuffer();
 
     if (entityType == 'product' && name != null) {
-      buf.writeln('Bonjour, je vous contacte depuis Uzaapp.');
+      buf.writeln('Bonjour, je vous contacte depuis UzaApp.');
       buf.writeln('Je suis très intéressé(e) par votre article :');
-      buf.writeln('📌 *$name*');
+      buf.writeln(ShareMessageLabels.productTitle(name));
+      if (category != null && category.trim().isNotEmpty) {
+        buf.writeln(ShareMessageLabels.category(category.trim()));
+      }
+      if (condition != null && condition.trim().isNotEmpty) {
+        final normalized = condition.trim().toLowerCase();
+        buf.writeln(
+          normalized == 'new'
+              ? ShareMessageLabels.conditionNew()
+              : ShareMessageLabels.conditionUsed(),
+        );
+      }
       buf.writeln(
         ProductPriceUtils.shareLineFromValues(
           price: price,
@@ -61,43 +615,45 @@ class ContactService {
       );
       buf.writeln();
       final productLink = productUrl ?? 'https://uzaapp.com/product/$entityId';
-      buf.writeln('🔗 Lien : $productLink');
+      buf.writeln(ShareMessageLabels.productLink(productLink));
       buf.writeln();
-      buf.write('Cet article est-il toujours disponible ?');
+      buf.writeln('Cet article est-il toujours disponible ?');
+      buf.writeln();
+      buf.writeln(ShareMessageLabels.footerBody);
+      buf.writeln();
+      buf.writeln(ShareMessageLabels.hashtagsShopping);
     } else if (entityType == 'shop' && name != null) {
-      // Shop-specific format
-      buf.writeln('🏪 *$name*');
+      buf.writeln('*${name.trim()}*');
       if (productUrl != null && productUrl.isNotEmpty) {
-        buf.writeln('🔗 Voir la boutique: $productUrl');
+        buf.writeln(ShareMessageLabels.shopLink(productUrl));
         buf.writeln();
       }
-      buf.write('Envoyé depuis Uzaapp');
+      buf.write('Envoyé depuis UzaApp');
     } else {
-      // Generic / support format
-      buf.write('Bonjour, je suis intéressé par ce produit sur Uzaapp');
+      buf.write('Bonjour, je suis intéressé par ce produit sur UzaApp');
     }
 
-    final message = buf.toString();
-    final url = Uri.parse(
-      "https://wa.me/$cleanPhone?text=${Uri.encodeComponent(message)}",
-    );
+    return buf.toString();
+  }
 
-    debugPrint('Launching WhatsApp: $url');
+  Future<Uint8List?> _composeBrandedShareImage({
+    required String entityType,
+    String? imageUrl,
+  }) async {
+    if (imageUrl == null || imageUrl.trim().isEmpty) return null;
+
+    final imageBytes = await ImageUtils.downloadImageBytes(imageUrl);
+    if (imageBytes == null || imageBytes.isEmpty) return null;
 
     try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-        await _logInteraction(
-          entityType,
-          entityId,
-          'whatsapp',
-          buyerPhone: buyerPhone,
-        );
-      } else {
-        debugPrint('Cannot launch WhatsApp URL');
-      }
+      final uzaLogoBytes = await ImageUtils.loadUzaLogoBytes();
+      return StatusImageComposer.composeProductShareImage(
+        productImageBytes: imageBytes,
+        uzaLogoBytes: uzaLogoBytes,
+      );
     } catch (e) {
-      debugPrint('Error launching WhatsApp: $e');
+      debugPrint('composeBrandedShareImage failed: $e');
+      return null;
     }
   }
 
@@ -114,7 +670,6 @@ class ContactService {
 
     try {
       if (await canLaunchUrl(url)) {
-        // Use platformDefaultLaunchMode for tel: URLs to work on all platforms
         await launchUrl(url, mode: LaunchMode.platformDefault);
         await _logInteraction(
           entityType,
@@ -123,10 +678,11 @@ class ContactService {
           buyerPhone: buyerPhone,
         );
       } else {
-        debugPrint('Cannot launch phone dialer');
+        throw Exception('Impossible d\'ouvrir l\'application téléphone');
       }
     } catch (e) {
       debugPrint('Error making call: $e');
+      rethrow;
     }
   }
 
@@ -154,10 +710,11 @@ class ContactService {
           buyerPhone: buyerPhone,
         );
       } else {
-        debugPrint('Cannot launch SMS app');
+        throw Exception('Impossible d\'ouvrir l\'application SMS');
       }
     } catch (e) {
       debugPrint('Error sending SMS: $e');
+      rethrow;
     }
   }
 
@@ -218,7 +775,18 @@ class ContactService {
                 productId: drift.Value(productId),
               ),
             );
+
+        syncService?.reportContactStat(
+          localShopId: shopId,
+          contactType: type,
+          localProductId: productId,
+          userPhone: buyerPhone,
+        );
       }
+    } else if (type == 'share' && entityType == 'product') {
+      syncService?.reportProductStatByLocalId(entityId, 'share');
+    } else if (entityType == 'shop' && ShopStatsTypes.isSynced(type)) {
+      syncService?.reportShopInteractionByLocalId(entityId, type);
     }
   }
 
@@ -228,13 +796,23 @@ class ContactService {
   }) async {
     final String url = ShopQrUtils.shopUrl(shop);
     final bytes = await ShopQrUtils.generateQrPng(url);
+    final String text = ShopShareMessages.qrShare(shop);
+
+    if (kIsWeb) {
+      await _sharePreparedOnWeb(
+        downloadId: shop.id,
+        images: [bytes],
+        text: text,
+      );
+      await _logInteraction('shop', shop.id, 'qr_share');
+      return;
+    }
+
     final xfile = await _buildXFile(
       bytes,
       'shop_qr_${shop.id}.png',
       mimeType: 'image/png',
     );
-    final String text = ShopShareMessages.qrShare(shop);
-
     try {
       await Share.shareXFiles(
         [xfile.$1],
@@ -245,11 +823,6 @@ class ContactService {
       await _logInteraction('shop', shop.id, 'qr_share');
     } catch (e) {
       debugPrint('shareShopQrCode failed: $e');
-      if (kIsWeb) {
-        await downloadStatusImages(shop.id, [bytes]);
-        await _logInteraction('shop', shop.id, 'qr_share');
-        return;
-      }
       rethrow;
     } finally {
       await xfile.$2?.delete();
@@ -257,8 +830,13 @@ class ContactService {
   }
 
   Future<void> shareAppInvite() async {
+    final text = AppShareMessages.merchantInvite();
+    if (kIsWeb) {
+      await _launchWhatsAppWeb(message: text);
+      return;
+    }
     await Share.share(
-      AppShareMessages.merchantInvite(),
+      text,
       subject: AppShareMessages.merchantInviteSubject(),
     );
   }
@@ -282,33 +860,82 @@ class ContactService {
       activeArrivageStories: arrivageStories.length,
     );
 
+    final logoBytes = await _downloadShopLogoBytes(shop);
+    if (logoBytes != null) {
+      if (kIsWeb) {
+        await _sharePreparedOnWeb(
+          downloadId: shop.id,
+          images: [logoBytes],
+          text: text,
+        );
+        await _logInteraction('shop', shop.id, 'catalog_share');
+        return;
+      }
+      try {
+        final xfile = await _buildXFile(
+          logoBytes,
+          'shop_logo_${shop.id}.jpg',
+        );
+        await Share.shareXFiles(
+          [xfile.$1],
+          text: text,
+          subject: ShopShareMessages.catalogShareSubject(shop),
+        );
+        await xfile.$2?.delete();
+        await _logInteraction('shop', shop.id, 'catalog_share');
+        return;
+      } catch (e) {
+        debugPrint('Catalog logo share failed: $e');
+      }
+    }
+
     await _shareText(text);
     await _logInteraction('shop', shop.id, 'catalog_share');
+  }
+
+  Future<Uint8List?> _downloadShopLogoBytes(Shop shop) async {
+    final resolved = ImageUtils.resolveImageUrl(shop.logoUrl);
+    if (resolved == null || resolved.isEmpty) return null;
+    try {
+      if (resolved.startsWith('http://') || resolved.startsWith('https://')) {
+        final response = await http.get(Uri.parse(resolved));
+        if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+          return response.bodyBytes;
+        }
+      }
+    } catch (e) {
+      debugPrint('Shop logo download failed: $e');
+    }
+    return null;
   }
 
   Future<void> shareShop(Shop shop) async {
     final String text = ShopShareMessages.linkShare(shop);
 
-    if (shop.logoUrl != null && shop.logoUrl!.isNotEmpty) {
+    final logoBytes = await _downloadShopLogoBytes(shop);
+    if (logoBytes != null) {
+      if (kIsWeb) {
+        await _sharePreparedOnWeb(
+          downloadId: shop.id,
+          images: [logoBytes],
+          text: text,
+        );
+        await _logInteraction('shop', shop.id, 'share');
+        return;
+      }
       try {
-        final logoUrl = CryptoUtils.decrypt(shop.logoUrl!);
-        if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) {
-          final response = await http.get(Uri.parse(logoUrl));
-          if (response.statusCode == 200) {
-            final xfile = await _buildXFile(
-              response.bodyBytes,
-              'shop_logo_${shop.id}.jpg',
-            );
-            await Share.shareXFiles(
-              [xfile.$1],
-              text: text,
-              subject: ShopShareMessages.linkShareSubject(shop),
-            );
-            await xfile.$2?.delete();
-            await _logInteraction('shop', shop.id, 'share');
-            return;
-          }
-        }
+        final xfile = await _buildXFile(
+          logoBytes,
+          'shop_logo_${shop.id}.jpg',
+        );
+        await Share.shareXFiles(
+          [xfile.$1],
+          text: text,
+          subject: ShopShareMessages.linkShareSubject(shop),
+        );
+        await xfile.$2?.delete();
+        await _logInteraction('shop', shop.id, 'share');
+        return;
       } catch (e) {
         debugPrint('Shop image share failed: $e');
       }
@@ -318,58 +945,53 @@ class ContactService {
     await _logInteraction('shop', shop.id, 'share');
   }
 
-  Future<void> shareProduct(Product product, Shop? shop) async {
+  Future<void> shareProduct(
+    Product product,
+    Shop? shop, {
+    Uint8List? precomposedImage,
+  }) async {
     Shop? actualShop = shop;
     actualShop ??= await (db.select(
       db.shops,
     )..where((t) => t.id.equals(product.shopId))).getSingleOrNull();
 
-    final String productRef =
-        (product.remoteId != null && product.remoteId!.isNotEmpty)
-        ? product.remoteId!
-        : product.id.toString();
-    final String url = "https://uzaapp.com/product/$productRef";
-    final String condition = product.condition == 'new'
-        ? '🆕 État : Neuf'
-        : '✅ État : Occasion';
-    final String priceText = ProductPriceUtils.shareLine(product);
-    final String descLine =
-        (product.description != null && product.description!.isNotEmpty)
-        ? '📝 ${product.description!.length > 120 ? '${product.description!.substring(0, 120)}...' : product.description}\n'
-        : '';
-    final String shopLine = actualShop != null
-        ? '🏦 Boutique : ${actualShop.name}\n'
-        : '';
+    final text = ProductShareMessages.share(product, actualShop);
+    final String? productImageSource =
+        ImageUtils.getDecryptedList(product.imageUrls).firstOrNull;
+    final Uint8List? productImageBytes = await ImageUtils.downloadImageBytes(
+      productImageSource,
+    );
 
-    final String text =
-        '✨ *${product.name.toUpperCase()}* ✨\n\n'
-        '$descLine'
-        '$condition\n'
-        '$priceText\n'
-        '$shopLine'
-        '\n'
-        '👉 Voir le produit sur UzaApp :\n$url\n\n'
-        '📦 Des milliers de produits disponibles près de chez vous !\n'
-        '📲 Téléchargez UzaApp — Le marché en ligne N°1 en RDC\n\n'
-        '#UzaApp #Shopping #RDC #Kinshasa';
-
-    final composedImage = await _composeProductShareImage(product);
-    if (composedImage != null) {
+    if (productImageBytes != null && productImageBytes.isNotEmpty) {
       try {
+        final shareImageBytes = precomposedImage ??
+            await StatusImageComposer.composeProductShareImage(
+              productImageBytes: productImageBytes,
+              uzaLogoBytes: await ImageUtils.loadUzaLogoBytes(),
+            );
+        if (kIsWeb) {
+          await _sharePreparedOnWeb(
+            downloadId: product.id,
+            images: [shareImageBytes],
+            text: text,
+          );
+          await _logInteraction('product', product.id, 'share');
+          return;
+        }
         final xfile = await _buildXFile(
-          composedImage,
-          'product_share_${product.id}.jpg',
+          shareImageBytes,
+          'product_${product.id}.jpg',
         );
         await Share.shareXFiles(
           [xfile.$1],
           text: text,
-          subject: '✨ ${product.name} | UzaApp',
+          subject: ProductShareMessages.subject(product),
         );
         await xfile.$2?.delete();
         await _logInteraction('product', product.id, 'share');
         return;
       } catch (e) {
-        debugPrint('Product image share failed, using text fallback: $e');
+        debugPrint('Product image share failed: $e');
       }
     }
 
@@ -377,28 +999,60 @@ class ContactService {
     await _logInteraction('product', product.id, 'share');
   }
 
-  Future<Uint8List?> _composeProductShareImage(Product product) async {
-    final images = ImageUtils.getDecryptedList(product.imageUrls);
-    if (images.isEmpty) return null;
+  Future<void> shareStory(
+    Story story,
+    Shop shop, {
+    String? imageUrl,
+  }) async {
+    final text = StatusShareMessages.storyShare(
+      shop,
+      isArrivage: story.isArrivage,
+    );
+    final source =
+        imageUrl ??
+        ImageUtils.resolveImageUrl(
+          story.mediaUrl.isNotEmpty ? story.mediaUrl : null,
+        );
+    final imageBytes = await ImageUtils.downloadImageBytes(source);
 
-    Uint8List? productBytes;
-    for (final url in images) {
-      productBytes = await ImageUtils.downloadImageBytes(url);
-      if (productBytes != null && productBytes.isNotEmpty) break;
+    if (imageBytes != null && imageBytes.isNotEmpty) {
+      try {
+        final uzaLogoBytes = await ImageUtils.loadUzaLogoBytes();
+        final shareImageBytes = await StatusImageComposer.composeProductShareImage(
+          productImageBytes: imageBytes,
+          uzaLogoBytes: uzaLogoBytes,
+        );
+        if (kIsWeb) {
+          await _sharePreparedOnWeb(
+            downloadId: shop.id,
+            images: [shareImageBytes],
+            text: text,
+          );
+          await _logInteraction('shop', shop.id, 'story_share');
+          return;
+        }
+        final xfile = await _buildXFile(
+          shareImageBytes,
+          'story_${story.id}.jpg',
+        );
+        await Share.shareXFiles(
+          [xfile.$1],
+          text: text,
+          subject: StatusShareMessages.storyShareSubject(
+            shop,
+            isArrivage: story.isArrivage,
+          ),
+        );
+        await xfile.$2?.delete();
+        await _logInteraction('shop', shop.id, 'story_share');
+        return;
+      } catch (e) {
+        debugPrint('Story image share failed: $e');
+      }
     }
-    if (productBytes == null) return null;
 
-    final uzaLogoBytes = await ImageUtils.loadUzaLogoBytes();
-
-    try {
-      return await StatusImageComposer.composeProductShareImage(
-        productImageBytes: productBytes,
-        uzaLogoBytes: uzaLogoBytes,
-      );
-    } catch (e) {
-      debugPrint('Product share image compose failed: $e');
-      return null;
-    }
+    await _shareText(text);
+    await _logInteraction('shop', shop.id, 'story_share');
   }
 
   /// Returns (XFile, File?) — File is non-null on mobile so caller can delete it.
@@ -425,6 +1079,16 @@ class ContactService {
   }
 
   Future<void> _shareText(String text) async {
+    if (kIsWeb) {
+      try {
+        await Share.share(text);
+        return;
+      } catch (e) {
+        debugPrint('Web Share.share failed: $e');
+      }
+      await _launchWhatsAppWeb(message: text);
+      return;
+    }
     try {
       await Share.share(text);
     } catch (e) {
@@ -432,19 +1096,49 @@ class ContactService {
       final String encodedText = Uri.encodeComponent(text);
       final url = Uri.parse("https://wa.me/?text=$encodedText");
       if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
+        await launchUrl(
+          url,
+          mode: LaunchMode.externalApplication,
+          webOnlyWindowName: '_blank',
+        );
+        return;
       }
+      rethrow;
     }
   }
 
   Future<void> _shareStatusFilesOnly({
     required List<XFile> files,
+    String? text,
+    String? subject,
     Rect? sharePositionOrigin,
     Future<void> Function()? onShareUnavailable,
   }) async {
+    if (kIsWeb) {
+      try {
+        await Share.shareXFiles(
+          files,
+          text: text,
+          subject: subject,
+        );
+        return;
+      } catch (e) {
+        debugPrint('Web shareXFiles status failed: $e');
+      }
+      if (onShareUnavailable != null) {
+        await onShareUnavailable();
+        return;
+      }
+      if (text != null && text.trim().isNotEmpty) {
+        await _launchWhatsAppWeb(message: text.trim());
+      }
+      return;
+    }
     try {
       await Share.shareXFiles(
         files,
+        text: text,
+        subject: subject,
         sharePositionOrigin: kIsWeb ? null : sharePositionOrigin,
       );
     } catch (e) {
@@ -466,13 +1160,24 @@ class ContactService {
   }) async {
     if (images.isEmpty) return;
 
+    final text = StatusShareMessages.collectionShare(
+      shop,
+      imageCount: images.length,
+    );
+
     try {
       await _shareStatusFilesOnly(
         files: images,
+        text: text,
+        subject: StatusShareMessages.collectionShareSubject(shop),
         sharePositionOrigin: sharePositionOrigin,
         onShareUnavailable: rawImagesForWebFallback != null &&
                 rawImagesForWebFallback.isNotEmpty
-            ? () => downloadStatusImages(shop.id, rawImagesForWebFallback)
+            ? () => _sharePreparedOnWeb(
+                downloadId: shop.id,
+                images: rawImagesForWebFallback,
+                text: text,
+              )
             : null,
       );
       await _logInteraction('shop', shop.id, 'facebook_status');
@@ -503,6 +1208,12 @@ class ContactService {
   }) async {
     if (fallbackImages.isEmpty) return;
 
+    final text = StatusShareMessages.collectionShare(
+      shop,
+      imageCount: fallbackImages.length,
+    );
+    final subject = StatusShareMessages.collectionShareSubject(shop);
+
     File? tempVideoFile;
     try {
       if (export == null) {
@@ -515,9 +1226,15 @@ class ContactService {
         try {
           await _shareStatusFilesOnly(
             files: xfiles,
+            text: text,
+            subject: subject,
             sharePositionOrigin: sharePositionOrigin,
             onShareUnavailable: kIsWeb
-                ? () => downloadStatusImages(shop.id, slides)
+                ? () => _sharePreparedOnWeb(
+                    downloadId: shop.id,
+                    images: slides,
+                    text: text,
+                  )
                 : null,
           );
         } finally {
@@ -525,6 +1242,14 @@ class ContactService {
             await deleteStatusTempFiles(tempPaths);
           }
         }
+      } else if (kIsWeb) {
+        final slides =
+            fallbackImages.take(StatusSlideshowVideo.tikTokMaxSlides).toList();
+        await _sharePreparedOnWeb(
+          downloadId: shop.id,
+          images: slides,
+          text: text,
+        );
       } else {
         tempVideoFile = File(export.filePath);
         await _shareStatusFilesOnly(
@@ -535,6 +1260,8 @@ class ContactService {
               name: 'uza_tiktok_${shop.id}.mp4',
             ),
           ],
+          text: text,
+          subject: subject,
           sharePositionOrigin: sharePositionOrigin,
         );
       }
@@ -570,13 +1297,24 @@ class ContactService {
   }) async {
     if (images.isEmpty) return;
 
+    final text = StatusShareMessages.collectionShare(
+      shop,
+      imageCount: images.length,
+    );
+
     try {
       await _shareStatusFilesOnly(
         files: images,
+        text: text,
+        subject: StatusShareMessages.collectionShareSubject(shop),
         sharePositionOrigin: sharePositionOrigin,
         onShareUnavailable: rawImagesForWebFallback != null &&
                 rawImagesForWebFallback.isNotEmpty
-            ? () => downloadStatusImages(shop.id, rawImagesForWebFallback)
+            ? () => _sharePreparedOnWeb(
+                downloadId: shop.id,
+                images: rawImagesForWebFallback,
+                text: text,
+              )
             : null,
       );
       await _logInteraction('shop', shop.id, 'whatsapp_status');
@@ -584,7 +1322,11 @@ class ContactService {
       debugPrint('shareStatusCollection failed: $e');
       if (rawImagesForWebFallback != null &&
           rawImagesForWebFallback.isNotEmpty) {
-        await downloadStatusImages(shop.id, rawImagesForWebFallback);
+        await _sharePreparedOnWeb(
+          downloadId: shop.id,
+          images: rawImagesForWebFallback,
+          text: text,
+        );
         await _logInteraction('shop', shop.id, 'whatsapp_status');
         return;
       }

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/local/uza_database.dart';
+import '../utils/phone_utils.dart';
 import '../utils/status_batch_storage.dart';
 import 'platform_system_notifier.dart';
 import 'push_notification_service.dart';
@@ -102,10 +103,7 @@ class WhatsAppStatusScheduler {
     }
 
     final shop = await _resolveShop();
-    if (shop == null) {
-      debugPrint('WhatsAppStatusScheduler: no shop found');
-      return null;
-    }
+    if (shop == null) return null;
 
     await prefs.setBool(kPrefWaStatusPreparing, true);
     try {
@@ -197,18 +195,24 @@ class WhatsAppStatusScheduler {
     }
 
     final ownerPhone = prefs.getString(kPrefWaStatusOwnerPhone);
-    final shops = await db.select(db.shops).get();
+    if (ownerPhone == null || ownerPhone.trim().isEmpty) return null;
 
-    if (ownerPhone != null && ownerPhone.isNotEmpty) {
-      for (final shop in shops) {
-        if (shop.ownerId == ownerPhone || shop.phone == ownerPhone) {
-          return shop;
-        }
+    final ownerKeys = PhoneUtils.lookupKeys(ownerPhone).toSet();
+    final shops = await db.select(db.shops).get();
+    for (final shop in shops) {
+      if (_shopMatchesOwner(shop, ownerKeys)) return shop;
+    }
+    return null;
+  }
+
+  bool _shopMatchesOwner(Shop shop, Set<String> ownerKeys) {
+    for (final field in [shop.ownerId, shop.phone, shop.whatsapp]) {
+      if (field == null || field.trim().isEmpty) continue;
+      for (final key in PhoneUtils.lookupKeys(field)) {
+        if (ownerKeys.contains(key)) return true;
       }
     }
-
-    if (shops.length == 1) return shops.first;
-    return null;
+    return false;
   }
 
   Future<void> _notifyReady(int shopId, int count, DateTime nextRun) async {

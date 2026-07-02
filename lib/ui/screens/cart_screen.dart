@@ -13,6 +13,9 @@ import '../../data/repositories/order_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/services/sync_service.dart';
 import '../components/mobile_money_sheet.dart';
+import '../components/request_delivery_sheet.dart';
+import '../components/uza_secondary_app_bar.dart';
+import '../../core/router/app_nav_utils.dart';
 
 class CartScreen extends StatefulWidget {
   final bool showAppBar;
@@ -27,16 +30,17 @@ class _CartScreenState extends State<CartScreen> {
   Widget build(BuildContext context) {
     final cartRepo = context.read<CartRepository>();
 
-    return Scaffold(
-      appBar: widget.showAppBar
-          ? AppBar(
-              title: Text(tr(context, 'my_cart')),
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              foregroundColor: UzaColors.primary,
-            )
-          : null,
-      body: StreamBuilder<List<CartItemWithProduct>>(
+    return UzaBackScope(
+      child: Scaffold(
+        appBar: widget.showAppBar
+            ? UzaSecondaryAppBar(
+                title: tr(context, 'my_cart'),
+                backgroundColor: Colors.transparent,
+                foregroundColor: UzaColors.primary,
+                elevation: 0,
+              )
+            : null,
+        body: StreamBuilder<List<CartItemWithProduct>>(
         stream: cartRepo.watchCartWithProducts(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
@@ -66,7 +70,8 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: () =>
+                        AppNavUtils.popRoute(context, fallback: '/'),
                     child: Text(tr(context, 'browse_catalog')),
                   ),
                 ],
@@ -209,10 +214,20 @@ class _CartScreenState extends State<CartScreen> {
                     OutlinedButton.icon(
                       onPressed: () => _showMobileMoney(context, items),
                       icon: const Icon(Icons.account_balance_wallet_outlined),
-                      label: const Text('Mobile Money'),
+                      label: Text(tr(context, 'mobile_money')),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size(double.infinity, 48),
                         foregroundColor: UzaColors.secondary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => _requestDelivery(context, items),
+                      icon: const Icon(Icons.local_shipping_outlined),
+                      label: Text(tr(context, 'request_delivery')),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 48),
+                        foregroundColor: UzaColors.primary,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -242,6 +257,7 @@ class _CartScreenState extends State<CartScreen> {
           );
         },
       ),
+      ),
     );
   }
 
@@ -253,8 +269,8 @@ class _CartScreenState extends State<CartScreen> {
     final shopIds = items.map((i) => i.product.shopId).toSet();
     if (shopIds.length > 1) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Une seule boutique à la fois pour le paiement.'),
+        SnackBar(
+          content: Text(tr(context, 'one_shop_payment')),
         ),
       );
       return;
@@ -265,7 +281,7 @@ class _CartScreenState extends State<CartScreen> {
         : (shop?.phone?.trim() ?? '');
     if (phone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Numéro vendeur indisponible.')),
+        SnackBar(content: Text(tr(context, 'seller_phone_unavailable'))),
       );
       return;
     }
@@ -298,6 +314,40 @@ class _CartScreenState extends State<CartScreen> {
       whatsAppPhone: phone,
       buyerPhone: buyerPhone,
       orderId: orderId,
+    );
+  }
+
+  Future<void> _requestDelivery(
+    BuildContext context,
+    List<CartItemWithProduct> items,
+  ) async {
+    if (items.isEmpty) return;
+    final shopIds = items.map((i) => i.product.shopId).toSet();
+    if (shopIds.length > 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Veuillez demander la livraison pour une seule boutique à la fois.',
+          ),
+        ),
+      );
+      return;
+    }
+    final shop = await context.read<ShopRepository>().getShopById(shopIds.first);
+    if (shop == null) return;
+    final cartItems = items
+        .map(
+          (i) => {
+            'product_id': i.product.id,
+            'name': i.product.name,
+            'quantity': i.cartItem.quantity,
+          },
+        )
+        .toList();
+    await RequestDeliverySheet.show(
+      context,
+      shop: shop,
+      items: cartItems,
     );
   }
 
@@ -353,7 +403,7 @@ class _CartScreenState extends State<CartScreen> {
     if (targetPhone.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Numéro de contact invalide.')),
+          SnackBar(content: Text(tr(context, 'invalid_contact_number'))),
         );
       }
       return;

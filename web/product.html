@@ -7,7 +7,7 @@
 
   <!-- Open Graph for WhatsApp preview -->
   <meta property="og:title" content="Produit sur Uzaapp">
-  <meta property="og:description" content="Voir ce produit sur Uzaapp - La marketplace des téléphones et gadgets en RDC">
+  <meta property="og:description" content="Voir ce produit sur Uzaapp - La marketplace des téléphones, ordinateurs et gadgets en RDC">
   <meta property="og:image" content="https://uzaapp.com/assets/logo.png">
   <meta property="og:url" content="">
   <meta property="og:type" content="product">
@@ -16,7 +16,7 @@
   <!-- Twitter Card fallback -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Produit sur Uzaapp">
-  <meta name="twitter:description" content="Voir ce produit sur Uzaapp - La marketplace des téléphones et gadgets en RDC">
+  <meta name="twitter:description" content="Voir ce produit sur Uzaapp - La marketplace des téléphones, ordinateurs et gadgets en RDC">
   <meta name="twitter:image" content="https://uzaapp.com/assets/logo.png">
 
   <style>
@@ -66,7 +66,7 @@
   <div class="container">
     <img src="/assets/logo.png" alt="Uzaapp" class="logo" onerror="this.style.display='none'">
     <h1>Uzaapp</h1>
-    <p>La marketplace des téléphones et gadgets en RDC</p>
+    <p>La marketplace des téléphones, ordinateurs et gadgets en RDC</p>
 
     <div id="productInfo" class="product-info">
       <img id="productImage" src="" alt="">
@@ -113,9 +113,12 @@
 
           document.getElementById('productName').textContent = product.name || '';
 
-          if (product.price) {
-            document.getElementById('productPrice').textContent = product.price + ' $';
-          }
+          var tagline = 'La marketplace des téléphones, ordinateurs et gadgets en RDC';
+          var hidePrice = product.hide_price === true || product.hide_price === 1;
+          var hasPrice = !hidePrice && product.price && parseFloat(product.price) > 0;
+          document.getElementById('productPrice').textContent = hasPrice
+            ? product.price + ' $'
+            : 'Prix à discuter';
 
           if (product.condition && product.condition !== 'new') {
             var labels = { like_new: 'Comme neuf', good: 'Bon état', fair: 'État correct', poor: 'Usé' };
@@ -125,7 +128,9 @@
           // Update OG tags dynamically
           document.title = (product.name || 'Produit') + ' - Uzaapp';
           document.querySelector('meta[property="og:title"]').content = (product.name || 'Produit') + ' - Uzaapp';
-          document.querySelector('meta[property="og:description"]').content = (product.name || '') + ' à ' + (product.price || '?') + '$ sur Uzaapp';
+          document.querySelector('meta[property="og:description"]').content = hasPrice
+            ? (product.name || '') + ' à ' + product.price + '$ sur Uzaapp - ' + tagline
+            : (product.name || '') + ' — Prix à discuter sur Uzaapp - ' + tagline;
           if (product.image_urls) {
             document.querySelector('meta[property="og:image"]').content = product.image_urls.split(',')[0];
           }

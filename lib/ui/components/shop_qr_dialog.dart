@@ -1,14 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../core/l10n/tr.dart';
 import '../../core/res/uza_colors.dart';
-import '../../core/services/contact_service.dart';
 import '../../core/utils/shop_qr_utils.dart';
 import '../../core/utils/shop_share_messages.dart';
 import '../../data/local/uza_database.dart';
+import 'marketing_share_sheet.dart';
 
 class ShopQrDialog extends StatefulWidget {
   final Shop shop;
@@ -27,22 +27,12 @@ class ShopQrDialog extends StatefulWidget {
 }
 
 class _ShopQrDialogState extends State<ShopQrDialog> {
-  bool _isSharing = false;
-
   String get _url => ShopQrUtils.shopUrl(widget.shop);
 
   Future<void> _shareQr() async {
-    setState(() => _isSharing = true);
-    try {
-      await context.read<ContactService>().shareShopQrCode(widget.shop);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Partage impossible : $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _isSharing = false);
-    }
+    if (!mounted) return;
+    Navigator.pop(context);
+    await MarketingShareSheet.showShopQr(context, shop: widget.shop);
   }
 
   String get _shareMessage => ShopShareMessages.qrShare(widget.shop);
@@ -50,14 +40,14 @@ class _ShopQrDialogState extends State<ShopQrDialog> {
   void _copyUrl() {
     Clipboard.setData(ClipboardData(text: _url));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Lien copié')),
+      SnackBar(content: Text(tr(context, 'link_copied'))),
     );
   }
 
   void _copyMessage() {
     Clipboard.setData(ClipboardData(text: _shareMessage));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Message copié')),
+      SnackBar(content: Text(tr(context, 'message_copied'))),
     );
   }
 
@@ -90,7 +80,7 @@ class _ShopQrDialogState extends State<ShopQrDialog> {
               version: QrVersions.auto,
               size: 220,
               gapless: true,
-              backgroundColor: Colors.white,
+              backgroundColor: UzaColors.surfaceOf(context),
               errorCorrectionLevel: QrErrorCorrectLevel.H,
               embeddedImage: ShopQrUtils.uzaLogoProvider,
               embeddedImageStyle: ShopQrUtils.embeddedImageStyleFor(220),
@@ -152,10 +142,8 @@ class _ShopQrDialogState extends State<ShopQrDialog> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Text(
+                SelectableText(
                   _shareMessage,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12,
                     height: 1.4,
@@ -206,21 +194,12 @@ class _ShopQrDialogState extends State<ShopQrDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _isSharing ? null : () => Navigator.pop(context),
-          child: const Text('Fermer'),
+          onPressed: () => Navigator.pop(context),
+          child: Text(tr(context, 'close')),
         ),
         FilledButton.icon(
-          onPressed: _isSharing ? null : _shareQr,
-          icon: _isSharing
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.share, size: 18),
+          onPressed: _shareQr,
+          icon: const Icon(Icons.share, size: 18),
           label: Text(kIsWeb ? 'Partager' : 'Partager le QR'),
           style: FilledButton.styleFrom(
             backgroundColor: UzaColors.primary,

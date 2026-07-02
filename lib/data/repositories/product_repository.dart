@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' show cos, sqrt, sin, atan2, pi;
 import 'package:flutter/foundation.dart' hide Category;
@@ -5,6 +6,7 @@ import 'package:drift/drift.dart';
 import 'package:http/http.dart' as http;
 import '../local/uza_database.dart';
 import '../services/sync_service.dart';
+import 'shop_repository.dart';
 import '../../core/services/recommendation_service.dart';
 import '../../core/utils/category_helper.dart';
 import '../../core/utils/image_utils.dart';
@@ -14,14 +16,62 @@ import 'paginated_result.dart';
 class ProductRepository {
   final UzaDatabase db;
   final SyncService? syncService;
+  final ShopRepository? shopRepository;
 
-  ProductRepository(this.db, {this.syncService});
+  /// Server shop id persisted in product metadata during sync.
+  static const syncShopIdMetaKey = '_sync_shop_id';
+
+  ProductRepository(
+    this.db, {
+    this.syncService,
+    this.shopRepository,
+  });
+
+  /// Resolves the boutique that owns [product], even when [Product.shopId]
+  /// accidentally stores a server shop id instead of the local row id.
+  Future<Shop?> resolveShopForProduct(Product product) async {
+    final shopRepo = shopRepository;
+    if (shopRepo == null) return null;
+
+    final serverShopId = readServerShopIdFromProduct(product);
+    if (serverShopId != null) {
+      final byServer = await shopRepo.resolveShopByServerId(serverShopId);
+      if (byServer != null) return byServer;
+    }
+
+    return shopRepo.resolveShopForStoredId(product.shopId);
+  }
+
+  static int? readServerShopIdFromProduct(Product product) {
+    final raw = product.metadata;
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final meta = jsonDecode(raw) as Map<String, dynamic>;
+      final value = meta[syncShopIdMetaKey];
+      if (value == null) return null;
+      if (value is int) return value;
+      return int.tryParse(value.toString());
+    } catch (_) {
+      return null;
+    }
+  }
 
   Stream<List<Product>> watchProductsByShop(int shopId) {
     return (db.select(db.products)
           ..where((t) => t.shopId.equals(shopId))
           ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
-        .watch();
+        .watch()
+        .map(deduplicateForDisplay);
+  }
+
+  /// Products for a shop card/profile — follows canonical local row when [shop] has remoteId.
+  Stream<List<Product>> watchProductsForShop(Shop shop) {
+    final shopRepo = shopRepository;
+    if (shopRepo == null) return watchProductsByShop(shop.id);
+    return shopRepo.watchShop(shop).asyncExpand((resolved) {
+      final localId = resolved?.id ?? shop.id;
+      return watchProductsByShop(localId);
+    });
   }
 
   Stream<List<Category>> watchCategories({int? parentId}) {
@@ -125,7 +175,7 @@ class ProductRepository {
     return (db.select(
       db.products,
     )..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch().map(
-      _shuffleBoostedWithImagesFirst,
+      (items) => _shuffleBoostedWithImagesFirst(deduplicateForDisplay(items)),
     );
   }
 
@@ -133,7 +183,7 @@ class ProductRepository {
     return (db.select(
       db.products,
     )..where((t) => t.categoryId.equals(categoryId))).watch().map(
-      _shuffleBoostedWithImagesFirst,
+      (items) => _shuffleBoostedWithImagesFirst(deduplicateForDisplay(items)),
     );
   }
 
@@ -165,25 +215,26 @@ class ProductRepository {
         }))
         .watch()
         .map((items) {
+          final unique = deduplicateForDisplay(items);
           switch (sortBy) {
             case 'priceAsc':
               return _sortThenImagesLast(
-                items,
+                unique,
                 (a, b) => (a.price ?? 0).compareTo(b.price ?? 0),
               );
             case 'priceDesc':
               return _sortThenImagesLast(
-                items,
+                unique,
                 (a, b) => (b.price ?? 0).compareTo(a.price ?? 0),
               );
             case 'newest':
               return _sortThenImagesLast(
-                items,
+                unique,
                 (a, b) => b.updatedAt.compareTo(a.updatedAt),
               );
             case 'relevance':
             default:
-              return _shuffleBoostedWithImagesFirst(items);
+              return _shuffleBoostedWithImagesFirst(unique);
           }
         });
   }
@@ -191,7 +242,9 @@ class ProductRepository {
   Stream<List<Product>> watchPromotions() {
     return (db.select(
       db.products,
-    )..where((t) => t.isPromotion.equals(true))).watch();
+    )..where((t) => t.isPromotion.equals(true)))
+        .watch()
+        .map(deduplicateForDisplay);
   }
 
   Stream<List<Product>> watchPendingBoosts() {
@@ -211,6 +264,11 @@ class ProductRepository {
     final local = await getProductById(id);
     if (local != null) return local;
 
+    final byRemote = await (db.select(db.products)
+          ..where((t) => t.remoteId.equals(id.toString())))
+        .getSingleOrNull();
+    if (byRemote != null) return byRemote;
+
     try {
       final uri = Uri.parse(
         'https://uzaapp.com/api/product_page.php?id=$id&format=json',
@@ -225,22 +283,40 @@ class ProductRepository {
       final data = body['product'] as Map<String, dynamic>?;
       if (data == null) return null;
 
-      final shopId = _toInt(data['shop_id']);
-      if (shopId != null && shopId > 0) {
-        await _ensureShopCachedForDeepLink(shopId);
+      final serverShopId = _toInt(data['shop_id']);
+      var localShopId = 0;
+      if (serverShopId != null && serverShopId > 0) {
+        final shop = await shopRepository?.resolveShopById(serverShopId);
+        localShopId = shop?.id ?? 0;
+        if (localShopId <= 0) {
+          final localByServerId = await shopRepository?.getShopById(serverShopId);
+          if (localByServerId != null) {
+            localShopId = localByServerId.id;
+          }
+        }
       }
+      if (localShopId <= 0 && serverShopId != null && serverShopId > 0) {
+        // Deep link: keep server shop id so the product page can still open.
+        localShopId = serverShopId;
+      }
+      if (localShopId <= 0) return null;
 
-      final remoteId = data['remote_id']?.toString();
-      final resolvedId = _toInt(data['id']) ?? id;
-      await db.into(db.products).insert(
+      final productRemoteId = data['remote_id']?.toString();
+      final rId = productRemoteId != null && productRemoteId.isNotEmpty
+          ? productRemoteId
+          : (_toInt(data['id']) ?? id).toString();
+
+      final existing = await (db.select(db.products)
+            ..where((t) => t.remoteId.equals(rId)))
+          .getSingleOrNull();
+
+      final localId = await db.into(db.products).insert(
         ProductsCompanion(
-          id: Value(resolvedId),
-          remoteId: Value(
-            remoteId != null && remoteId.isNotEmpty
-                ? remoteId
-                : resolvedId.toString(),
-          ),
-          shopId: Value(shopId ?? 0),
+          id: existing != null
+              ? Value(existing.id)
+              : const Value.absent(),
+          remoteId: Value(rId),
+          shopId: Value(localShopId),
           categoryId: Value(_toInt(data['category_id'])),
           name: Value((data['name'] as String? ?? 'Produit').trim()),
           description: Value(data['description'] as String?),
@@ -268,81 +344,11 @@ class ProductRepository {
           isSold: Value(_toBool(data['is_sold'])),
           metadata: Value(data['metadata']?.toString()),
         ),
-        mode: InsertMode.insertOrReplace,
       );
-      return getProductById(resolvedId);
+      return getProductById(localId);
     } catch (e) {
       debugPrint('resolveProductById error: $e');
       return null;
-    }
-  }
-
-  Future<void> _ensureShopCachedForDeepLink(int shopId) async {
-    final existing = await (db.select(
-      db.shops,
-    )..where((t) => t.id.equals(shopId))).getSingleOrNull();
-    if (existing != null) return;
-
-    try {
-      final uri = Uri.parse(
-        'https://uzaapp.com/api/shop_page.php?id=$shopId&format=json',
-      );
-      final response = await http
-          .get(uri)
-          .timeout(const Duration(seconds: 12));
-      if (response.statusCode != 200) return;
-
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      if (body['success'] != true) return;
-      final data = body['shop'] as Map<String, dynamic>?;
-      if (data == null) return;
-
-      final remoteId = data['remote_id']?.toString();
-      final resolvedId = _toInt(data['id']) ?? shopId;
-      await db.into(db.shops).insert(
-        ShopsCompanion(
-          id: Value(resolvedId),
-          remoteId: Value(
-            remoteId != null && remoteId.isNotEmpty
-                ? remoteId
-                : resolvedId.toString(),
-          ),
-          name: Value((data['name'] as String? ?? 'Boutique').trim()),
-          description: Value(data['description'] as String?),
-          logoUrl: Value(data['logo_url'] as String?),
-          type: Value(
-            data['type'] == 'wholesale' ? ShopType.wholesale : ShopType.retail,
-          ),
-          ownerId: Value(data['owner_id'] as String?),
-          address: Value(data['address'] as String?),
-          whatsapp: Value(data['whatsapp'] as String?),
-          phone: Value(data['phone'] as String?),
-          email: Value(data['email'] as String?),
-          instagramUrl: Value(data['instagram_url'] as String?),
-          tiktokUrl: Value(data['tiktok_url'] as String?),
-          facebookUrl: Value(data['facebook_url'] as String?),
-          youtubeUrl: Value(data['youtube_url'] as String?),
-          bannerUrl: Value(data['banner_url'] as String?),
-          videoUrl: Value(data['video_url'] as String?),
-          updatedAt: Value(
-            DateTime.tryParse(data['updated_at'] as String? ?? '') ??
-                DateTime.now(),
-          ),
-          isBoosted: Value(_toBool(data['is_boosted'])),
-          boostStatus: Value(_toInt(data['boost_status']) ?? 0),
-          bannerStatus: Value(_toInt(data['banner_status']) ?? 0),
-          bannerText: Value(data['banner_text'] as String?),
-          isVerified: Value(_toBool(data['is_verified'])),
-          responseTimeMinutes: Value(_toInt(data['response_time_minutes'])),
-          commune: Value(data['commune'] as String?),
-          city: Value(data['city'] as String?),
-          latitude: Value((data['latitude'] as num?)?.toDouble()),
-          longitude: Value((data['longitude'] as num?)?.toDouble()),
-        ),
-        mode: InsertMode.insertOrReplace,
-      );
-    } catch (e) {
-      debugPrint('_ensureShopCachedForDeepLink error: $e');
     }
   }
 
@@ -365,14 +371,28 @@ class ProductRepository {
     return jsonEncode(value);
   }
 
-  Future<int> addProduct(ProductsCompanion product) {
-    return db.into(db.products).insert(product);
+  Future<int> addProduct(ProductsCompanion product) async {
+    final id = await db.into(db.products).insert(product);
+    if (product.shopId.present) {
+      unawaited(shopRepository?.recordShopActivity(product.shopId.value));
+    }
+    return id;
   }
 
-  Future<bool> updateProduct(ProductsCompanion product) {
-    return (db.update(db.products)..where((t) => t.id.equals(product.id.value)))
+  Future<bool> updateProduct(ProductsCompanion product) async {
+    final updated = await (db.update(db.products)
+          ..where((t) => t.id.equals(product.id.value)))
         .write(product)
         .then((rows) => rows > 0);
+    if (updated && product.shopId.present) {
+      unawaited(shopRepository?.recordShopActivity(product.shopId.value));
+    } else if (updated && product.id.present) {
+      final existing = await getProductById(product.id.value);
+      if (existing != null) {
+        unawaited(shopRepository?.recordShopActivity(existing.shopId));
+      }
+    }
+    return updated;
   }
 
   Future<int> deleteProduct(int id) {
@@ -387,13 +407,65 @@ class ProductRepository {
       db.products,
     )..where((t) => t.id.equals(id))).go();
 
-    if (rowsDeleted > 0 && syncService != null && product?.remoteId != null) {
-      await syncService!.addToQueue('DELETE', 'products', {
-        'id': product!.remoteId,
-      });
+    if (rowsDeleted > 0 && syncService != null) {
+      final remoteId = product?.remoteId != null && product!.remoteId!.isNotEmpty
+          ? int.tryParse(product.remoteId!)
+          : product?.id;
+      if (remoteId != null) {
+        await syncService!.addToQueue('DELETE', 'products', {
+          'id': remoteId,
+        });
+        unawaited(syncService!.forcePush());
+      }
     }
 
     return rowsDeleted;
+  }
+
+  /// Admin removal by local id and/or server product id (reports, dashboard).
+  Future<bool> adminDeleteProduct({
+    int? localId,
+    int? serverProductId,
+  }) async {
+    Product? product;
+    if (localId != null) {
+      product = await getProductById(localId);
+    }
+    if (product == null && serverProductId != null) {
+      product = await (db.select(db.products)
+            ..where((t) => t.remoteId.equals('$serverProductId')))
+          .getSingleOrNull();
+    }
+
+    if (product != null) {
+      return (await deleteProductWithSync(product.id)) > 0;
+    }
+
+    if (serverProductId != null && syncService != null) {
+      await syncService!.addToQueue('DELETE', 'products', {
+        'id': serverProductId,
+      });
+      unawaited(syncService!.forcePush());
+      return true;
+    }
+
+    return false;
+  }
+
+  Stream<List<Product>> watchAllProductsAdmin({String? query}) {
+    final q = query?.trim().toLowerCase();
+    return db.select(db.products).watch().map((items) {
+      final sorted = List<Product>.from(items)
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      if (q == null || q.isEmpty) return sorted;
+      return sorted
+          .where(
+            (p) =>
+                p.name.toLowerCase().contains(q) ||
+                (p.description?.toLowerCase().contains(q) ?? false),
+          )
+          .toList();
+    });
   }
 
   Future<void> updateStock(int productId, int quantity) {
@@ -446,7 +518,9 @@ class ProductRepository {
   Stream<List<Product>> watchAllProducts() {
     return (db.select(
       db.products,
-    )..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch();
+    )..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+        .watch()
+        .map(deduplicateForDisplay);
   }
 
   /// Pool stable (ordre récent) pour l'accueil — sans mélange à chaque sync.
@@ -454,13 +528,14 @@ class ProductRepository {
     return (db.select(db.products)
           ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
         .watch()
-        .map((items) => items.take(poolSize).toList());
+        .map((items) => deduplicateForDisplay(items).take(poolSize).toList());
   }
 
   /// Tirage aléatoire ponctuel parmi un pool (retour accueil, pull-to-refresh).
   List<Product> pickTrendingProducts(List<Product> pool, {int limit = 10}) {
     if (pool.isEmpty) return const [];
-    return _shuffleBoostedWithImagesFirst(pool).take(limit).toList();
+    final unique = deduplicateForDisplay(pool);
+    return _shuffleBoostedWithImagesFirst(unique).take(limit).toList();
   }
 
   /// Produits populaires : tirage aléatoire parmi les plus récents.
@@ -469,6 +544,90 @@ class ProductRepository {
     return watchHomeProductPool(poolSize: poolSize).map(
       (pool) => pickTrendingProducts(pool, limit: limit),
     );
+  }
+
+  /// Hide duplicate catalog rows in public feeds (sync/create bugs).
+  /// Same [remoteId], or same shop + name + price → one card only.
+  List<Product> deduplicateForDisplay(List<Product> items) {
+    if (items.length <= 1) return items;
+
+    final synced = <String, Product>{};
+    final localOnly = <String, Product>{};
+    final syncedLocalKeys = <String>{};
+
+    for (final product in items) {
+      final remote = product.remoteId?.trim();
+      if (remote == null || remote.isEmpty) continue;
+
+      final existing = synced[remote];
+      synced[remote] = existing == null
+          ? product
+          : _pickPreferredDuplicate(existing, product);
+      syncedLocalKeys.add(_localDedupKey(synced[remote]!));
+    }
+
+    for (final product in items) {
+      final remote = product.remoteId?.trim();
+      if (remote != null && remote.isNotEmpty) continue;
+
+      final key = _localDedupKey(product);
+      if (syncedLocalKeys.contains(key)) continue;
+
+      final existing = localOnly[key];
+      localOnly[key] = existing == null
+          ? product
+          : _pickPreferredDuplicate(existing, product);
+    }
+
+    final winners = <int, Product>{
+      for (final p in synced.values) p.id: p,
+      for (final p in localOnly.values) p.id: p,
+    };
+
+    return items.where((p) => winners.containsKey(p.id)).toList();
+  }
+
+  String _localDedupKey(Product product) {
+    final name = product.name.trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      ' ',
+    );
+    final price = product.price?.toStringAsFixed(2) ?? '';
+    return '${product.shopId}:$name:$price';
+  }
+
+  Product _pickPreferredDuplicate(Product a, Product b) {
+    final aHasImages = ImageUtils.hasDisplayableImage(a.imageUrls);
+    final bHasImages = ImageUtils.hasDisplayableImage(b.imageUrls);
+    if (aHasImages != bHasImages) return aHasImages ? a : b;
+    if (a.isSold != b.isSold) return a.isSold ? b : a;
+    if (a.boostStatus != b.boostStatus) {
+      return a.boostStatus > b.boostStatus ? a : b;
+    }
+    if (a.updatedAt != b.updatedAt) {
+      return a.updatedAt.isAfter(b.updatedAt) ? a : b;
+    }
+    final aRemote = a.remoteId != null && a.remoteId!.isNotEmpty;
+    final bRemote = b.remoteId != null && b.remoteId!.isNotEmpty;
+    if (aRemote != bRemote) return aRemote ? a : b;
+    return a.id <= b.id ? a : b;
+  }
+
+  /// Removes local duplicate rows left by sync/create bugs.
+  Future<int> repairDisplayDuplicates() async {
+    final all = await db.select(db.products).get();
+    final keep = deduplicateForDisplay(all);
+    final keepIds = keep.map((p) => p.id).toSet();
+    var removed = 0;
+
+    for (final product in all) {
+      if (keepIds.contains(product.id)) continue;
+
+      await (db.delete(db.products)..where((t) => t.id.equals(product.id))).go();
+      removed++;
+    }
+
+    return removed;
   }
 
   /// Products with displayable images first, then those without or failed.
@@ -833,12 +992,16 @@ class ProductRepository {
           ),
         );
 
-    // Queue sync to backend
+    // Queue sync to backend (server ids for cross-device stats).
     if (syncService != null) {
-      await syncService!.addToQueue('CREATE', 'product_likes', {
-        'product_id': productId,
-        'user_phone': userPhone,
-      });
+      final remoteProductId =
+          await syncService!.resolveRemoteProductId(productId);
+      if (remoteProductId != null) {
+        await syncService!.addToQueue('CREATE', 'product_likes', {
+          'product_id': remoteProductId,
+          'user_phone': userPhone,
+        });
+      }
     }
     return true;
   }
@@ -859,10 +1022,14 @@ class ProductRepository {
 
     // Queue sync to backend
     if (syncService != null) {
-      await syncService!.addToQueue('DELETE', 'product_likes', {
-        'product_id': productId,
-        'user_phone': userPhone,
-      });
+      final remoteProductId =
+          await syncService!.resolveRemoteProductId(productId);
+      if (remoteProductId != null) {
+        await syncService!.addToQueue('DELETE', 'product_likes', {
+          'product_id': remoteProductId,
+          'user_phone': userPhone,
+        });
+      }
     }
     return true;
   }

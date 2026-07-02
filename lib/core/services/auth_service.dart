@@ -11,6 +11,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
+import '../utils/phone_utils.dart';
 
 class MockUser {
   final String uid;
@@ -128,10 +129,14 @@ class AuthService extends ChangeNotifier {
         // remoteId is only set after a real login or shop creation flow.
         // After logout it is cleared — do not auto-restore a session from
         // the preserved phone/name row alone.
-        final uid = profile.remoteId!;
+        final uid = PhoneUtils.normalizeDrc(profile.remoteId!).isNotEmpty
+            ? PhoneUtils.normalizeDrc(profile.remoteId!)
+            : profile.remoteId!;
         _currentUser = MockUser(
           uid: uid,
-          phoneNumber: profile.phone,
+          phoneNumber: PhoneUtils.normalizeDrc(profile.phone).isNotEmpty
+              ? PhoneUtils.normalizeDrc(profile.phone)
+              : profile.phone,
           displayName: profile.name,
           photoURL: profile.avatarUrl,
           role: profile.role,
@@ -361,26 +366,31 @@ class AuthService extends ChangeNotifier {
     String phone, {
     bool isPhoneVerified = false,
     String? passwordHash,
+    String? name,
+    String? avatarUrl,
   }) async {
-    final String uid = phone;
-    String? existingName;
-    String? existingAvatar;
+    final normalizedPhone = PhoneUtils.normalizeDrc(phone).isNotEmpty
+        ? PhoneUtils.normalizeDrc(phone)
+        : phone.trim();
+    final String uid = normalizedPhone;
+    String? existingName = name;
+    String? existingAvatar = avatarUrl;
     _isPhoneVerified = isPhoneVerified;
 
     // Check for existing profile on server
     String userRole = 'user';
     if (_syncService != null) {
-      final remoteProfile = await _syncService!.api.fetchUserByPhone(phone);
+      final remoteProfile = await _syncService!.api.fetchUserByPhone(uid);
       if (remoteProfile != null) {
-        existingName = remoteProfile['name'];
-        existingAvatar = remoteProfile['avatar_url'];
+        existingName ??= remoteProfile['name']?.toString();
+        existingAvatar ??= remoteProfile['avatar_url']?.toString();
         userRole = remoteProfile['role']?.toString() ?? 'user';
       }
     }
 
     _currentUser = MockUser(
       uid: uid,
-      phoneNumber: phone,
+      phoneNumber: normalizedPhone,
       displayName: existingName,
       photoURL: existingAvatar,
       role: userRole,
@@ -390,7 +400,7 @@ class AuthService extends ChangeNotifier {
     final profile = UserProfile(
       id: 1, // Fixed ID for local session
       remoteId: uid,
-      phone: phone,
+      phone: normalizedPhone,
       name: existingName,
       avatarUrl: existingAvatar,
       passwordHash: passwordHash,
@@ -411,7 +421,7 @@ class AuthService extends ChangeNotifier {
     if (_syncService != null) {
       final syncData = {
         'remote_id': uid,
-        'phone': phone,
+        'phone': normalizedPhone,
         'name': existingName,
         'avatar_url': existingAvatar,
       };
@@ -451,15 +461,27 @@ class AuthService extends ChangeNotifier {
         phone,
         isPhoneVerified: isPhoneVerified,
         passwordHash: passwordHash,
+        name: name,
+        avatarUrl: avatarUrl,
       );
-      // Update name/avatar if provided
-      if (name != null || avatarUrl != null) {
-        await _repository.updateProfile(name: name, avatarUrl: avatarUrl);
+      if (name != null) {
+        updateDisplayName(name);
+      }
+      if (avatarUrl != null) {
+        updatePhotoUrl(avatarUrl);
       }
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Links local shops to the current user after shop creation.
+  Future<void> refreshShopOwnership() async {
+    final uid = _currentUser?.uid;
+    if (uid == null || uid.isEmpty || _shopRepository == null) return;
+    await _shopRepository!.reconnectShopsForUser(uid);
+    notifyListeners();
   }
 
   void updatePhotoUrl(String? url) {

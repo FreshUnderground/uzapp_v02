@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
+import '../../core/router/app_nav_utils.dart';
+import '../components/uza_back_button.dart';
 import '../components/product_card.dart';
 import '../../core/res/uza_colors.dart';
 import 'product_detail_screen.dart';
@@ -109,8 +112,8 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
           permission == LocationPermission.deniedForever) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Permission de localisation refusee.'),
+            SnackBar(
+              content: Text(tr(context, 'permission_location_refused')),
             ),
           );
         }
@@ -135,7 +138,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erreur de localisation.')),
+          SnackBar(content: Text(tr(context, 'location_error'))),
         );
         setState(() {
           _sortBy = _SortOption.newest;
@@ -156,18 +159,24 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
   Widget build(BuildContext context) {
     final productRepo = context.watch<ProductRepository>();
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: UzaColors.textPrimary,
-        elevation: 0,
-        title: Text(
-          widget.categoryName,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        AppNavUtils.popRoute(context);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: const UzaBackButton(),
+          automaticallyImplyLeading: false,
+          foregroundColor: UzaColors.onSurface(context),
+          elevation: 0,
+          title: Text(
+            widget.categoryName,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          centerTitle: true,
         ),
-        centerTitle: true,
-      ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -191,6 +200,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
           ),
         ],
       ),
+      ),
     );
   }
 
@@ -199,12 +209,12 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
-          const Text(
+          Text(
             'Trier par',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: UzaColors.textSecondary,
+              color: UzaColors.onSurfaceSecondary(context),
             ),
           ),
           const SizedBox(width: 8),
@@ -222,7 +232,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                       selectedColor: UzaColors.primary.withValues(alpha: 0.15),
                       checkmarkColor: UzaColors.primary,
                       labelStyle: TextStyle(
-                        color: isSelected ? UzaColors.primary : Colors.black87,
+                        color: isSelected ? UzaColors.primary : UzaColors.onSurface(context),
                         fontWeight: isSelected
                             ? FontWeight.w600
                             : FontWeight.normal,
@@ -236,7 +246,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                               : Colors.grey[300]!,
                         ),
                       ),
-                      backgroundColor: Colors.white,
+                      backgroundColor: UzaColors.surfaceOf(context),
                       onSelected: (_) => _onSortChanged(sort),
                     ),
                   );
@@ -272,7 +282,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
+                      color: UzaColors.onSurfaceSecondary(context),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -280,7 +290,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: FilterChip(
-                      label: const Text('Tout'),
+                      label: Text(tr(context, 'filter_all')),
                       selected: _selectedSubcategoryId == null,
                       onSelected: (selected) {
                         if (selected) {
@@ -295,7 +305,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                       labelStyle: TextStyle(
                         color: _selectedSubcategoryId == null
                             ? UzaColors.primary
-                            : Colors.black87,
+                            : UzaColors.onSurface(context),
                         fontWeight: _selectedSubcategoryId == null
                             ? FontWeight.w600
                             : FontWeight.normal,
@@ -309,7 +319,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                               : Colors.grey[300]!,
                         ),
                       ),
-                      backgroundColor: Colors.white,
+                      backgroundColor: UzaColors.surfaceOf(context),
                     ),
                   ),
                 ],
@@ -347,7 +357,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                       labelStyle: TextStyle(
                         color: isSelected
                             ? UzaColors.secondary
-                            : Colors.black87,
+                            : UzaColors.onSurface(context),
                         fontWeight: isSelected
                             ? FontWeight.w600
                             : FontWeight.normal,
@@ -361,7 +371,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                               : Colors.grey[300]!,
                         ),
                       ),
-                      backgroundColor: Colors.white,
+                      backgroundColor: UzaColors.surfaceOf(context),
                     ),
                   );
                 },
@@ -390,7 +400,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
+                  color: UzaColors.onSurfaceSecondary(context),
                 ),
               ),
             ),
@@ -416,7 +426,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                       selectedColor: UzaColors.primary.withValues(alpha: 0.15),
                       checkmarkColor: UzaColors.primary,
                       labelStyle: TextStyle(
-                        color: isSelected ? UzaColors.primary : Colors.black87,
+                        color: isSelected ? UzaColors.primary : UzaColors.onSurface(context),
                         fontWeight: isSelected
                             ? FontWeight.w600
                             : FontWeight.normal,
@@ -430,7 +440,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                               : Colors.grey[300]!,
                         ),
                       ),
-                      backgroundColor: Colors.white,
+                      backgroundColor: UzaColors.surfaceOf(context),
                     ),
                   );
                 },
@@ -568,7 +578,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _requestLocation,
-              child: const Text('Autoriser la localisation'),
+              child: Text(tr(context, 'allow_location')),
             ),
           ],
         ),

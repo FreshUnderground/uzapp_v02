@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 import 'package:drift/drift.dart' as drift;
 import 'dart:convert';
@@ -275,7 +276,7 @@ class _EditShopScreenState extends State<EditShopScreen> {
       if (!mounted) return;
       navigator.pop(); // Close loading dialog
       messenger.showSnackBar(
-        const SnackBar(content: Text('Profil mis à jour')),
+        SnackBar(content: Text(tr(context, 'profile_updated'))),
       );
       navigator.pop();
     } catch (e) {
@@ -283,7 +284,11 @@ class _EditShopScreenState extends State<EditShopScreen> {
         Navigator.pop(context);
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        ).showSnackBar(
+          SnackBar(
+            content: Text(trf(context, 'error_with_message', {'message': '$e'})),
+          ),
+        );
       }
     }
   }
@@ -298,7 +303,7 @@ class _EditShopScreenState extends State<EditShopScreen> {
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
-            const Text("Enregistrement..."),
+            Text(tr(context, 'saving')),
           ],
         ),
       ),
@@ -308,7 +313,7 @@ class _EditShopScreenState extends State<EditShopScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Modifier ma Boutique')),
+      appBar: AppBar(title: Text(tr(context, 'edit_shop'))),
       body: ResponsiveLayout(
         mobile: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -372,7 +377,7 @@ class _EditShopScreenState extends State<EditShopScreen> {
               backgroundColor: UzaColors.primary,
               foregroundColor: Colors.white,
             ),
-            child: const Text('Enregistrer les modifications'),
+            child: Text(tr(context, 'save_changes')),
           ),
         ],
       ),
@@ -382,7 +387,7 @@ class _EditShopScreenState extends State<EditShopScreen> {
   Widget _buildLogoSection() {
     return Column(
       children: [
-        const Text('Logo', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(tr(context, 'logo'), style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 16),
         GestureDetector(
           onTap: _pickImage,

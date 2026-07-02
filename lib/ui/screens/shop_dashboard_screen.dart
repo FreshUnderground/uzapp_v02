@@ -4,6 +4,7 @@ import '../../data/repositories/shop_repository.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/l10n/tr.dart';
+import '../../core/models/shop_visibility_models.dart';
 import '../../data/local/uza_database.dart';
 import 'manage_products_screen.dart';
 import 'edit_shop_screen.dart';
@@ -14,6 +15,8 @@ import 'dart:async';
 import 'package:drift/drift.dart' as drift;
 import '../components/analytics_tab.dart';
 import '../components/seller_quick_actions.dart';
+import '../components/shop_visibility_widgets.dart';
+import '../components/retention_widgets.dart';
 
 class ShopDashboardScreen extends StatefulWidget {
   /// Optional local shop id; when null, resolves via logged-in user's shop.
@@ -141,6 +144,7 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          _buildVisibilitySection(context, shop),
                           const Text(
                             'Actions rapides',
                             style: TextStyle(
@@ -172,6 +176,53 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+
+  Widget _buildVisibilitySection(BuildContext context, Shop shop) {
+    final shopRepo = context.read<ShopRepository>();
+
+    return FutureBuilder<ShopVisibilityInsight>(
+      future: shopRepo.getVisibilityInsight(shop.id),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const SizedBox(
+            height: 120,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final insight = snapshot.data;
+        if (insight == null) return const SizedBox.shrink();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ShopVisibilityAlertBanner(
+              insight: insight,
+              onPostNow: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => WhatsAppStatusScreen(shop: shop),
+                ),
+              ),
+            ),
+            ShopTodayStatsPanel(insight: insight),
+            FutureBuilder<Map<String, int>>(
+              future: shopRepo.getWeeklyStats(shop.id),
+              builder: (context, weeklySnapshot) {
+                final weekly = weeklySnapshot.data ?? {};
+                return WeeklyMetricsBanner(
+                  weeklyViews: weekly['weeklyViews'] ?? 0,
+                  weeklyContacts: weekly['weeklyContacts'] ?? 0,
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
         );
       },
     );
@@ -455,29 +506,55 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
     int status,
   ) async {
     final shopRepo = context.read<ShopRepository>();
+    final syncService = context.read<SyncService>();
+
+    final newBoostStatus =
+        field == 'boostStatus' ? status : shop.boostStatus;
+    final newBannerStatus =
+        field == 'bannerStatus' ? status : shop.bannerStatus;
 
     final companion = ShopsCompanion(
       id: drift.Value(shop.id),
-      boostStatus: field == 'boostStatus'
-          ? drift.Value(status)
-          : drift.Value(shop.boostStatus),
-      bannerStatus: field == 'bannerStatus'
-          ? drift.Value(status)
-          : drift.Value(shop.bannerStatus),
+      boostStatus: drift.Value(newBoostStatus),
+      bannerStatus: drift.Value(newBannerStatus),
     );
 
     try {
       await shopRepo.updateShop(companion);
+
+      final remoteShopId =
+          (shop.remoteId != null && shop.remoteId!.isNotEmpty)
+              ? (int.tryParse(shop.remoteId!) ?? shop.id)
+              : shop.id;
+
+      await syncService.addToQueue('UPDATE', 'shops', {
+        'local_id': shop.id,
+        'id': remoteShopId,
+        'name': shop.name,
+        'owner_id': shop.ownerId ?? '',
+        'phone': shop.phone,
+        'type': shop.type,
+        'boost_status': newBoostStatus,
+        'banner_status': newBannerStatus,
+        if (shop.bannerText != null && shop.bannerText!.isNotEmpty)
+          'banner_text': shop.bannerText,
+      });
+      unawaited(syncService.forcePush());
+
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Demande envoyée !')));
+        ).showSnackBar(SnackBar(content: Text(tr(context, 'request_sent'))));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        ).showSnackBar(
+          SnackBar(
+            content: Text(trf(context, 'error_with_message', {'message': '$e'})),
+          ),
+        );
       }
     }
   }
@@ -559,7 +636,10 @@ class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              child: const Text('Demander', style: TextStyle(fontSize: 11)),
+              child: Text(
+                tr(context, 'request_action'),
+                style: const TextStyle(fontSize: 11),
+              ),
             ),
         ],
       ),

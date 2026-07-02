@@ -370,8 +370,32 @@ class AnalyticsTab extends StatelessWidget {
   }
 
   Widget _buildPublishInsight(Map<String, dynamic> data) {
-    final hour = data['bestHour'] as int? ?? 18;
-    final day = data['bestDay'] as String? ?? 'Vendredi';
+    final hasData = data['hasData'] as bool? ?? false;
+    if (!hasData) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.insights_outlined, color: Colors.grey.shade600, size: 32),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                'Pas assez d\'activité pour recommander un horaire de publication.',
+                style: TextStyle(color: Colors.grey.shade700),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final hour = data['bestHour'] as int;
+    final day = data['bestDay'] as String;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(

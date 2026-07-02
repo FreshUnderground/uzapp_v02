@@ -531,7 +531,7 @@ class _NearbyShopListCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _NavActionButton(
-                        icon: Icons.directions_rounded,
+                        icon: Icons.map_rounded,
                         label: 'Itinéraire',
                         color: UzaColors.secondary,
                         onTap: () => LocationService.getDirections(
@@ -705,7 +705,7 @@ class _NearbyShopGridCard extends StatelessWidget {
                         children: [
                           Expanded(
                             child: _MiniNavButton(
-                              icon: Icons.directions_rounded,
+                              icon: Icons.map_rounded,
                               label: 'Route',
                               onTap: () => LocationService.getDirections(
                                 latitude: shop.latitude!,

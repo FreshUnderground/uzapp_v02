@@ -6,7 +6,6 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'image_prepare_utils.dart';
 import 'picker_types.dart';
 
 const _imageAccept =
@@ -162,13 +161,7 @@ Future<Uint8List?> pickImage(
     multiple: false,
     onFiles: (files) async {
       final file = files.first;
-      final raw = await _readFileAsImageBytes(file);
-      if (raw == null) return null;
-      final prepared = await ImagePrepareUtils.prepareForUpload(
-        raw,
-        sourceName: file.name,
-      );
-      return prepared.bytes;
+      return _readFileAsImageBytes(file);
     },
   );
   return bytes;
@@ -183,11 +176,7 @@ Future<List<Uint8List>> pickMultipleImages(BuildContext context) async {
       for (final file in files) {
         final raw = await _readFileAsImageBytes(file);
         if (raw == null) continue;
-        final prepared = await ImagePrepareUtils.prepareForUpload(
-          raw,
-          sourceName: file.name,
-        );
-        results.add(prepared.bytes);
+        results.add(raw);
       }
       return results;
     },

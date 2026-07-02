@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/repositories/shop_repository.dart';
@@ -64,6 +65,8 @@ class _EditProductScreenState extends State<EditProductScreen> {
   );
   bool _isUploading = false;
   bool _isSaving = false;
+  bool _isPickingImage = false;
+  int? _pickingImageIndex;
 
   bool _hidePrice = false;
   bool _showStock = false;
@@ -481,8 +484,8 @@ class _EditProductScreenState extends State<EditProductScreen> {
       final customName = _resolveCustomCategoryName();
       if (customName == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Veuillez choisir ou saisir une catégorie'),
+          SnackBar(
+            content: Text(tr(context, 'choose_category_required')),
           ),
         );
         return false;
@@ -506,16 +509,14 @@ class _EditProductScreenState extends State<EditProductScreen> {
             children: [
               Icon(Icons.warning_amber, color: Colors.orange[600]),
               SizedBox(width: 8),
-              Text('Aucune photo'),
+              Text(tr(context, 'no_photo')),
             ],
           ),
-          content: Text(
-            'Les produits avec photos se vendent beaucoup mieux. Voulez-vous quand même continuer sans photo?',
-          ),
+          content: Text(tr(context, 'no_photo_body')),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text('Annuler'),
+              child: Text(tr(context, 'cancel')),
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(context, true),
@@ -523,7 +524,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                 backgroundColor: Colors.orange,
                 foregroundColor: Colors.white,
               ),
-              child: Text('Continuer sans photo'),
+              child: Text(tr(context, 'continue_without_photo')),
             ),
           ],
         ),
@@ -743,7 +744,9 @@ class _EditProductScreenState extends State<EditProductScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        ).showSnackBar(
+          SnackBar(content: Text(trf(context, 'error_with_message', {'message': '$e'}))),
+        );
       }
     } finally {
       if (mounted) {
@@ -756,11 +759,25 @@ class _EditProductScreenState extends State<EditProductScreen> {
   }
 
   Future<void> _pickImage(int index) async {
-    final bytes = await PickerUtils.pickImage(context);
-    if (bytes != null) {
-      setState(() {
-        _productImages[index] = ProductImage(bytes: bytes);
-      });
+    if (_isPickingImage) return;
+    setState(() {
+      _isPickingImage = true;
+      _pickingImageIndex = index;
+    });
+    try {
+      final bytes = await PickerUtils.pickImage(context);
+      if (bytes != null && mounted) {
+        setState(() {
+          _productImages[index] = ProductImage(bytes: bytes);
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPickingImage = false;
+          _pickingImageIndex = null;
+        });
+      }
     }
   }
 
@@ -832,6 +849,29 @@ class _EditProductScreenState extends State<EditProductScreen> {
   }
 
   Widget _buildForm(BuildContext context, {bool isDesktop = false}) {
+    final mediaColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildImageSection(),
+        const SizedBox(height: 24),
+        _buildNameField(),
+        const SizedBox(height: 16),
+        _buildDescriptionField(),
+      ],
+    );
+
+    final detailsColumn = Column(
+      children: [
+        _buildPriceField(),
+        const SizedBox(height: 16),
+        _buildCategorySection(),
+        const SizedBox(height: 16),
+        _buildCategoryForm(),
+        const SizedBox(height: 16),
+        _buildDisplayOptions(),
+      ],
+    );
+
     return Form(
       key: _formKey,
       child: Column(
@@ -840,15 +880,15 @@ class _EditProductScreenState extends State<EditProductScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(child: _buildLeftFields()),
+                Expanded(child: mediaColumn),
                 const SizedBox(width: 32),
-                Expanded(child: _buildRightFields()),
+                Expanded(child: detailsColumn),
               ],
             )
           else ...[
-            _buildLeftFields(),
+            mediaColumn,
             const SizedBox(height: 16),
-            _buildRightFields(),
+            ...detailsColumn.children,
           ],
           const SizedBox(height: 32),
           // Large, visible save button for all users
@@ -888,146 +928,150 @@ class _EditProductScreenState extends State<EditProductScreen> {
     );
   }
 
-  Widget _buildLeftFields() {
+  Widget _buildNameField() {
+    return TextFormField(
+      controller: _nameController,
+      decoration: const InputDecoration(
+        labelText: 'Nom du produit *',
+        border: OutlineInputBorder(),
+      ),
+      validator: (v) => v!.isEmpty ? 'Requis' : null,
+    );
+  }
+
+  Widget _buildPriceField() {
+    return TextFormField(
+      controller: _priceController,
+      keyboardType: TextInputType.number,
+      decoration: const InputDecoration(
+        labelText: 'Prix (USD) *',
+        border: OutlineInputBorder(),
+      ),
+      validator: (v) => v!.isEmpty ? 'Requis' : null,
+    );
+  }
+
+  Widget _buildDescriptionField() {
+    return TextFormField(
+      controller: _descController,
+      maxLines: 5,
+      decoration: const InputDecoration(
+        labelText: 'Description',
+        border: OutlineInputBorder(),
+      ),
+    );
+  }
+
+  Widget _buildCategorySection() {
+    if (_isLoadingCategories) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextFormField(
-          controller: _nameController,
+        DropdownButtonFormField<int>(
+          initialValue: _selectedRootCategoryId,
           decoration: const InputDecoration(
-            labelText: 'Nom du produit *',
+            labelText: 'Catégorie *',
             border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
           ),
-          validator: (v) => v!.isEmpty ? 'Requis' : null,
+          hint: Text(tr(context, 'choose_category')),
+          items: _rootCategories
+              .map(
+                (c) => DropdownMenuItem(
+                  value: c.id,
+                  child: Text(c.name),
+                ),
+              )
+              .toList(),
+          onChanged: _onRootCategoryChanged,
+          validator: (v) =>
+              v == null ? 'Veuillez choisir une catégorie' : null,
         ),
         const SizedBox(height: 16),
-        TextFormField(
-          controller: _priceController,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Prix (USD) *',
-            border: OutlineInputBorder(),
-          ),
-          validator: (v) => v!.isEmpty ? 'Requis' : null,
-        ),
-        const SizedBox(height: 16),
-        const SizedBox(height: 16),
-        _isLoadingCategories
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Root category dropdown
-                  DropdownButtonFormField<int>(
-                    initialValue: _selectedRootCategoryId,
-                    decoration: const InputDecoration(
-                      labelText: 'Catégorie *',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                    ),
-                    hint: const Text('Sélectionnez une catégorie'),
-                    items: _rootCategories
-                        .map(
-                          (c) => DropdownMenuItem(
-                            value: c.id,
-                            child: Text(c.name),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: _onRootCategoryChanged,
-                    validator: (v) =>
-                        v == null ? 'Veuillez choisir une catégorie' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  if (_isAutreSelected) ...[
-                    DropdownButtonFormField<int>(
-                      initialValue: _selectedCustomCategoryId,
-                      decoration: const InputDecoration(
-                        labelText: 'Votre catégorie *',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                      ),
-                      hint: const Text('Choisir ou créer une catégorie'),
-                      items: [
-                        ..._autreCustomCategories.map(
-                          (c) => DropdownMenuItem(
-                            value: c.id,
-                            child: Text(c.name),
-                          ),
-                        ),
-                        const DropdownMenuItem(
-                          value: CategoryHelper.newCustomCategorySentinel,
-                          child: Text('Nouvelle catégorie…'),
-                        ),
-                      ],
-                      onChanged: _onCustomCategoryChanged,
-                      validator: (v) => v == null &&
-                              _newCustomCategoryController.text.trim().isEmpty
-                          ? 'Veuillez choisir ou créer une catégorie'
-                          : null,
-                    ),
-                    if (_selectedCustomCategoryId ==
-                        CategoryHelper.newCustomCategorySentinel) ...[
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _newCustomCategoryController,
-                        decoration: const InputDecoration(
-                          labelText: 'Nom de la nouvelle catégorie *',
-                          hintText: 'Ex: Matériel agricole',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (v) => _selectedCustomCategoryId ==
-                                CategoryHelper.newCustomCategorySentinel &&
-                            (v == null || v.trim().isEmpty)
-                            ? 'Le nom de la catégorie est requis'
-                            : null,
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ],
-                  ] else if (_subCategories.isNotEmpty)
-                    DropdownButtonFormField<int>(
-                      initialValue: _selectedCategoryId,
-                      decoration: const InputDecoration(
-                        labelText: 'Sous-catégorie (optionnel)',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                      ),
-                      hint: const Text('Sélectionnez une sous-catégorie'),
-                      items: [
-                        // Option to select the root category itself
-                        DropdownMenuItem<int>(
-                          value: _selectedRootCategoryId,
-                          child: Text(
-                            '${_rootCategories.firstWhere(
-                              (c) => c.id == _selectedRootCategoryId,
-                              orElse: () => Category(id: 0, name: 'Catégorie principale', updatedAt: DateTime.now(), level: 0, sortOrder: 0),
-                            ).name} (racine)',
-                          ),
-                        ),
-                        // All subcategories
-                        ..._subCategories.map(
-                          (c) => DropdownMenuItem(
-                            value: c.id,
-                            child: Text(c.name),
-                          ),
-                        ),
-                      ],
-                      onChanged: _onSubCategoryChanged,
-                    ),
-                ],
+        if (_isAutreSelected) ...[
+          DropdownButtonFormField<int>(
+            initialValue: _selectedCustomCategoryId,
+            decoration: const InputDecoration(
+              labelText: 'Votre catégorie *',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
               ),
-        const SizedBox(height: 16),
-        _buildCategoryForm(),
-        const SizedBox(height: 16),
-        _buildDisplayOptions(),
+            ),
+            hint: Text(tr(context, 'choose_or_create_category')),
+            items: [
+              ..._autreCustomCategories.map(
+                (c) => DropdownMenuItem(
+                  value: c.id,
+                  child: Text(c.name),
+                ),
+              ),
+              DropdownMenuItem(
+                value: CategoryHelper.newCustomCategorySentinel,
+                child: Text(tr(context, 'new_category')),
+              ),
+            ],
+            onChanged: _onCustomCategoryChanged,
+            validator: (v) => v == null &&
+                    _newCustomCategoryController.text.trim().isEmpty
+                ? 'Veuillez choisir ou créer une catégorie'
+                : null,
+          ),
+          if (_selectedCustomCategoryId ==
+              CategoryHelper.newCustomCategorySentinel) ...[
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _newCustomCategoryController,
+              decoration: const InputDecoration(
+                labelText: 'Nom de la nouvelle catégorie *',
+                hintText: 'Ex: Matériel agricole',
+                border: OutlineInputBorder(),
+              ),
+              validator: (v) => _selectedCustomCategoryId ==
+                      CategoryHelper.newCustomCategorySentinel &&
+                  (v == null || v.trim().isEmpty)
+                  ? 'Le nom de la catégorie est requis'
+                  : null,
+              onChanged: (_) => setState(() {}),
+            ),
+          ],
+        ] else if (_subCategories.isNotEmpty)
+          DropdownButtonFormField<int>(
+            initialValue: _selectedCategoryId,
+            decoration: const InputDecoration(
+              labelText: 'Sous-catégorie (optionnel)',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
+            ),
+            hint: Text(tr(context, 'choose_subcategory')),
+            items: [
+              DropdownMenuItem<int>(
+                value: _selectedRootCategoryId,
+                child: Text(
+                  '${_rootCategories.firstWhere(
+                    (c) => c.id == _selectedRootCategoryId,
+                    orElse: () => Category(id: 0, name: 'Catégorie principale', updatedAt: DateTime.now(), level: 0, sortOrder: 0),
+                  ).name} (racine)',
+                ),
+              ),
+              ..._subCategories.map(
+                (c) => DropdownMenuItem(
+                  value: c.id,
+                  child: Text(c.name),
+                ),
+              ),
+            ],
+            onChanged: _onSubCategoryChanged,
+          ),
       ],
     );
   }
@@ -1036,28 +1080,26 @@ class _EditProductScreenState extends State<EditProductScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Options d\'affichage',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        Text(
+          tr(context, 'display_options'),
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         SwitchListTile(
-          title: const Text('Masquer le prix'),
-          subtitle: const Text('Le prix sera affiché comme "Sur demande"'),
+          title: Text(tr(context, 'hide_price')),
+          subtitle: Text(tr(context, 'price_on_request_hint')),
           value: _hidePrice,
           onChanged: (v) => setState(() => _hidePrice = v),
         ),
         SwitchListTile(
-          title: const Text('Afficher le stock'),
-          subtitle: const Text('Affiche le nombre d\'articles restants'),
+          title: Text(tr(context, 'show_stock')),
+          subtitle: Text(tr(context, 'show_stock_subtitle')),
           value: _showStock,
           onChanged: (v) => setState(() => _showStock = v),
         ),
         const Divider(),
         SwitchListTile(
-          title: const Text('Offre flash'),
-          subtitle: const Text(
-            'Badge promo sur le produit et visuels WhatsApp auto',
-          ),
+          title: Text(tr(context, 'flash_offer')),
+          subtitle: Text(tr(context, 'flash_offer_subtitle')),
           value: _isFlashOffer,
           onChanged: (v) => setState(() => _isFlashOffer = v),
         ),
@@ -1065,15 +1107,15 @@ class _EditProductScreenState extends State<EditProductScreen> {
           TextFormField(
             controller: _promoPriceController,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'Prix promo (CDF)',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: tr(context, 'promo_price_label'),
+              border: const OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 12),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Fin de l\'offre'),
+            title: Text(tr(context, 'flash_offer_end')),
             subtitle: Text(
               _promoEndsAt != null
                   ? '${_promoEndsAt!.day}/${_promoEndsAt!.month}/${_promoEndsAt!.year} '
@@ -1172,7 +1214,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                 });
               },
               icon: const Icon(Icons.add, size: 18),
-              label: const Text('Palier'),
+              label: Text(tr(context, 'tier_label')),
             ),
           ],
         ),
@@ -1353,7 +1395,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
     );
   }
 
-  Widget _buildRightFields() {
+  Widget _buildImageSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1410,15 +1452,6 @@ class _EditProductScreenState extends State<EditProductScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 24),
-        TextFormField(
-          controller: _descController,
-          maxLines: 5,
-          decoration: const InputDecoration(
-            labelText: 'Description',
-            border: OutlineInputBorder(),
-          ),
-        ),
       ],
     );
   }
@@ -1443,7 +1476,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
           children: [
             if (img.isEmpty)
               InkWell(
-                onTap: () => _pickImage(index),
+                onTap: _isPickingImage ? null : () => _pickImage(index),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -1470,8 +1503,43 @@ class _EditProductScreenState extends State<EditProductScreen> {
                 borderRadius: BorderRadius.circular(12),
                 child: SizedBox.expand(
                   child: img.bytes != null
-                      ? Image.memory(img.bytes!, fit: BoxFit.cover)
+                      ? Image.memory(
+                          img.bytes!,
+                          fit: BoxFit.cover,
+                          filterQuality: FilterQuality.low,
+                          cacheWidth: 720,
+                        )
                       : ImageUtils.buildCachedImage(img.url, fit: BoxFit.cover),
+                ),
+              ),
+            if (_isPickingImage && _pickingImageIndex == index)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.28),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2.2),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Chargement...',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             if (!img.isEmpty)

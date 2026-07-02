@@ -5,12 +5,14 @@ import '../../core/services/auth_service.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/order_repository.dart';
 import '../../data/repositories/shop_repository.dart';
+import '../components/uza_secondary_app_bar.dart';
 import '../components/empty_state.dart';
 import '../components/async_content.dart';
 import '../components/custom_refresh_indicator.dart';
 import '../../data/services/sync_service.dart';
 import '../utils/page_transitions.dart';
 import 'auth/login_screen.dart';
+import 'my_deliveries_screen.dart';
 
 class OrdersScreen extends StatelessWidget {
   const OrdersScreen({super.key});
@@ -20,8 +22,9 @@ class OrdersScreen extends StatelessWidget {
     final phone = context.watch<AuthService>().user?.phoneNumber ?? '';
 
     if (phone.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: Text(tr(context, 'my_orders'))),
+      return UzaBackScope(
+        child: Scaffold(
+        appBar: UzaSecondaryAppBar(title: tr(context, 'my_orders')),
         body: EmptyState(
           icon: Icons.receipt_long_outlined,
           title: tr(context, 'orders_empty'),
@@ -32,14 +35,28 @@ class OrdersScreen extends StatelessWidget {
             SlideUpRoute(page: const LoginScreen()),
           ),
         ),
+        ),
       );
     }
 
     final orderRepo = context.watch<OrderRepository>();
     final shopRepo = context.watch<ShopRepository>();
 
-    return Scaffold(
-      appBar: AppBar(title: Text(tr(context, 'my_orders'))),
+    return UzaBackScope(
+      child: Scaffold(
+      appBar: UzaSecondaryAppBar(
+        title: tr(context, 'my_orders'),
+        actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              SlideUpRoute(page: const MyDeliveriesScreen()),
+            ),
+            icon: const Icon(Icons.local_shipping_outlined, size: 20),
+            label: Text(tr(context, 'my_deliveries')),
+          ),
+        ],
+      ),
       body: UzaRefreshIndicator(
         onRefresh: () async {
           await context.read<SyncService>().syncNow();
@@ -94,6 +111,7 @@ class OrdersScreen extends StatelessWidget {
               },
             );
           },
+        ),
         ),
       ),
     );

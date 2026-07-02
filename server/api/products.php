@@ -98,12 +98,14 @@ try {
         exit;
     }
 
-    // GET Logic
+    // GET Logic — only products linked to an existing shop
     $updatedSince = isset($_GET['updated_since']) ? $_GET['updated_since'] : null;
+    $shopJoin = 'INNER JOIN shops s ON s.id = p.shop_id';
+    $fromClause = "FROM products p $shopJoin";
 
     if ($updatedSince) {
-        // Sync mode: return ALL products so clients can detect server-side deletions
-        $query = "SELECT * FROM products ORDER BY id DESC";
+        // Sync mode: return products with valid shops so clients can detect deletions
+        $query = "SELECT p.* $fromClause ORDER BY p.id DESC";
         $stmt = $db->prepare($query);
         $stmt->execute();
         $products = $stmt->fetchAll();
@@ -113,11 +115,11 @@ try {
         $perPage = min(max(1, (int)($_GET['per_page'] ?? 20)), 100);
         $offset = ($page - 1) * $perPage;
 
-        $countStmt = $db->prepare("SELECT COUNT(*) as total FROM products");
+        $countStmt = $db->prepare("SELECT COUNT(*) as total $fromClause");
         $countStmt->execute();
         $total = (int)$countStmt->fetch()['total'];
 
-        $query = "SELECT * FROM products ORDER BY id DESC LIMIT ? OFFSET ?";
+        $query = "SELECT p.* $fromClause ORDER BY p.id DESC LIMIT ? OFFSET ?";
         $stmt = $db->prepare($query);
         $stmt->execute([$perPage, $offset]);
         $products = $stmt->fetchAll();

@@ -12,6 +12,22 @@ class PhoneUtils {
     var digits = digitsOnly(phone);
     if (digits.isEmpty) return '';
 
+    // 243243XXXXXXXX → 243XXXXXXXX
+    while (digits.startsWith('$countryCode$countryCode') &&
+        digits.length > 12) {
+      digits = digits.substring(countryCode.length);
+    }
+
+    // 2430XXXXXXXXX → 243XXXXXXXXX (0 local après l'indicatif)
+    if (digits.startsWith('${countryCode}0') && digits.length > 12) {
+      final withoutTrunk = countryCode + digits.substring(countryCode.length + 1);
+      if (withoutTrunk.length >= 12) {
+        digits = withoutTrunk.length > 12
+            ? withoutTrunk.substring(0, 12)
+            : withoutTrunk;
+      }
+    }
+
     if (digits.startsWith(countryCode) && digits.length >= 11) {
       return digits.length > 12 ? digits.substring(0, 12) : digits;
     }
@@ -34,6 +50,16 @@ class PhoneUtils {
 
   /// wa.me expects digits only, with country code and no "+".
   static String forWhatsApp(String? phone) => normalizeDrc(phone);
+
+  /// First valid WhatsApp number from shop fields (whatsapp, then phone).
+  static String? shopWhatsAppNumber({String? whatsapp, String? phone}) {
+    for (final raw in [whatsapp, phone]) {
+      if (raw == null || raw.trim().isEmpty) continue;
+      final normalized = forWhatsApp(raw);
+      if (isValidDrc(normalized)) return normalized;
+    }
+    return null;
+  }
 
   /// tel: URI with leading "+".
   static String forTelUri(String? phone) {

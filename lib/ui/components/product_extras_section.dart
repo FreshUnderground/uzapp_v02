@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/services/product_alerts_service.dart';
@@ -72,7 +73,7 @@ class _ProductExtrasSectionState extends State<ProductExtrasSection> {
     await _loadAlert();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Alerte stock enregistrée')),
+        SnackBar(content: Text(tr(context, 'stock_alert_saved'))),
       );
     }
   }
@@ -98,13 +99,13 @@ class _ProductExtrasSectionState extends State<ProductExtrasSection> {
                 _alertType == 'price_drop' ? Icons.notifications_active : Icons.notifications_none,
                 size: 18,
               ),
-              label: const Text('Alerte prix'),
+              label: Text(tr(context, 'price_alert')),
               onPressed: _togglePriceAlert,
             ),
             if (widget.product.isSold)
               ActionChip(
                 avatar: const Icon(Icons.inventory, size: 18),
-                label: const Text('Alerte retour stock'),
+                label: Text(tr(context, 'restock_alert')),
                 onPressed: _toggleStockAlert,
               ),
           ],

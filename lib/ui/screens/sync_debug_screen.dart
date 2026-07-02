@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/l10n/tr.dart';
 import '../../data/services/sync_service.dart';
 
 /// Debug screen to diagnose sync issues
@@ -12,8 +13,7 @@ class SyncDebugScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sync Diagnostics'),
-        backgroundColor: Colors.white,
+        title: Text(tr(context, 'sync_diagnostics')),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -107,7 +107,7 @@ class SyncDebugScreen extends StatelessWidget {
         ElevatedButton.icon(
           onPressed: syncService.isSyncing ? null : () => syncService.syncNow(),
           icon: const Icon(Icons.sync),
-          label: const Text('Manual Sync'),
+          label: Text(tr(context, 'manual_sync')),
           style: ElevatedButton.styleFrom(
             minimumSize: const Size(double.infinity, 50),
           ),
@@ -118,7 +118,7 @@ class SyncDebugScreen extends StatelessWidget {
               ? null
               : () => syncService.forcePush(),
           icon: const Icon(Icons.cloud_upload),
-          label: const Text('Force Push All'),
+          label: Text(tr(context, 'force_push_all')),
           style: ElevatedButton.styleFrom(
             minimumSize: const Size(double.infinity, 50),
             backgroundColor: Colors.orange,
@@ -130,7 +130,7 @@ class SyncDebugScreen extends StatelessWidget {
               ? null
               : () => syncService.fullResetAndSync(),
           icon: const Icon(Icons.refresh),
-          label: const Text('Full Reset & Sync'),
+          label: Text(tr(context, 'full_reset_sync')),
           style: ElevatedButton.styleFrom(
             minimumSize: const Size(double.infinity, 50),
             backgroundColor: Colors.red,
@@ -144,7 +144,7 @@ class SyncDebugScreen extends StatelessWidget {
               showDialog(
                 context: context,
                 builder: (ctx) => AlertDialog(
-                  title: const Text('Queue Status'),
+                  title: Text(tr(ctx, 'queue_status')),
                   content: SingleChildScrollView(
                     child: Text(
                       'Total: ${status['total']}\n'
@@ -155,7 +155,7 @@ class SyncDebugScreen extends StatelessWidget {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Close'),
+                      child: Text(tr(ctx, 'close')),
                     ),
                   ],
                 ),
@@ -163,7 +163,7 @@ class SyncDebugScreen extends StatelessWidget {
             }
           },
           icon: const Icon(Icons.info),
-          label: const Text('View Queue Details'),
+          label: Text(tr(context, 'view_queue_details')),
         ),
       ],
     );

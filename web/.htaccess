@@ -15,35 +15,51 @@
 
   RewriteCond %{QUERY_STRING} (^|&)web=1(&|$) [NC]
 
-  RewriteRule ^(product|shop)/ /index.html [L]
+  RewriteRule ^(product|shop|ya-cope)/ /index.html [L]
 
 
 
   # Social preview bots → Open Graph PHP pages
 
-  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
+  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|WhatsApp|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
 
   RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1 [L,QSA]
 
 
 
-  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
+  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|WhatsApp|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
 
   RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1 [L,QSA]
 
 
 
-  # Mobile → try native app, then web
+  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|WhatsApp|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
+
+  RewriteRule ^ya-cope/([^/]+)/?$ /api/ya_cope_page.php?id=$1 [L,QSA]
+
+
+
+  # Mobile → product landing (image + WhatsApp contact)
 
   RewriteCond %{HTTP_USER_AGENT} (Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera\sMini) [NC]
 
-  RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1&bridge=1 [L,QSA]
+  RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1 [L,QSA]
 
 
+
+  # Mobile → shop landing (logo + WhatsApp contact)
 
   RewriteCond %{HTTP_USER_AGENT} (Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera\sMini) [NC]
 
-  RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1&bridge=1 [L,QSA]
+  RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1 [L,QSA]
+
+
+
+  # Mobile → Ya Cope landing
+
+  RewriteCond %{HTTP_USER_AGENT} (Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera\sMini) [NC]
+
+  RewriteRule ^ya-cope/([^/]+)/?$ /api/ya_cope_page.php?id=$1 [L,QSA]
 
 
 
@@ -52,6 +68,18 @@
   RewriteRule ^product/([^/]+)/?$ /index.html [L]
 
   RewriteRule ^shop/([^/]+)/?$ /index.html [L]
+
+  RewriteRule ^ya-cope/([^/]+)/?$ /index.html [L]
+
+
+
+  # Missing upload files → 404 (never serve SPA HTML as an image)
+
+  RewriteCond %{REQUEST_URI} ^/uploads/ [NC]
+
+  RewriteCond %{REQUEST_FILENAME} !-f
+
+  RewriteRule ^ - [R=404,L]
 
 
 

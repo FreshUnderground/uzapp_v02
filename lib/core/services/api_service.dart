@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import '../utils/phone_utils.dart';
 
 class ApiService {
   static const String _apiKey =
@@ -117,6 +118,55 @@ class ApiService {
     return [];
   }
 
+  Future<List<Map<String, dynamic>>> fetchProductUpdates({
+    DateTime? updatedSince,
+    int limit = 50,
+  }) async {
+    try {
+      final params = <String, String>{
+        'api_key': _apiKey,
+        'limit': '$limit',
+      };
+      if (updatedSince != null) {
+        params['updated_since'] = _formatDateForApi(updatedSince);
+      }
+      final uri = Uri.parse('$baseUrl/product_updates.php')
+          .replace(queryParameters: params);
+      final response = await http.get(uri, headers: _commonHeaders);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded['data'] is List) {
+          return (decoded['data'] as List).cast<Map<String, dynamic>>();
+        }
+      }
+    } catch (e) {
+      debugPrint('API ERROR (fetchProductUpdates): $e');
+    }
+    return [];
+  }
+
+  Future<Map<String, dynamic>?> postProductUpdate(
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      final uri = Uri.parse('$baseUrl/product_updates.php?api_key=$_apiKey');
+      final response = await http.post(
+        uri,
+        headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+        body: jsonEncode(data),
+      );
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded['success'] == true) {
+          return decoded as Map<String, dynamic>;
+        }
+      }
+    } catch (e) {
+      debugPrint('API ERROR (postProductUpdate): $e');
+    }
+    return null;
+  }
+
   // GET /orders
   Future<List<Map<String, dynamic>>> fetchOrders({
     String? buyerPhone,
@@ -149,8 +199,41 @@ class ApiService {
     return [];
   }
 
-  // GET /stories
-  Future<List<Map<String, dynamic>>> fetchStories({
+  // GET /deliveries
+  Future<List<Map<String, dynamic>>> fetchDeliveries({
+    String? buyerPhone,
+    int? shopId,
+    DateTime? updatedSince,
+  }) async {
+    try {
+      final params = <String, String>{'api_key': _apiKey};
+      if (buyerPhone != null && buyerPhone.isNotEmpty) {
+        params['buyer_phone'] = buyerPhone;
+      }
+      if (shopId != null) {
+        params['shop_id'] = shopId.toString();
+      }
+      if (updatedSince != null) {
+        params['updated_since'] = _formatDateForApi(updatedSince);
+      }
+      final uri =
+          Uri.parse('$baseUrl/deliveries.php').replace(queryParameters: params);
+      final response = await http.get(uri, headers: _commonHeaders);
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final List<dynamic> data = decoded is Map
+            ? (decoded['data'] ?? [])
+            : decoded;
+        return data.cast<Map<String, dynamic>>();
+      }
+    } catch (e) {
+      debugPrint('API ERROR (fetchDeliveries): $e');
+    }
+    return [];
+  }
+
+  // GET /stories — returns null on HTTP/network failure (distinct from empty list).
+  Future<List<Map<String, dynamic>>?> fetchStories({
     DateTime? updatedSince,
   }) async {
     try {
@@ -176,7 +259,7 @@ class ApiService {
     } catch (e) {
       debugPrint("API ERROR (fetchStories): $e");
     }
-    return [];
+    return null;
   }
 
   Future<List<Map<String, dynamic>>> fetchCategories({
@@ -378,6 +461,27 @@ class ApiService {
     return null;
   }
 
+  /// Vérifie que le compte [users] et la boutique [shops] existent sur le serveur.
+  Future<({bool userExists, bool shopExists})> verifyUserAndShopOnServer(
+    String phone,
+  ) async {
+    final ownerKeys = PhoneUtils.lookupKeys(phone).toSet();
+    final user = await fetchUserByPhone(phone);
+    final userExists = user != null && user['error'] == null;
+
+    final shops = await fetchShops();
+    final shopExists = shops.any((shop) {
+      final serverOwner = shop['owner_id']?.toString();
+      if (serverOwner == null || serverOwner.isEmpty) return false;
+      return PhoneUtils.lookupKeys(serverOwner).any(ownerKeys.contains);
+    });
+
+    debugPrint(
+      'VERIFY server registration phone=$phone user=$userExists shop=$shopExists',
+    );
+    return (userExists: userExists, shopExists: shopExists);
+  }
+
   /// Login with phone number and password hash
   Future<Map<String, dynamic>?> loginWithPassword({
     required String phone,
@@ -488,6 +592,15 @@ class ApiService {
         final uri = Uri.parse('$baseUrl/orders.php?api_key=$_apiKey');
         final payload = jsonEncode({'action': action, 'data': data});
         debugPrint('PUSH → orders.php  uri=$uri');
+        response = await http.post(
+          uri,
+          headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+          body: payload,
+        );
+      } else if (entityType == 'deliveries') {
+        final uri = Uri.parse('$baseUrl/deliveries.php?api_key=$_apiKey');
+        final payload = jsonEncode({'action': action, 'data': data});
+        debugPrint('PUSH → deliveries.php  uri=$uri');
         response = await http.post(
           uri,
           headers: {..._commonHeaders, 'Content-Type': 'application/json'},
@@ -741,6 +854,186 @@ class ApiService {
       }
     } catch (e) {
       debugPrint('API ERROR (trackPlatformVisit): $e');
+    }
+    return false;
+  }
+
+  Map<String, String> _adminHeaders(String adminPhone) => {
+        ..._commonHeaders,
+        'X-Admin-Phone': adminPhone,
+      };
+
+  /// Platform statistics for admin dashboard (requires admin role on server).
+  Future<Map<String, dynamic>?> fetchAdminStats({
+    required String adminPhone,
+    String preset = '30d',
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/admin_stats.php').replace(
+        queryParameters: {
+          'api_key': _apiKey,
+          'admin_phone': adminPhone,
+          'preset': preset,
+        },
+      );
+      final response = await http.get(uri, headers: _adminHeaders(adminPhone));
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded['success'] == true) {
+          return Map<String, dynamic>.from(decoded['data'] as Map);
+        }
+        debugPrint(
+          'API ERROR (fetchAdminStats): success=false ${response.body}',
+        );
+      } else {
+        debugPrint(
+          'API ERROR (fetchAdminStats): HTTP ${response.statusCode} ${response.body}',
+        );
+      }
+    } catch (e) {
+      debugPrint('API ERROR (fetchAdminStats): $e');
+    }
+    return null;
+  }
+
+  /// Recent product reports for admin moderation.
+  Future<List<Map<String, dynamic>>> fetchAdminReports({
+    required String adminPhone,
+    int limit = 50,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/reports.php').replace(
+        queryParameters: {
+          'api_key': _apiKey,
+          'admin_phone': adminPhone,
+          'list': '1',
+          'limit': '$limit',
+        },
+      );
+      final response = await http.get(uri, headers: _adminHeaders(adminPhone));
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded['success'] == true) {
+          final reports = decoded['reports'];
+          if (reports is List) {
+            return reports
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList();
+          }
+        }
+      } else {
+        debugPrint(
+          'API ERROR (fetchAdminReports): HTTP ${response.statusCode} ${response.body}',
+        );
+      }
+    } catch (e) {
+      debugPrint('API ERROR (fetchAdminReports): $e');
+    }
+    return [];
+  }
+
+  /// Aggregated shop stats from server (cross-device).
+  Future<Map<String, int>?> fetchShopStats(int remoteShopId) async {
+    try {
+      final uri = Uri.parse('$baseUrl/stats.php').replace(
+        queryParameters: {
+          'api_key': _apiKey,
+          'shop_id': remoteShopId.toString(),
+        },
+      );
+      final response = await http
+          .get(uri, headers: _commonHeaders)
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) return null;
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map || decoded['success'] != true) return null;
+      final stats = decoded['stats'];
+      if (stats is! Map) return null;
+
+      int asInt(dynamic v) {
+        if (v is int) return v;
+        if (v is num) return v.toInt();
+        return int.tryParse('$v') ?? 0;
+      }
+
+      return {
+        'followers': asInt(stats['followers']),
+        'likes': asInt(stats['likes']),
+        'whatsapp_contacts': asInt(stats['whatsapp_contacts']),
+        'call_contacts': asInt(stats['call_contacts']),
+        'sms_contacts': asInt(stats['sms_contacts']),
+        'total_contacts': asInt(stats['total_contacts']),
+        'unique_clients': asInt(stats['unique_clients']),
+        'product_views': asInt(stats['product_views']),
+        'product_shares': asInt(stats['product_shares']),
+        'shop_views': asInt(stats['shop_views']),
+        'shop_shares': asInt(stats['shop_shares']),
+      };
+    } catch (e) {
+      debugPrint('API ERROR (fetchShopStats): $e');
+    }
+    return null;
+  }
+
+  /// Record a buyer contact on the server for cross-device seller stats.
+  Future<bool> trackContact({
+    required int shopId,
+    required String userPhone,
+    required String contactType,
+    int? productId,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/stats.php?api_key=$_apiKey');
+      final payload = jsonEncode({
+        'action': 'track_contact',
+        'shop_id': shopId,
+        'user_phone': userPhone,
+        'contact_type': contactType,
+        if (productId != null) 'product_id': productId,
+      });
+      final response = await http
+          .post(
+            uri,
+            headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+            body: payload,
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data is Map && data['success'] == true;
+      }
+    } catch (e) {
+      debugPrint('API ERROR (trackContact): $e');
+    }
+    return false;
+  }
+
+  /// Record a shop-level view or share (catalog, story, QR, status WA…).
+  Future<bool> trackShopInteraction({
+    required int shopId,
+    required String interactionType,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/stats.php?api_key=$_apiKey');
+      final payload = jsonEncode({
+        'action': 'track_shop_interaction',
+        'shop_id': shopId,
+        'interaction_type': interactionType,
+      });
+      final response = await http
+          .post(
+            uri,
+            headers: {..._commonHeaders, 'Content-Type': 'application/json'},
+            body: payload,
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data is Map && data['success'] == true;
+      }
+    } catch (e) {
+      debugPrint('API ERROR (trackShopInteraction): $e');
     }
     return false;
   }

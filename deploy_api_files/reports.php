@@ -136,8 +136,33 @@ try {
         exit;
     }
 
-    // GET: return report count for a product
+    // GET: list recent reports (admin) or count for a product
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        if (isset($_GET['list']) && (string) $_GET['list'] === '1') {
+            authenticate_admin();
+
+            $limit = isset($_GET['limit']) ? min((int) $_GET['limit'], 100) : 50;
+            $stmt = $db->prepare(
+                "SELECT pr.id, pr.product_id, pr.reason, pr.details, pr.reporter_phone,
+                        pr.created_at, p.name AS product_name, s.name AS shop_name, s.id AS shop_id
+                 FROM product_reports pr
+                 JOIN products p ON p.id = pr.product_id
+                 JOIN shops s ON s.id = p.shop_id
+                 ORDER BY pr.created_at DESC
+                 LIMIT ?"
+            );
+            $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+            $stmt->execute();
+            $reports = $stmt->fetchAll();
+
+            echo json_encode([
+                'success' => true,
+                'reports' => $reports,
+                'count' => count($reports),
+            ]);
+            exit;
+        }
+
         $productId = isset($_GET['product_id']) ? (int)$_GET['product_id'] : null;
 
         if (!$productId) {

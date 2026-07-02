@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 
 class ErrorBoundary extends StatelessWidget {
   final Widget child;
@@ -44,7 +45,7 @@ class ErrorFallback extends StatelessWidget {
               FilledButton.icon(
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Réessayer'),
+                label: Text(tr(context, 'retry')),
               ),
             ],
           ],

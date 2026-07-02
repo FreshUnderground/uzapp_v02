@@ -13,6 +13,15 @@ class ConnectivityService extends ChangeNotifier {
   bool _isOnline = false;
   Timer? _monitorTimer;
 
+  ConnectivityService() {
+    // Assume online on web when the browser reports connectivity so sync
+    // is not blocked while the ping health-check is in flight.
+    if (kIsWeb && getBrowserOnline()) {
+      _isOnline = true;
+      _type = ConnectivityType.mobile;
+    }
+  }
+
   ConnectivityType get type => _type;
   bool get isOnline => _isOnline;
 

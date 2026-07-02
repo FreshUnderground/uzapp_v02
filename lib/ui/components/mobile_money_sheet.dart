@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/res/uza_colors.dart';
@@ -75,12 +76,12 @@ class _MobileMoneySheetState extends State<MobileMoneySheet> {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Paiement Mobile Money'),
+        title: Text(tr(context, 'mobile_money_payment')),
         content: Text(result.message),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
+            child: Text(tr(context, 'ok')),
           ),
           if (!result.success)
             FilledButton(
@@ -88,7 +89,7 @@ class _MobileMoneySheetState extends State<MobileMoneySheet> {
                 Navigator.pop(ctx);
                 _fallbackWhatsApp(service, result.transactionId ?? '');
               },
-              child: const Text('WhatsApp'),
+              child: Text(tr(context, 'whatsapp_label')),
             ),
         ],
       ),
@@ -157,7 +158,7 @@ class _MobileMoneySheetState extends State<MobileMoneySheet> {
                     width: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Payer maintenant'),
+                : Text(tr(context, 'pay_now')),
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
@@ -166,7 +167,7 @@ class _MobileMoneySheetState extends State<MobileMoneySheet> {
               'UZA-${DateTime.now().millisecondsSinceEpoch}',
             ),
             icon: const Icon(Icons.chat),
-            label: const Text('Continuer via WhatsApp'),
+            label: Text(tr(context, 'continue_whatsapp')),
           ),
         ],
       ),

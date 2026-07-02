@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/services/contact_service.dart';
+import '../components/marketing_share_sheet.dart';
+import '../components/uza_secondary_app_bar.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/settings_service.dart';
@@ -33,16 +34,14 @@ class SettingsScreen extends StatelessWidget {
 
     final surface = Theme.of(context).scaffoldBackgroundColor;
 
-    return Scaffold(
+    return UzaBackScope(
+      child: Scaffold(
       backgroundColor: surface,
-      appBar: AppBar(
+      appBar: UzaSecondaryAppBar(
+        title: tr(context, 'settings'),
         elevation: 0,
         backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
         foregroundColor: Theme.of(context).appBarTheme.foregroundColor,
-        title: Text(
-          tr(context, 'settings'),
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
       ),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
@@ -55,7 +54,7 @@ class SettingsScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
-                  value: settings.currentLanguage,
+                  value: settings.languagePreference,
                   isExpanded: true,
                   icon: const Icon(
                     Icons.arrow_drop_down,
@@ -71,10 +70,11 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   dropdownColor: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
-                  items: AppTranslations.supportedLocales.map((String code) {
-                    final languageName =
-                        AppTranslations.languageNames[code] ?? code;
-                    final flag = _getLanguageFlag(code);
+                  items: AppTranslations.languagePreferenceOptions.map((code) {
+                    final languageName = trLanguageName(context, code);
+                    final flag = code == 'system'
+                        ? '📱'
+                        : _getLanguageFlag(code);
                     return DropdownMenuItem<String>(
                       value: code,
                       child: Row(
@@ -89,6 +89,44 @@ class SettingsScreen extends StatelessWidget {
                   onChanged: (String? newValue) {
                     if (newValue != null) {
                       settings.setLanguage(newValue);
+                    }
+                  },
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          _buildSectionHeader(Icons.dark_mode_outlined, tr(context, 'dark_mode')),
+          _buildCard(
+            context,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: settings.themeModePreference,
+                  isExpanded: true,
+                  icon: const Icon(
+                    Icons.arrow_drop_down,
+                    color: UzaColors.primary,
+                    size: 24,
+                  ),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  dropdownColor: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  items: AppTranslations.themeModeOptions.map((mode) {
+                    return DropdownMenuItem<String>(
+                      value: mode,
+                      child: Text(trThemeMode(context, mode)),
+                    );
+                  }).toList(),
+                  onChanged: (String? newValue) {
+                    if (newValue != null) {
+                      settings.setThemeMode(newValue);
                     }
                   },
                 ),
@@ -119,25 +157,6 @@ class SettingsScreen extends StatelessWidget {
                   value: settings.notificationsEnabled,
                   onChanged: (val) => settings.toggleNotifications(val),
                 ),
-                const Divider(height: 1, indent: 16, endIndent: 16),
-                SwitchListTile(
-                  secondary: const Icon(
-                    Icons.dark_mode_outlined,
-                    color: UzaColors.primary,
-                  ),
-                  title: Text(
-                    tr(context, 'dark_mode'),
-                    style: const TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                  subtitle: Text(
-                    settings.isDarkMode
-                        ? tr(context, 'enabled')
-                        : tr(context, 'disabled'),
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                  value: settings.isDarkMode,
-                  onChanged: (val) => settings.toggleDarkMode(val),
-                ),
                 _buildWaStatusToggle(context, settings),
               ],
             ),
@@ -163,7 +182,7 @@ class SettingsScreen extends StatelessWidget {
                   Icons.group_add_rounded,
                   tr(context, 'invite_friends'),
                   tr(context, 'share_app'),
-                  onTap: () => context.read<ContactService>().shareAppInvite(),
+                  onTap: () => MarketingShareSheet.showAppInvite(context),
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 _buildTile(
@@ -200,6 +219,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 32),
         ],
+      ),
       ),
     );
   }

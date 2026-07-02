@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import '../../data/local/uza_database.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/utils/image_utils.dart';
@@ -40,8 +41,8 @@ class FollowedSellersSection extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              const Text(
-                'Tes vendeurs',
+              Text(
+                tr(context, 'followed_sellers'),
                 style: TextStyle(
                   fontWeight: FontWeight.w900,
                   fontSize: 16,
@@ -54,7 +55,7 @@ class FollowedSellersSection extends StatelessWidget {
 
         // Shop circles or empty state
         if (followedShops.isEmpty)
-          _buildEmptyState()
+          _buildEmptyState(context)
         else
           SizedBox(
             height: 110,
@@ -78,7 +79,7 @@ class FollowedSellersSection extends StatelessWidget {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Container(
@@ -100,9 +101,9 @@ class FollowedSellersSection extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                'Suis des vendeurs pour voir leurs nouveautés ici',
+                tr(context, 'follow_sellers_hint'),
                 style: TextStyle(
-                  color: UzaColors.textSecondary,
+                  color: UzaColors.onSurfaceSecondary(context),
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),

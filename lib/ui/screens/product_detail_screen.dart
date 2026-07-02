@@ -10,16 +10,22 @@ import 'package:provider/provider.dart';
 import '../../core/res/uza_colors.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../data/repositories/cart_repository.dart';
+import '../../core/router/app_nav_utils.dart';
+import '../../core/utils/product_share_messages.dart';
+import '../components/uza_back_button.dart';
+import '../components/uza_toolbar_row.dart';
 import 'shop_profile_screen.dart';
 import 'cart_screen.dart';
 import '../../core/utils/image_utils.dart';
-import '../../core/utils/phone_utils.dart';
 import '../../core/utils/product_price_utils.dart';
 import '../components/tap_animator.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import '../components/product_metadata_display.dart';
 import '../components/product_extras_section.dart';
+import '../components/request_delivery_sheet.dart';
+import '../components/contact_seller_sheet.dart';
+import '../components/marketing_share_sheet.dart';
 import '../../core/utils/category_helper.dart';
 import '../../core/l10n/tr.dart';
 import '../../core/services/api_service.dart';
@@ -39,6 +45,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   int _currentImageIndex = 0;
   late final List<String> _images;
   late final PageController _pageController;
+  Future<Shop?>? _shopFuture;
+
+  ProductRepository get productRepo => context.read<ProductRepository>();
 
   @override
   void initState() {
@@ -49,7 +58,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         context.read<ProductRepository>().logProductView(widget.product.id);
-        context.read<SyncService>().reportInteraction(
+        context.read<SyncService>().reportProductStatByLocalId(
           widget.product.id,
           'view',
         );
@@ -58,31 +67,54 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _shopFuture ??= _resolveShop(context.read<ShopRepository>());
+  }
+
+  Future<Shop?> _cachedShopFuture(ShopRepository shopRepo) {
+    return _shopFuture ??= _resolveShop(shopRepo);
+  }
+
+  @override
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+
+  Future<Shop?> _resolveShop(ShopRepository shopRepo) async {
+    final resolved = await productRepo.resolveShopForProduct(widget.product);
+    if (resolved != null) return resolved;
+    return shopRepo.getShopById(widget.product.shopId);
   }
 
   @override
   Widget build(BuildContext context) {
     final shopRepo = context.read<ShopRepository>();
 
-    return Title(
-      title: '${widget.product.name.toUpperCase()} | UZAAPP',
-      color: Colors.white,
-      child: Scaffold(
-        appBar: _buildAppBar(shopRepo),
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            if (constraints.maxWidth >= 1100) {
-              return _buildDesktopBody(shopRepo);
-            }
-            return _buildMobileBody(shopRepo);
-          },
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        AppNavUtils.popRoute(context);
+      },
+      child: Title(
+        title: '${widget.product.name.toUpperCase()} | UZAAPP',
+        color: Colors.white,
+        child: Scaffold(
+          appBar: _buildAppBar(shopRepo),
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth >= 1100) {
+                return _buildDesktopBody(shopRepo);
+              }
+              return _buildMobileBody(shopRepo);
+            },
+          ),
+          bottomNavigationBar: MediaQuery.sizeOf(context).width < 1100
+              ? _buildBottomActions(context, shopRepo)
+              : null,
         ),
-        bottomNavigationBar: MediaQuery.of(context).size.width < 1100
-            ? _buildBottomActions(context, shopRepo)
-            : null,
       ),
     );
   }
@@ -105,7 +137,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       aspectRatio: 1,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(20),
-                        child: _buildImageSection(),
+                        child: FutureBuilder<Shop?>(
+                          future: _cachedShopFuture(shopRepo),
+                          builder: (context, snapshot) =>
+                              _buildImageSection(shop: snapshot.data),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -114,43 +150,56 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 ),
               ),
             ),
-            // Right: Details
+            // Right: Details (sticky actions)
             Expanded(
               flex: 2,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildProductHeader(),
-                    const SizedBox(height: 16),
-                    _buildPriceSection(),
-                    const SizedBox(height: 12),
-                    ProductExtrasSection(product: widget.product),
-                    const SizedBox(height: 32),
-                    const Text(
-                      'Description',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildProductHeader(),
+                          const SizedBox(height: 16),
+                          _buildPriceSection(),
+                          const SizedBox(height: 12),
+                          ProductExtrasSection(product: widget.product),
+                          const SizedBox(height: 32),
+                          const Text(
+                            'Description',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _buildDescription(),
+                          const SizedBox(height: 24),
+                          _buildCategoryMetadata(),
+                          const SizedBox(height: 24),
+                          _buildProductStats(),
+                          const SizedBox(height: 32),
+                          _buildSellerSection(shopRepo),
+                          const SizedBox(height: 32),
+                          _buildSameSellerSection(),
+                          const SizedBox(height: 32),
+                          _buildSuggestionsSection(),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    _buildDescription(),
-                    const SizedBox(height: 24),
-                    _buildCategoryMetadata(),
-                    const SizedBox(height: 24),
-                    _buildProductStats(),
-                    const SizedBox(height: 32),
-                    _buildSellerSection(shopRepo),
-                    const SizedBox(height: 48),
-                    _buildBottomActions(context, shopRepo, isDesktop: true),
-                    const SizedBox(height: 40),
-                    _buildSameSellerSection(),
-                    const SizedBox(height: 32),
-                    _buildSuggestionsSection(),
-                  ],
-                ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                    child: _buildBottomActions(
+                      context,
+                      shopRepo,
+                      isDesktop: true,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -167,9 +216,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   AppBar _buildAppBar(ShopRepository shopRepo) {
     final userPhone = context.read<AuthService>().user?.phoneNumber ?? '';
     return AppBar(
-      actions: [
+      automaticallyImplyLeading: false,
+      titleSpacing: 0,
+      title: UzaToolbarRow(
+        leading: const UzaBackButton(),
+        trailing: [
         FutureBuilder<Shop?>(
-          future: shopRepo.getShopById(widget.product.shopId),
+          future: _cachedShopFuture(shopRepo),
           builder: (context, snapshot) {
             final shop = snapshot.data;
             if (shop != null && _isShopOwner(shop)) {
@@ -190,31 +243,22 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             return const SizedBox.shrink();
           },
         ),
-        FutureBuilder<Shop?>(
-          future: shopRepo.getShopById(widget.product.shopId),
-          builder: (context, snapshot) {
-            final isLoaded = snapshot.connectionState == ConnectionState.done;
-            return IconButton(
-              icon: Icon(
-                isLoaded ? Icons.share_outlined : Icons.sync,
-                size: 20,
-              ),
-              onPressed: isLoaded
-                  ? () {
-                      context.read<ContactService>().shareProduct(
-                        widget.product,
-                        snapshot.data,
-                      );
-                      context.read<SyncService>().reportInteraction(
-                        widget.product.id,
-                        'share',
-                      );
-                    }
-                  : null,
+        IconButton(
+          icon: const Icon(Icons.share_outlined, size: 20),
+          onPressed: () {
+            MarketingShareSheet.showProduct(
+              context,
+              product: widget.product,
+              shop: null,
+              onShared: () {
+                context.read<SyncService>().reportProductStatByLocalId(
+                  widget.product.id,
+                  'share',
+                );
+              },
             );
           },
         ),
-        // Like button
         StreamBuilder<bool>(
           stream: userPhone.isNotEmpty
               ? context.read<ProductRepository>().watchIsProductLiked(
@@ -240,7 +284,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             );
           },
         ),
-        // Wishlist button
         StreamBuilder<bool>(
           stream: context.read<ProductRepository>().watchIsInWishlist(
             widget.product.id,
@@ -259,7 +302,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           },
         ),
         IconButton(
-          icon: const Icon(Icons.shopping_cart),
+          icon: const Icon(Icons.shopping_cart_outlined),
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const CartScreen()),
@@ -271,19 +314,20 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             if (value == 'report') _showReportDialog();
           },
           itemBuilder: (context) => [
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'report',
               child: Row(
                 children: [
                   Icon(Icons.flag_outlined, size: 20, color: Colors.red),
                   SizedBox(width: 8),
-                  Text('Signaler'),
+                  Text(tr(context, 'report_action')),
                 ],
               ),
             ),
           ],
         ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -291,7 +335,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     final userPhone = context.read<AuthService>().user?.phoneNumber;
     if (userPhone == null || userPhone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connectez-vous pour signaler un produit')),
+        SnackBar(content: Text(tr(context, 'report_login_required'))),
       );
       return;
     }
@@ -321,15 +365,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Widget _buildMobileBody(ShopRepository shopRepo) {
     return FutureBuilder<Shop?>(
-      future: shopRepo.getShopById(widget.product.shopId),
+      future: _cachedShopFuture(shopRepo),
       builder: (context, snapshot) {
         return CustomScrollView(
           slivers: [
-            SliverAppBar(
-              expandedHeight: 400,
-              pinned: true,
-              automaticallyImplyLeading: false,
-              flexibleSpace: FlexibleSpaceBar(background: _buildImageSection()),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 360,
+                width: double.infinity,
+                child: _buildImageSection(shop: snapshot.data),
+              ),
             ),
             SliverList(
               delegate: SliverChildListDelegate([
@@ -371,7 +416,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
-  Widget _buildImageSection() {
+  Widget _buildImageSection({Shop? shop}) {
     if (_images.isEmpty) {
       return ImageUtils.buildErrorWidget();
     }
@@ -409,54 +454,135 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   .toList(),
             ),
           ),
-        // Floating "Ajouter au panier" button
+        // Floating actions: livraison + ajout au panier
         Positioned(
           bottom: _images.length > 1 ? 56 : 16,
           right: 16,
-          child: GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              context.read<CartRepository>().addToCart(widget.product.id);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Produit ajouté à votre sélection'),
-                  action: SnackBarAction(
-                    label: 'VOIR',
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const CartScreen()),
-                    ),
-                  ),
-                ),
-              );
-            },
-            child: Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildImageFloatingButton(
+                icon: Icons.local_shipping_outlined,
+                label: tr(context, 'request_delivery'),
+                tooltip: tr(context, 'request_delivery'),
+                color: Colors.white,
+                iconColor: UzaColors.primary,
+                onTap: () async {
+                  HapticFeedback.lightImpact();
+                  final shopRepo = context.read<ShopRepository>();
+                  final resolved =
+                      shop ?? await _cachedShopFuture(shopRepo);
+                  if (!context.mounted) return;
+                  if (resolved == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(tr(context, 'shop_not_found'))),
+                    );
+                    return;
+                  }
+                  RequestDeliverySheet.show(
+                    context,
+                    shop: resolved,
+                    product: widget.product,
+                  );
+                },
+              ),
+              const SizedBox(width: 10),
+              _buildImageFloatingButton(
+                icon: Icons.playlist_add_rounded,
+                label: 'Panier',
+                tooltip: 'Ajouter à ma sélection',
                 color: UzaColors.primary,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+                iconColor: Colors.white,
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  context.read<CartRepository>().addToCart(widget.product.id);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(tr(context, 'product_added_selection')),
+                      action: SnackBarAction(
+                        label: 'VOIR',
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const CartScreen()),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
-              child: const Tooltip(
-                message: 'Ajouter à ma sélection',
-                child: Icon(
-                  Icons.playlist_add_rounded,
-                  color: Colors.white,
-                  size: 26,
-                ),
-              ),
-            ),
+            ],
           ),
         ),
       ],
     );
+  }
+
+  Widget _buildImageFloatingButton({
+    required IconData icon,
+    required String tooltip,
+    required Color color,
+    required Color iconColor,
+    required VoidCallback onTap,
+    String? label,
+  }) {
+    final hasLabel = label != null && label.isNotEmpty;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 44,
+        padding: EdgeInsets.symmetric(horizontal: hasLabel ? 14 : 0),
+        constraints: BoxConstraints(minWidth: hasLabel ? 0 : 44),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Tooltip(
+          message: tooltip,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: iconColor, size: 22),
+              if (hasLabel) ...[
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: iconColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String? _shopLocationQuery(Shop shop) {
+    final fullAddress = shop.address?.trim();
+    if (fullAddress != null && fullAddress.isNotEmpty) return fullAddress;
+
+    final city = shop.city?.trim();
+    final commune = shop.commune?.trim();
+    if (city != null &&
+        city.isNotEmpty &&
+        commune != null &&
+        commune.isNotEmpty) {
+      return '$city, $commune';
+    }
+    if (city != null && city.isNotEmpty) return city;
+    if (commune != null && commune.isNotEmpty) return commune;
+    return null;
   }
 
   Widget _buildIndicator(int index) {
@@ -660,10 +786,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         const SizedBox(height: 8),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 18,
-            color: Colors.black87,
+            color: UzaColors.onSurface(context),
           ),
         ),
         const SizedBox(height: 2),
@@ -901,7 +1027,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Widget _buildSellerSection(ShopRepository shopRepo) {
     return FutureBuilder<Shop?>(
-      future: shopRepo.getShopById(widget.product.shopId),
+      future: _cachedShopFuture(shopRepo),
       builder: (context, snapshot) {
         final shop = snapshot.data;
         if (shop == null) return const SizedBox.shrink();
@@ -966,7 +1092,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 ),
               ),
             ),
-            // Location / directions — now promoted to the bottom action bar
           ],
         );
       },
@@ -986,7 +1111,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             ),
             TextButton(
               onPressed: () => _showAddReviewSheet(context),
-              child: const Text('Donner mon avis'),
+              child: Text(tr(context, 'give_review')),
             ),
           ],
         ),
@@ -1056,9 +1181,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       const SizedBox(height: 4),
                       Text(
                         review.comment,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
-                          color: Colors.black87,
+                          color: UzaColors.onSurface(context),
                         ),
                       ),
                     ],
@@ -1143,8 +1268,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         final scaffoldMessenger = ScaffoldMessenger.of(context);
                         navigator.pop(context);
                         scaffoldMessenger.showSnackBar(
-                          const SnackBar(
-                            content: Text('Merci pour votre avis !'),
+                          SnackBar(
+                            content: Text(tr(context, 'thanks_review')),
                           ),
                         );
                       }
@@ -1158,7 +1283,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text('Publier mon avis'),
+                  child: Text(tr(context, 'publish_review')),
                 ),
               ),
               const SizedBox(height: 24),
@@ -1171,7 +1296,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Widget _buildShareSection(ShopRepository shopRepo) {
     return FutureBuilder<Shop?>(
-      future: shopRepo.getShopById(widget.product.shopId),
+      future: _cachedShopFuture(shopRepo),
       builder: (context, snapshot) {
         return Container(
           padding: const EdgeInsets.all(20),
@@ -1235,13 +1360,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       label: 'WhatsApp',
                       color: const Color(0xFF25D366),
                       onTap: () {
-                        context.read<SyncService>().reportInteraction(
-                          widget.product.id,
-                          'share',
-                        );
-                        context.read<ContactService>().shareProduct(
-                          widget.product,
-                          snapshot.data,
+                        MarketingShareSheet.showProduct(
+                          context,
+                          product: widget.product,
+                          shop: snapshot.data,
+                          onShared: () {
+                            context.read<SyncService>().reportProductStatByLocalId(
+                              widget.product.id,
+                              'share',
+                            );
+                          },
                         );
                       },
                     ),
@@ -1254,7 +1382,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       color: const Color(0xFF1877F2),
                       onTap: () => context.read<ContactService>().launchSocial(
                         urlString:
-                            'https://www.facebook.com/sharer/sharer.php?u=${Uri.encodeComponent('https://uzaapp.com/product/${widget.product.id}')}',
+                            'https://www.facebook.com/sharer/sharer.php?u=${Uri.encodeComponent(ProductShareMessages.publicUrl(widget.product))}',
                         entityType: 'product',
                         entityId: widget.product.id,
                       ),
@@ -1269,13 +1397,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       onTap: () {
                         Clipboard.setData(
                           ClipboardData(
-                            text:
-                                'https://uzaapp.com/product/${widget.product.id}',
+                            text: ProductShareMessages.publicUrl(widget.product),
                           ),
                         );
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: const Row(
+                            content: Row(
                               children: [
                                 Icon(
                                   Icons.check_circle,
@@ -1283,7 +1410,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                   size: 18,
                                 ),
                                 SizedBox(width: 8),
-                                Text('Lien copié !'),
+                                Text(tr(context, 'link_copied')),
                               ],
                             ),
                             backgroundColor: Colors.grey[800],
@@ -1302,9 +1429,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       icon: Icons.more_horiz_rounded,
                       label: 'Plus',
                       color: UzaColors.primary,
-                      onTap: () => context.read<ContactService>().shareProduct(
-                        widget.product,
-                        snapshot.data,
+                      onTap: () => MarketingShareSheet.showProduct(
+                        context,
+                        product: widget.product,
+                        shop: snapshot.data,
+                        onShared: () {
+                          context.read<SyncService>().reportProductStatByLocalId(
+                            widget.product.id,
+                            'share',
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -1471,11 +1605,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             children: [
               Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.2,
-                  color: UzaColors.textPrimary,
+                  color: UzaColors.onSurface(context),
                 ),
               ),
               const SizedBox(height: 2),
@@ -1710,12 +1844,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 children: [
                   Text(
                     product.name.toUpperCase(),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 10,
                       letterSpacing: 0.2,
                       height: 1.2,
-                      color: UzaColors.textPrimary,
+                      color: UzaColors.onSurface(context),
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -1767,116 +1901,126 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     ShopRepository shopRepo, {
     bool isDesktop = false,
   }) {
-    return FutureBuilder<Shop?>(
-      future: shopRepo.getShopById(widget.product.shopId),
-      builder: (context, snapshot) {
-        final shop = snapshot.data;
-        return Container(
-          padding: isDesktop
-              ? EdgeInsets.zero
-              : const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: isDesktop
-              ? null
-              : BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, -5),
-                    ),
-                  ],
+    return Container(
+      padding: isDesktop
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: isDesktop
+          ? null
+          : BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5),
                 ),
-          child: Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: ElevatedButton.icon(
-                  onPressed: shop != null
-                      ? () {
-                          final hasWhatsApp =
-                              shop.whatsapp?.trim().isNotEmpty == true;
-                          final hasPhone =
-                              shop.phone?.trim().isNotEmpty == true;
-                          if (!hasWhatsApp && !hasPhone) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Ce vendeur n\'a pas de numéro WhatsApp',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-                          HapticFeedback.lightImpact();
-                          _showContactOptions(context, shop);
-                        }
-                      : null,
-                  icon: const FaIcon(FontAwesomeIcons.whatsapp, size: 18),
-                  label: const Text(
-                    'Contacter le vendeur',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF25D366),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: isDesktop ? 0 : 2,
-                  ),
-                ),
+              ],
+            ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: ElevatedButton.icon(
+              onPressed: () => _handleContactTap(context, shopRepo),
+              icon: const FaIcon(FontAwesomeIcons.whatsapp, size: 18),
+              label: Text(
+                tr(context, 'contact_seller'),
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
-                child: ElevatedButton.icon(
-                  onPressed: shop != null
-                      ? () {
-                          HapticFeedback.lightImpact();
-                          if (shop.latitude != null && shop.longitude != null) {
-                            LocationService.getDirections(
-                              latitude: shop.latitude!,
-                              longitude: shop.longitude!,
-                              destinationName: shop.name,
-                            );
-                          } else {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ShopProfileScreen(shop: shop),
-                              ),
-                            );
-                          }
-                        }
-                      : null,
-                  icon: const Icon(Icons.directions_outlined, size: 16),
-                  label: const Text(
-                    'Adresse',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: UzaColors.secondary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 16,
-                      horizontal: 8,
-                    ),
-                    iconSize: 16,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: isDesktop ? 0 : 2,
-                  ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF25D366),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
+                elevation: isDesktop ? 0 : 2,
               ),
-            ],
+            ),
           ),
-        );
-      },
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: ElevatedButton.icon(
+              onPressed: () => _handleAddressTap(context, shopRepo),
+              icon: const Icon(Icons.map_outlined, size: 16),
+              label: Text(
+                tr(context, 'address'),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: UzaColors.secondary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 16,
+                  horizontal: 8,
+                ),
+                iconSize: 16,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: isDesktop ? 0 : 2,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleContactTap(
+    BuildContext context,
+    ShopRepository shopRepo,
+  ) async {
+    HapticFeedback.lightImpact();
+    final shop = await _cachedShopFuture(shopRepo);
+    if (!context.mounted) return;
+    if (shop == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr(context, 'shop_not_found'))),
+      );
+      return;
+    }
+    final hasWhatsApp = shop.whatsapp?.trim().isNotEmpty == true;
+    final hasPhone = shop.phone?.trim().isNotEmpty == true;
+    if (!hasWhatsApp && !hasPhone) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr(context, 'whatsapp_unavailable'))),
+      );
+      return;
+    }
+    _showContactOptions(context, shop);
+  }
+
+  Future<void> _handleAddressTap(
+    BuildContext context,
+    ShopRepository shopRepo,
+  ) async {
+    HapticFeedback.lightImpact();
+    final shop = await _cachedShopFuture(shopRepo);
+    if (!context.mounted) return;
+    if (shop == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr(context, 'shop_not_found'))),
+      );
+      return;
+    }
+    final hasCoords = shop.latitude != null && shop.longitude != null;
+    final addressQuery = _shopLocationQuery(shop);
+    if (!hasCoords && (addressQuery == null || addressQuery.isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr(context, 'location_error'))),
+      );
+      return;
+    }
+    await LocationService.openShopLocation(
+      latitude: shop.latitude,
+      longitude: shop.longitude,
+      destinationName: shop.name,
+      addressQuery: addressQuery,
     );
   }
 
@@ -1890,103 +2034,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   void _showContactOptions(BuildContext context, Shop shop) {
-    final hasWhatsApp = shop.whatsapp?.trim().isNotEmpty == true;
-    final hasPhone = shop.phone?.trim().isNotEmpty == true;
-    final effectivePhone = hasWhatsApp
-        ? shop.whatsapp!
-        : (hasPhone ? shop.phone! : null);
-
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Contacter le vendeur',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 24),
-              if (effectivePhone != null)
-                ListTile(
-                  leading: const Icon(
-                    FontAwesomeIcons.whatsapp,
-                    color: Colors.green,
-                  ),
-                  title: Text(
-                    'WhatsApp (${PhoneUtils.formatForDisplay(effectivePhone)})',
-                  ),
-                  onTap: () {
-                    _onContactClicked('whatsapp');
-                    Navigator.pop(context);
-                    context.read<ContactService>().launchWhatsApp(
-                      phone: effectivePhone,
-                      entityType: 'product',
-                      entityId: widget.product.id,
-                      buyerPhone:
-                          context.read<AuthService>().user?.phoneNumber,
-                      name: widget.product.name.toUpperCase(),
-                      imageUrl:
-                          ImageUtils.getDecryptedList(
-                            widget.product.imageUrls,
-                          ).firstOrNull ??
-                          '',
-                      productUrl:
-                          "https://uzaapp.com/product/${widget.product.id}",
-                      price: widget.product.price,
-                      hidePrice: widget.product.hidePrice,
-                      condition: widget.product.condition,
-                    );
-                  },
-                ),
-              if (hasPhone)
-                ListTile(
-                  leading: const Icon(Icons.phone, color: UzaColors.primary),
-                  title: const Text('Appel Direct'),
-                  onTap: () {
-                    _onContactClicked('call');
-                    Navigator.pop(context);
-                    context.read<ContactService>().makeCall(
-                      phone: shop.phone!,
-                      entityType: 'product',
-                      entityId: widget.product.id,
-                    );
-                  },
-                ),
-              ListTile(
-                leading: const Icon(Icons.sms, color: Colors.orange),
-                title: const Text('Envoyer un SMS'),
-                onTap: () {
-                  _onContactClicked('sms');
-                  Navigator.pop(context);
-                  if (hasPhone) {
-                    context.read<ContactService>().sendSMS(
-                      phone: shop.phone!,
-                      entityType: 'product',
-                      entityId: widget.product.id,
-                      message:
-                          "Est-ce que le produit ${widget.product.name.toUpperCase()} est toujours disponible ?",
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Ce vendeur n\'a pas de numéro de téléphone',
-                        ),
-                      ),
-                    );
-                  }
-                },
-              ),
-            ],
-          ),
-        );
-      },
+    _onContactClicked('whatsapp');
+    ContactSellerSheet.show(
+      context,
+      shop: shop,
+      product: widget.product,
     );
   }
 }

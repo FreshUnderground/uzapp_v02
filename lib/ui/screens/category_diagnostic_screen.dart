@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/local/uza_database.dart';
@@ -14,8 +15,8 @@ class CategoryDiagnosticScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Diagnostic Catégories'),
-        backgroundColor: Colors.white,
+        title: Text(tr(context, 'category_diagnostic')),
+        backgroundColor: UzaColors.surfaceOf(context),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -28,7 +29,7 @@ class CategoryDiagnosticScreen extends StatelessWidget {
               builder: (context, snapshot) {
                 final categories = snapshot.data ?? [];
                 if (categories.isEmpty) {
-                  return const Text('Aucune catégorie racine');
+                  return Text(tr(context, 'no_root_categories'));
                 }
                 return Column(
                   children: categories.map((cat) {
@@ -48,7 +49,7 @@ class CategoryDiagnosticScreen extends StatelessWidget {
               builder: (context, snapshot) {
                 final products = snapshot.data ?? [];
                 if (products.isEmpty) {
-                  return const Text('Aucun produit');
+                  return Text(tr(context, 'no_products'));
                 }
                 return Column(
                   children: products.map((product) {

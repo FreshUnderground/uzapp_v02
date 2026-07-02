@@ -17,11 +17,11 @@ class AnimatedBottomNav extends StatelessWidget {
     final items = [
       _NavItem(icon: Icons.home_rounded, label: tr(context, 'home')),
       _NavItem(icon: Icons.explore_rounded, label: tr(context, 'discover')),
+      _NavItem(icon: Icons.recycling_rounded, label: tr(context, 'ya_cope')),
       _NavItem(
         icon: Icons.storefront_outlined,
         label: tr(context, 'boutiques'),
       ),
-      _NavItem(icon: Icons.person_rounded, label: tr(context, 'profile')),
     ];
 
     return Container(
@@ -42,7 +42,11 @@ class AnimatedBottomNav extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: List.generate(items.length, (i) {
           final isActive = i == currentIndex;
-          return GestureDetector(
+          return Semantics(
+            label: items[i].label,
+            selected: isActive,
+            button: true,
+            child: GestureDetector(
             onTap: () {
               HapticFeedback.lightImpact();
               onTap(i);
@@ -73,7 +77,7 @@ class AnimatedBottomNav extends StatelessWidget {
                       items[i].icon,
                       color: isActive
                           ? Theme.of(context).colorScheme.primary
-                          : Colors.grey,
+                          : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
                       size: 24,
                     ),
                   ),
@@ -95,6 +99,7 @@ class AnimatedBottomNav extends StatelessWidget {
                 ],
               ),
             ),
+          ),
           );
         }),
       ),

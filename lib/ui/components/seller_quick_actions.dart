@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../../core/res/uza_colors.dart';
-import '../../core/services/contact_service.dart';
 import '../../data/local/uza_database.dart';
 import '../utils/page_transitions.dart';
 import '../screens/edit_product_screen.dart';
@@ -9,7 +7,12 @@ import '../screens/create_story_screen.dart';
 import '../screens/manage_products_screen.dart';
 import '../screens/whatsapp_status_screen.dart';
 import '../screens/quick_post_screen.dart';
+import '../screens/update_product_screen.dart';
 import '../screens/seller_orders_screen.dart';
+import '../screens/seller_deliveries_screen.dart';
+import '../screens/client_reengagement_screen.dart';
+import '../screens/shop_stats_screen.dart';
+import '../components/marketing_share_sheet.dart';
 import 'shop_share_sheet.dart';
 
 /// 2x2 quick action grid for seller dashboard.
@@ -22,12 +25,30 @@ class SellerQuickActions extends StatelessWidget {
   Widget build(BuildContext context) {
     final actions = [
       _Action(
+        icon: Icons.update_rounded,
+        label: 'Mettre à jour',
+        color: const Color(0xFF0984E3),
+        onTap: () => Navigator.push(
+          context,
+          SlideUpRoute(page: UpdateProductScreen(shopId: shop.id)),
+        ),
+      ),
+      _Action(
         icon: Icons.add_shopping_cart_outlined,
         label: 'Produit',
         color: UzaColors.primary,
         onTap: () => Navigator.push(
           context,
           SlideUpRoute(page: EditProductScreen(shopId: shop.id)),
+        ),
+      ),
+      _Action(
+        icon: Icons.analytics_outlined,
+        label: 'Statistiques',
+        color: Colors.deepPurple,
+        onTap: () => Navigator.push(
+          context,
+          SlideUpRoute(page: ShopStatsScreen(shopId: shop.id)),
         ),
       ),
       _Action(
@@ -78,6 +99,15 @@ class SellerQuickActions extends StatelessWidget {
         ),
       ),
       _Action(
+        icon: Icons.delivery_dining_outlined,
+        label: 'Livraisons',
+        color: const Color(0xFF00897B),
+        onTap: () => Navigator.push(
+          context,
+          SlideUpRoute(page: SellerDeliveriesScreen(shopId: shop.id)),
+        ),
+      ),
+      _Action(
         icon: Icons.collections_outlined,
         label: 'Statut WA',
         color: const Color(0xFF25D366),
@@ -96,21 +126,7 @@ class SellerQuickActions extends StatelessWidget {
         icon: Icons.list_alt_outlined,
         label: 'Catalogue',
         color: Colors.teal,
-        onTap: () async {
-          final messenger = ScaffoldMessenger.of(context);
-          messenger.showSnackBar(
-            const SnackBar(content: Text('Préparation du catalogue…')),
-          );
-          try {
-            await context.read<ContactService>().shareShopCatalog(shop);
-          } catch (_) {
-            messenger.showSnackBar(
-              const SnackBar(
-                content: Text('Impossible de partager le catalogue'),
-              ),
-            );
-          }
-        },
+        onTap: () => MarketingShareSheet.showShopCatalog(context, shop: shop),
       ),
       _Action(
         icon: Icons.campaign_outlined,
@@ -125,7 +141,7 @@ class SellerQuickActions extends StatelessWidget {
         icon: Icons.group_add_outlined,
         label: 'Inviter',
         color: Colors.green,
-        onTap: () => context.read<ContactService>().shareAppInvite(),
+        onTap: () => MarketingShareSheet.showAppInvite(context),
       ),
     ];
 

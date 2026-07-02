@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/product_repository.dart';
-import '../../data/repositories/shop_repository.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/utils/image_utils.dart';
 import '../../core/utils/product_price_utils.dart';
@@ -84,18 +83,19 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
   @override
   ThemeData appBarTheme(BuildContext context) {
     final theme = Theme.of(context);
+    final onSurface = UzaColors.onSurface(context);
     return theme.copyWith(
       appBarTheme: AppBarTheme(
-        backgroundColor: Colors.white,
+        backgroundColor: UzaColors.surfaceOf(context),
         elevation: 0,
-        iconTheme: const IconThemeData(color: UzaColors.textPrimary),
-        titleTextStyle: const TextStyle(
-          color: UzaColors.textPrimary,
+        iconTheme: IconThemeData(color: onSurface),
+        titleTextStyle: TextStyle(
+          color: onSurface,
           fontSize: 18,
         ),
       ),
-      inputDecorationTheme: const InputDecorationTheme(
-        hintStyle: TextStyle(color: UzaColors.textSecondary),
+      inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+        hintStyle: TextStyle(color: UzaColors.onSurfaceSecondary(context)),
         border: InputBorder.none,
       ),
     );
@@ -136,10 +136,10 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
       future: productRepo.searchProducts(query: query),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return _buildSkeletonGrid();
+          return _buildSkeletonGrid(context);
         }
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return _buildNoResults();
+          return _buildNoResults(context);
         }
 
         final results = snapshot.data!;
@@ -151,9 +151,9 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Text(
                 '${results.length} résultat${results.length > 1 ? 's' : ''} pour « ${query.trim()} »',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 14,
-                  color: UzaColors.textSecondary,
+                  color: UzaColors.onSurfaceSecondary(context),
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -213,7 +213,7 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
               padding: const EdgeInsets.all(32.0),
               child: Text(
                 'Aucune suggestion pour « $query »',
-                style: const TextStyle(color: UzaColors.textSecondary),
+                style: TextStyle(color: UzaColors.onSurfaceSecondary(context)),
               ),
             ),
           );
@@ -272,17 +272,17 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
                           _buildHighlightedText(
                             product.name,
                             query,
-                            const TextStyle(
+                            TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 14,
-                              color: UzaColors.textPrimary,
+                              color: UzaColors.onSurface(context),
                             ),
                           ),
                           const SizedBox(height: 2),
                           FutureBuilder<Shop?>(
                             future: context
-                                .read<ShopRepository>()
-                                .getShopById(product.shopId),
+                                .read<ProductRepository>()
+                                .resolveShopForProduct(product),
                             builder: (context, shopSnapshot) {
                               final shop = shopSnapshot.data;
                               final address = shop?.address?.trim();
@@ -292,9 +292,9 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
                                   if (shop != null && shop.name.isNotEmpty)
                                     Text(
                                       shop.name,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 11,
-                                        color: UzaColors.textSecondary,
+                                        color: UzaColors.onSurfaceSecondary(context),
                                         fontWeight: FontWeight.w500,
                                       ),
                                       maxLines: 1,
@@ -305,18 +305,18 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
                                       padding: const EdgeInsets.only(top: 2),
                                       child: Row(
                                         children: [
-                                          const Icon(
+                                          Icon(
                                             Icons.location_on_outlined,
                                             size: 12,
-                                            color: UzaColors.textSecondary,
+                                            color: UzaColors.onSurfaceSecondary(context),
                                           ),
                                           const SizedBox(width: 4),
                                           Expanded(
                                             child: Text(
                                               address,
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 11,
-                                                color: UzaColors.textSecondary,
+                                                color: UzaColors.onSurfaceSecondary(context),
                                               ),
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
@@ -364,7 +364,7 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
                                     product,
                                   )
                                       ? UzaColors.secondary
-                                      : UzaColors.textSecondary,
+                                      : UzaColors.onSurfaceSecondary(context),
                                 ),
                               ),
                             ],
@@ -372,10 +372,10 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
                         ],
                       ),
                     ),
-                    const Icon(
+                    Icon(
                       Icons.north_west,
                       size: 16,
-                      color: UzaColors.textSecondary,
+                      color: UzaColors.onSurfaceSecondary(context),
                     ),
                   ],
                 ),
@@ -411,12 +411,12 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
+                          Text(
                             'Recherches récentes',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              color: UzaColors.textPrimary,
+                              color: UzaColors.onSurface(context),
                             ),
                           ),
                           TextButton(
@@ -440,14 +440,14 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
 
                   // Popular categories
                   if (popular.isNotEmpty) ...[
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                       child: Text(
                         'Populaires',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
-                          color: UzaColors.textPrimary,
+                          color: UzaColors.onSurface(context),
                         ),
                       ),
                     ),
@@ -503,10 +503,10 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
       ),
       child: ListTile(
         dense: true,
-        leading: const Icon(
+        leading: Icon(
           Icons.history,
           size: 20,
-          color: UzaColors.textSecondary,
+          color: UzaColors.onSurfaceSecondary(context),
         ),
         title: Text(item, style: const TextStyle(fontSize: 14)),
         trailing: IconButton(
@@ -527,7 +527,7 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
 
   // ─── No Results ──────────────────────────────────────────────────
 
-  Widget _buildNoResults() {
+  Widget _buildNoResults(BuildContext context) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32.0),
@@ -536,20 +536,20 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
           children: [
             Icon(Icons.search_off_rounded, size: 64, color: Colors.grey[300]),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'Aucun résultat',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: UzaColors.textPrimary,
+                color: UzaColors.onSurface(context),
               ),
             ),
             const SizedBox(height: 8),
             Text(
               'Essayez avec des mots-clés différents pour « ${query.trim()} »',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: UzaColors.textSecondary,
+              style: TextStyle(
+                color: UzaColors.onSurfaceSecondary(context),
                 fontSize: 14,
               ),
             ),
@@ -561,7 +561,8 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
 
   // ─── Skeleton Loading ────────────────────────────────────────────
 
-  Widget _buildSkeletonGrid() {
+  Widget _buildSkeletonGrid(BuildContext context) {
+    final shimmer = UzaColors.shimmerOf(context);
     return GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -574,7 +575,7 @@ class ProductSearchDelegate extends SearchDelegate<Product?> {
       itemBuilder: (context, index) {
         return Container(
           decoration: BoxDecoration(
-            color: Colors.grey[200],
+            color: shimmer.base,
             borderRadius: BorderRadius.circular(16),
           ),
         );

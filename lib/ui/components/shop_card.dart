@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../data/local/uza_database.dart';
+import '../../core/l10n/tr.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/utils/image_utils.dart';
 import 'verification_badge.dart';
@@ -18,7 +19,7 @@ class ShopCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(24),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
@@ -64,7 +65,9 @@ class ShopCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        shop.type == ShopType.wholesale ? 'GROS' : 'DÉTAIL',
+                        shop.type == ShopType.wholesale
+                            ? tr(context, 'shop_wholesale')
+                            : tr(context, 'shop_retail'),
                         style: const TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.bold,

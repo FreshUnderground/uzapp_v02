@@ -4,6 +4,5 @@ import 'package:drift/web.dart';
 DatabaseConnection ensureConnection() {
   return DatabaseConnection(WebDatabase.withStorage(
     DriftWebStorage.indexedDb('uzaapp'),
-    logStatements: true,
   ));
 }

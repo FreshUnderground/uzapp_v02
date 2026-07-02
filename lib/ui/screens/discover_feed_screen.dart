@@ -4,9 +4,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/auth_service.dart';
-import '../../core/services/contact_service.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
 import '../../data/local/uza_database.dart';
@@ -15,7 +15,11 @@ import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/story_repository.dart'
     show StoryRepository, ArrivageMediaItem;
 import '../../data/services/sync_service.dart';
-import '../components/shop_share_sheet.dart';
+import '../../data/repositories/cart_repository.dart';
+import '../components/uza_media_top_bar.dart';
+import '../components/contact_seller_sheet.dart';
+import 'cart_screen.dart';
+import '../components/marketing_share_sheet.dart';
 import '../components/shop_video_player.dart';
 import '../components/skeletons.dart';
 import '../components/custom_refresh_indicator.dart';
@@ -38,6 +42,27 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
   int _lastFeedSignature = -1;
   final Random _rng = Random();
   bool _requestedGuestSync = false;
+  bool _showSwipeHint = false;
+
+  static const _hintKey = 'discover_swipe_hint_seen';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSwipeHint();
+  }
+
+  Future<void> _loadSwipeHint() async {
+    final prefs = await SharedPreferences.getInstance();
+    final seen = prefs.getBool(_hintKey) ?? false;
+    if (!seen && mounted) setState(() => _showSwipeHint = true);
+  }
+
+  Future<void> _dismissSwipeHint() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_hintKey, true);
+    if (mounted) setState(() => _showSwipeHint = false);
+  }
 
   void _maybeBootstrapSync(
     List<Product> products,
@@ -79,9 +104,13 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
   /// Synchronous — JOIN stream already expands media items, just shuffle.
   /// Prioritizes videos while maintaining randomness.
   void _buildFeed(List<Product> products, List<ArrivageMediaItem> mediaItems) {
-    final availableProducts = products
-        .where((p) => !p.isSold && _productHasDisplayableImage(p))
-        .toList();
+    final productRepo = context.read<ProductRepository>();
+    final availableProducts = productRepo
+        .deduplicateForDisplay(
+          products
+              .where((p) => !p.isSold && _productHasDisplayableImage(p))
+              .toList(),
+        );
 
     // Separate videos from other media
     final videos = mediaItems.where((m) => m.mediaType == 'video').toList();
@@ -271,23 +300,79 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
                     ? _feed
                     : <dynamic>[...products, ...mediaItems];
 
-                return PageView.builder(
-                  scrollDirection: Axis.vertical,
-                  controller: _pageController,
-                  physics: const BouncingScrollPhysics(
-                    parent: AlwaysScrollableScrollPhysics(),
-                  ),
-                  pageSnapping: true,
-                  itemCount: items.length,
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    if (item is Product) {
-                      return _ProductPage(product: item);
-                    } else if (item is ArrivageMediaItem) {
-                      return _ArrivagePage(entry: item, singleSlide: true);
-                    }
-                    return const SizedBox.shrink();
-                  },
+                return Stack(
+                  children: [
+                    PageView.builder(
+                      scrollDirection: Axis.vertical,
+                      controller: _pageController,
+                      physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
+                      ),
+                      onPageChanged: (_) {
+                        if (_showSwipeHint) _dismissSwipeHint();
+                      },
+                      pageSnapping: true,
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        if (item is Product) {
+                          return _ProductPage(
+                            product: item,
+                            pageIndex: index,
+                            pageCount: items.length,
+                          );
+                        } else if (item is ArrivageMediaItem) {
+                          return _ArrivagePage(
+                            entry: item,
+                            singleSlide: true,
+                            pageIndex: index,
+                            pageCount: items.length,
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                    if (_showSwipeHint)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 120,
+                        child: Center(
+                          child: Material(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(24),
+                            child: InkWell(
+                              onTap: _dismissSwipeHint,
+                              borderRadius: BorderRadius.circular(24),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.swipe_vertical,
+                                      color: Colors.white,
+                                      size: 22,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      tr(context, 'discover_swipe_hint'),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 );
               },
             );
@@ -305,7 +390,13 @@ class _DiscoverFeedScreenState extends State<DiscoverFeedScreen> {
 
 class _ProductPage extends StatefulWidget {
   final Product product;
-  const _ProductPage({required this.product});
+  final int pageIndex;
+  final int pageCount;
+  const _ProductPage({
+    required this.product,
+    this.pageIndex = 0,
+    this.pageCount = 1,
+  });
 
   @override
   State<_ProductPage> createState() => _ProductPageState();
@@ -332,10 +423,31 @@ class _ProductPageState extends State<_ProductPage> {
   }
 
   Future<void> _loadShop() async {
-    final shop = await context.read<ShopRepository>().getShopById(
-      widget.product.shopId,
-    );
+    final productRepo = context.read<ProductRepository>();
+    final shopRepo = context.read<ShopRepository>();
+    var shop = await productRepo.resolveShopForProduct(widget.product);
+    shop ??= await shopRepo.getShopById(widget.product.shopId);
     if (mounted) setState(() => _shop = shop);
+  }
+
+  Future<void> _handleWhatsAppTap() async {
+    var shop = _shop;
+    if (shop == null) {
+      await _loadShop();
+      shop = _shop;
+    }
+    if (!mounted) return;
+    if (shop == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr(context, 'shop_not_found'))),
+      );
+      return;
+    }
+    ContactSellerSheet.show(
+      context,
+      shop: shop,
+      product: widget.product,
+    );
   }
 
   void _loadImages() {
@@ -345,6 +457,74 @@ class _ProductPageState extends State<_ProductPage> {
         _images = imgs;
       });
     }
+  }
+
+  List<Widget> _buildTopActions() {
+    final userPhone = context.read<AuthService>().user?.phoneNumber ?? '';
+    final repo = context.read<ProductRepository>();
+
+    return [
+      StreamBuilder<bool>(
+        stream: userPhone.isNotEmpty
+            ? repo.watchIsProductLiked(widget.product.id, userPhone)
+            : Stream.value(false),
+        builder: (context, likeSnap) {
+          final isLiked = likeSnap.data ?? false;
+          return IconButton(
+            icon: Icon(
+              isLiked ? Icons.favorite : Icons.favorite_border,
+              color: isLiked ? Colors.red : Colors.white,
+            ),
+            onPressed: () {
+              if (userPhone.isNotEmpty) {
+                repo.toggleLike(widget.product.id, userPhone);
+              }
+            },
+          );
+        },
+      ),
+      IconButton(
+        icon: const Icon(Icons.share_outlined, color: Colors.white),
+        onPressed: () => MarketingShareSheet.showProduct(
+          context,
+          product: widget.product,
+          shop: _shop,
+          onShared: () => context
+              .read<SyncService>()
+              .reportProductStatByLocalId(widget.product.id, 'share'),
+        ),
+      ),
+      StreamBuilder<int>(
+        stream: context.watch<CartRepository>().watchCartCount(),
+        builder: (context, snapshot) {
+          final count = snapshot.data ?? 0;
+          return Badge(
+            label: Text('$count'),
+            isLabelVisible: count > 0,
+            child: IconButton(
+              icon: const Icon(Icons.shopping_cart_outlined, color: Colors.white),
+              onPressed: () => Navigator.push(
+                context,
+                SlideUpRoute(page: const CartScreen()),
+              ),
+            ),
+          );
+        },
+      ),
+      IconButton(
+        icon: const FaIcon(FontAwesomeIcons.whatsapp, color: Colors.green, size: 22),
+        onPressed: _handleWhatsAppTap,
+      ),
+      IconButton(
+        icon: const Icon(Icons.info_outline, color: Colors.white),
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProductDetailScreen(product: widget.product),
+          ),
+        ),
+      ),
+    ];
   }
 
   @override
@@ -437,10 +617,20 @@ class _ProductPageState extends State<_ProductPage> {
                     ),
                   ),
 
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: UzaMediaTopBar(
+                    fallbackLocation: '/discover',
+                    actions: _buildTopActions(),
+                  ),
+                ),
+
                 // Bottom-left info
                 Positioned(
                   left: 16,
-                  right: 80,
+                  right: 16,
                   bottom: 40,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -495,60 +685,6 @@ class _ProductPageState extends State<_ProductPage> {
                     ],
                   ),
                 ),
-
-                // Right-side action buttons
-                Positioned(
-                  right: 12,
-                  bottom: 40,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _LikeButton(product: widget.product),
-                      const SizedBox(height: 14),
-                      _ActionBtn(
-                        icon: FontAwesomeIcons.whatsapp,
-                        label: 'WhatsApp',
-                        color: Colors.green,
-                        onTap: () {
-                          if (_shop?.whatsapp != null) {
-                            context.read<ContactService>().launchWhatsApp(
-                              phone: _shop!.whatsapp!,
-                              entityType: 'product',
-                              entityId: widget.product.id,
-                              name: widget.product.name,
-                              imageUrl: firstImage,
-                              productUrl:
-                                  'https://uzaapp.com/product/${widget.product.id}',
-                              price: widget.product.price,
-                              hidePrice: widget.product.hidePrice,
-                              condition: widget.product.condition,
-                            );
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 14),
-                      _ActionBtn(
-                        icon: Icons.share,
-                        label: 'Partager',
-                        onTap: () => context
-                            .read<ContactService>()
-                            .shareProduct(widget.product, null),
-                      ),
-                      const SizedBox(height: 14),
-                      _ActionBtn(
-                        icon: Icons.info_outline,
-                        label: 'Détails',
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                ProductDetailScreen(product: widget.product),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ],
             ),
           ),
@@ -578,10 +714,14 @@ class _ProductPageState extends State<_ProductPage> {
 class _ArrivagePage extends StatefulWidget {
   final ArrivageMediaItem entry;
   final bool singleSlide;
+  final int pageIndex;
+  final int pageCount;
 
   const _ArrivagePage({
     required this.entry,
     this.singleSlide = false,
+    this.pageIndex = 0,
+    this.pageCount = 1,
   });
 
   @override
@@ -611,10 +751,37 @@ class _ArrivagePageState extends State<_ArrivagePage> {
   }
 
   Future<void> _loadShop() async {
-    final shop = await context.read<ShopRepository>().getShopById(
-      widget.entry.shopId,
-    );
+    final shopRepo = context.read<ShopRepository>();
+    var shop = await shopRepo.resolveShopForStoredId(widget.entry.shopId);
+    shop ??= await shopRepo.getShopById(widget.entry.shopId);
     if (mounted) setState(() => _shop = shop);
+  }
+
+  Future<Shop?> _ensureShop() async {
+    if (_shop != null) return _shop;
+    await _loadShop();
+    return _shop;
+  }
+
+  Future<void> _handleWhatsAppTap() async {
+    final shop = await _ensureShop();
+    if (!mounted) return;
+    if (shop == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr(context, 'shop_not_found'))),
+      );
+      return;
+    }
+    final mediaItems = _mediaItems.isNotEmpty ? _mediaItems : [entry];
+    final imageUrl = mediaItems[_currentMediaIndex].mediaUrl.isNotEmpty
+        ? CryptoUtils.decrypt(mediaItems[_currentMediaIndex].mediaUrl)
+        : null;
+    ContactSellerSheet.show(
+      context,
+      shop: shop,
+      storyId: entry.storyId,
+      imageUrlOverride: imageUrl,
+    );
   }
 
   Future<void> _loadMediaItems() async {
@@ -653,6 +820,82 @@ class _ArrivagePageState extends State<_ArrivagePage> {
           )
           .toList();
     });
+  }
+
+  Future<void> _shareArrivage(BuildContext context) async {
+    final shop = await _ensureShop();
+    if (!context.mounted) return;
+    if (shop == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr(context, 'shop_not_found'))),
+      );
+      return;
+    }
+
+    final storyRepo = context.read<StoryRepository>();
+    final story = await storyRepo.getStoryById(entry.storyId);
+    if (!context.mounted) return;
+
+    final mediaItems = _mediaItems.isNotEmpty ? _mediaItems : [entry];
+    final rawUrl = mediaItems[_currentMediaIndex].mediaUrl;
+    final imageUrl = rawUrl.isNotEmpty ? CryptoUtils.decrypt(rawUrl) : null;
+
+    if (story != null) {
+      await MarketingShareSheet.showStory(
+        context,
+        story: story,
+        shop: shop,
+        imageUrl: imageUrl,
+      );
+      return;
+    }
+
+    await MarketingShareSheet.showShopLink(context, shop: shop);
+  }
+
+  List<Widget> _buildTopActions() {
+    return [
+      IconButton(
+        icon: const FaIcon(
+          FontAwesomeIcons.whatsapp,
+          color: Colors.green,
+          size: 22,
+        ),
+        onPressed: _handleWhatsAppTap,
+      ),
+      IconButton(
+        icon: const Icon(Icons.share_outlined, color: Colors.white),
+        onPressed: () => _shareArrivage(context),
+      ),
+      StreamBuilder<int>(
+        stream: context.watch<CartRepository>().watchCartCount(),
+        builder: (context, snapshot) {
+          final count = snapshot.data ?? 0;
+          return Badge(
+            label: Text('$count'),
+            isLabelVisible: count > 0,
+            child: IconButton(
+              icon: const Icon(Icons.shopping_cart_outlined, color: Colors.white),
+              onPressed: () => Navigator.push(
+                context,
+                SlideUpRoute(page: const CartScreen()),
+              ),
+            ),
+          );
+        },
+      ),
+      IconButton(
+        icon: const Icon(Icons.storefront_outlined, color: Colors.white),
+        onPressed: () async {
+          final shop = await _ensureShop();
+          if (!context.mounted || shop == null) return;
+          Navigator.push(
+            context,
+            SlideUpRoute(page: ShopProfileScreen(shop: shop)),
+          );
+        },
+      ),
+    ];
   }
 
   @override
@@ -726,10 +969,20 @@ class _ArrivagePageState extends State<_ArrivagePage> {
                     ),
                   ),
 
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: UzaMediaTopBar(
+                    fallbackLocation: '/discover',
+                    actions: _buildTopActions(),
+                  ),
+                ),
+
                 // Bottom-left: shop info
                 Positioned(
                   left: 16,
-                  right: 80,
+                  right: 16,
                   bottom: 40,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -752,68 +1005,6 @@ class _ArrivagePageState extends State<_ArrivagePage> {
                             ),
                           ),
                         ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Right-side action buttons
-                Positioned(
-                  right: 12,
-                  bottom: 40,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // WhatsApp button
-                      _ActionBtn(
-                        icon: FontAwesomeIcons.whatsapp,
-                        label: 'WhatsApp',
-                        color: Colors.green,
-                        onTap: () {
-                          if (_shop?.whatsapp != null) {
-                            context.read<ContactService>().launchWhatsApp(
-                              phone: _shop!.whatsapp!,
-                              entityType: 'arrivage',
-                              entityId: entry.storyId,
-                              name: 'Arrivage - ${_shop?.name ?? ''}',
-                              imageUrl:
-                                  mediaItems[_currentMediaIndex]
-                                      .mediaUrl
-                                      .isNotEmpty
-                                  ? CryptoUtils.decrypt(
-                                      mediaItems[_currentMediaIndex].mediaUrl,
-                                    )
-                                  : '',
-                            );
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 14),
-                      // Share button
-                      _ActionBtn(
-                        icon: Icons.share,
-                        label: 'Partager',
-                        onTap: () {
-                          if (_shop != null) {
-                            ShopShareSheet.show(context, _shop!);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 14),
-                      // Shop profile button
-                      _ActionBtn(
-                        icon: Icons.storefront,
-                        label: 'Boutique',
-                        onTap: () {
-                          if (_shop != null) {
-                            Navigator.push(
-                              context,
-                              SlideUpRoute(
-                                page: ShopProfileScreen(shop: _shop!),
-                              ),
-                            );
-                          }
-                        },
                       ),
                     ],
                   ),
@@ -846,102 +1037,6 @@ class _ArrivagePageState extends State<_ArrivagePage> {
         color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(4),
       ),
-    );
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Like button (reactive)
-// ──────────────────────────────────────────────────────────────────────────────
-
-class _LikeButton extends StatelessWidget {
-  final Product product;
-  const _LikeButton({required this.product});
-
-  @override
-  Widget build(BuildContext context) {
-    final userPhone = context.read<AuthService>().user?.phoneNumber ?? '';
-    final repo = context.read<ProductRepository>();
-
-    return StreamBuilder<bool>(
-      stream: userPhone.isNotEmpty
-          ? repo.watchIsProductLiked(product.id, userPhone)
-          : Stream.value(false),
-      builder: (context, likeSnap) {
-        final isLiked = likeSnap.data ?? false;
-        return StreamBuilder<int>(
-          stream: repo.watchProductLikeCount(product.id),
-          builder: (context, countSnap) {
-            final count = countSnap.data ?? 0;
-            return _ActionBtn(
-              icon: isLiked ? Icons.favorite : Icons.favorite_border,
-              label: '$count',
-              color: isLiked ? Colors.red : Colors.white,
-              onTap: () {
-                if (userPhone.isNotEmpty) {
-                  repo.toggleLike(product.id, userPhone);
-                }
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Generic circular action button
-// ──────────────────────────────────────────────────────────────────────────────
-
-class _ActionBtn extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Color color;
-
-  const _ActionBtn({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.color = Colors.white,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        CircleAvatar(
-          backgroundColor: Colors.black.withValues(alpha: 0.45),
-          radius: 24,
-          child: IconButton(
-            icon: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 250),
-              transitionBuilder: (child, anim) =>
-                  ScaleTransition(scale: anim, child: child),
-              child: Icon(
-                icon,
-                key: ValueKey(icon.codePoint),
-                color: color,
-                size: 22,
-              ),
-            ),
-            onPressed: onTap,
-            tooltip: label,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            shadows: [Shadow(color: Colors.black45, blurRadius: 4)],
-          ),
-        ),
-      ],
     );
   }
 }

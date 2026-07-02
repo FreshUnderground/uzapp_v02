@@ -1,7 +1,9 @@
 import 'dart:developer' as developer;
+import 'dart:async';
 import 'package:drift/drift.dart';
 import '../local/uza_database.dart';
 import '../services/sync_service.dart';
+import 'shop_repository.dart';
 import '../../core/utils/image_utils.dart';
 
 /// One displayable slide for a story/arrivage (main media + story_media children).
@@ -34,8 +36,13 @@ class ArrivageMediaItem {
 class StoryRepository {
   final UzaDatabase db;
   final SyncService? syncService;
+  final ShopRepository? shopRepository;
 
-  StoryRepository(this.db, {this.syncService});
+  StoryRepository(
+    this.db, {
+    this.syncService,
+    this.shopRepository,
+  });
 
   /// 24-hour expiry for regular stories
   static const Duration storyExpiry = Duration(hours: 24);
@@ -141,7 +148,11 @@ class StoryRepository {
       expiresAt: Value(expiresAtValue),
       isArrivage: const Value(false),
     );
-    return await db.into(db.stories).insert(adjustedStory);
+    final storyId = await db.into(db.stories).insert(adjustedStory);
+    if (story.shopId.present) {
+      unawaited(shopRepository?.recordShopActivity(story.shopId.value));
+    }
+    return storyId;
   }
 
   /// Creates an arrivage with linked media items (4-day expiry, isArrivage=true).
@@ -176,6 +187,10 @@ class StoryRepository {
                 ),
               ),
             );
+      }
+
+      if (story.shopId.present) {
+        unawaited(shopRepository?.recordShopActivity(story.shopId.value));
       }
 
       return storyId;

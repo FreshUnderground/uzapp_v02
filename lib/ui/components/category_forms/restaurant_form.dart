@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/l10n/tr.dart';
 import 'package:flutter/services.dart';
 import '../../../core/res/uza_colors.dart';
 
@@ -163,7 +164,7 @@ class RestaurantFormState extends State<RestaurantForm> {
             // Optional field - no validator
           ),
           SwitchListTile(
-            title: const Text('Livraison disponible'),
+            title: Text(tr(context, 'delivery_available')),
             value: _deliveryAvailable,
             onChanged: (v) => setState(() => _deliveryAvailable = v),
             activeThumbColor: UzaColors.primary,

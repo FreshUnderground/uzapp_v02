@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:drift/drift.dart' as drift;
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:intl_phone_field/intl_phone_field.dart';
+import '../components/uza_phone_field.dart';
 
 import '../components/modern_card.dart';
 import '../components/tap_animator.dart';
@@ -21,7 +21,7 @@ import '../../data/repositories/shop_repository.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../data/services/sync_service.dart';
 import '../../core/services/location_service.dart';
-import 'shop_profile_screen.dart';
+import 'shop_dashboard_screen.dart';
 
 const Map<String, List<String>> cities = {
   'Butembo': ['Butembo', 'Vulamba', 'Kimemi', 'Mususa', 'vulengera'],
@@ -241,7 +241,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
               const SizedBox(height: 20),
               ListTile(
                 leading: const Icon(Icons.camera_alt, color: UzaColors.primary),
-                title: const Text('Prendre une photo'),
+                title: Text(tr(context, 'take_photo')),
                 onTap: () => _pickLogo(PickerImageSource.camera),
               ),
               ListTile(
@@ -249,7 +249,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                   Icons.photo_library,
                   color: UzaColors.primary,
                 ),
-                title: const Text('Choisir dans la galerie'),
+                title: Text(tr(context, 'choose_from_gallery')),
                 onTap: () => _pickLogo(PickerImageSource.gallery),
               ),
             ],
@@ -401,7 +401,13 @@ class _CreateShopScreenState extends State<CreateShopScreen>
           });
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text('Erreur: ${e.message}')));
+          ).showSnackBar(
+            SnackBar(
+              content: Text(
+                trf(context, 'error_with_message', {'message': e.message ?? ''}),
+              ),
+            ),
+          );
         }
       },
     );
@@ -483,8 +489,8 @@ class _CreateShopScreenState extends State<CreateShopScreen>
           _isVerifyingOtp = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Numéro vérifié avec succès'),
+          SnackBar(
+            content: Text(tr(context, 'phone_verified_success')),
             backgroundColor: Colors.green,
           ),
         );
@@ -577,7 +583,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
           Navigator.pop(context);
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('Erreur de connexion')));
+          ).showSnackBar(SnackBar(content: Text(tr(context, 'connection_error'))));
         }
         return;
       }
@@ -602,10 +608,15 @@ class _CreateShopScreenState extends State<CreateShopScreen>
           ? CryptoUtils.encrypt(finalLogoUrl)
           : '';
 
-      // 4. Check for existing shop on server
+      // 4. Check for existing shop on server (owner phone, any common format)
       try {
         final shops = await apiService.fetchShops();
-        final alreadyExists = shops.any((s) => s['owner_id'] == userId);
+        final ownerKeys = PhoneUtils.lookupKeys(userId).toSet();
+        final alreadyExists = shops.any((s) {
+          final serverOwner = s['owner_id']?.toString();
+          if (serverOwner == null || serverOwner.isEmpty) return false;
+          return PhoneUtils.lookupKeys(serverOwner).any(ownerKeys.contains);
+        });
         if (alreadyExists && mounted) {
           final navigator = Navigator.of(context);
           final scaffoldMessenger = ScaffoldMessenger.of(context);
@@ -655,18 +666,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
 
       final shopId = await shopRepo.addShop(companion);
 
-      // 6. Queue user for remote sync
-      await syncService.addToQueue('CREATE', 'users', {
-        'remote_id': userId,
-        'phone': phone,
-        'name': _nameController.text.trim(),
-        'is_phone_verified': _otpVerified ? 1 : 0,
-      });
-
-      // 7. Queue shop for remote sync
+      // 6. Queue shop for remote sync (no local SQLite id — server assigns id)
       await syncService.addToQueue('CREATE', 'shops', {
-        'local_id': shopId, // kept for local remoteId mapping after push
-        'id': shopId,
+        'local_id': shopId,
         'name': _nameController.text.trim(),
         'description': _descriptionController.text.trim(),
         'address': address,
@@ -692,10 +694,30 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         'SHOP SYNC DATA: ${jsonEncode({'id': shopId, 'name': _nameController.text.trim(), 'type': _selectedType.name, 'owner_id': userId, 'phone': phone})}',
       );
 
-      // 8. Trigger immediate push
+      // 8. Push immédiat puis vérifier users + shops sur le serveur
       await syncService.forcePush();
 
-      // 9. Get the created shop and navigate to profile
+      final serverStatus = await syncService.verifyUserAndShopOnServer(
+        userId,
+        localShopId: shopId,
+      );
+      if (!serverStatus.userExists) {
+        throw Exception(
+          'Votre compte utilisateur n\'a pas été enregistré sur le serveur. '
+          'Vérifiez votre connexion internet et réessayez.',
+        );
+      }
+      if (!serverStatus.shopExists) {
+        throw Exception(
+          'Compte créé sur le serveur, mais la boutique n\'a pas été synchronisée. '
+          'Allez dans Paramètres > Synchroniser pour réessayer.',
+        );
+      }
+
+      // 9. Link shop to session and navigate to seller dashboard
+      await shopRepo.reconnectShopsForUser(userId);
+      await authService.refreshShopOwnership();
+
       if (!mounted) return;
       Navigator.of(context).pop(); // Close loading dialog
 
@@ -708,13 +730,11 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         final navigator = Navigator.of(context);
         final scaffoldMessenger = ScaffoldMessenger.of(context);
         scaffoldMessenger.showSnackBar(
-          const SnackBar(content: Text('Boutique créée avec succès')),
+          SnackBar(content: Text(tr(context, 'shop_created_success'))),
         );
-        // Navigate to shop profile
-        navigator.pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => ShopProfileScreen(shop: createdShop),
-          ),
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const ShopDashboardScreen()),
+          (route) => false,
         );
       }
     } catch (e) {
@@ -723,7 +743,11 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         final scaffoldMessenger = ScaffoldMessenger.of(context);
         navigator.pop(); // Close loading dialog
         scaffoldMessenger.showSnackBar(
-          SnackBar(content: Text('Erreur: ${e.toString()}')),
+          SnackBar(
+            content: Text(
+              trf(context, 'error_with_message', {'message': e.toString()}),
+            ),
+          ),
         );
       }
     }
@@ -755,8 +779,8 @@ class _CreateShopScreenState extends State<CreateShopScreen>
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Impossible de capturer la localisation. Réessayez.'),
+          SnackBar(
+            content: Text(tr(context, 'location_capture_failed')),
             backgroundColor: Colors.orange,
           ),
         );
@@ -796,11 +820,10 @@ class _CreateShopScreenState extends State<CreateShopScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: UzaColors.backgroundOf(context),
       appBar: AppBar(
         title: Text(_stepLabels[_currentStep]),
-        backgroundColor: Colors.white,
-        foregroundColor: UzaColors.textPrimary,
+        foregroundColor: UzaColors.onSurface(context),
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -894,10 +917,10 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                       Center(
                         child: TextButton(
                           onPressed: _previousStep,
-                          child: const Text(
+                          child: Text(
                             'Retour',
                             style: TextStyle(
-                              color: UzaColors.textSecondary,
+                              color: UzaColors.onSurfaceSecondary(context),
                               fontSize: 15,
                             ),
                           ),
@@ -947,7 +970,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             'Comment s\'appelle ta boutique ?',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: UzaColors.textPrimary,
+              color: UzaColors.onSurface(context),
             ),
           ),
           const SizedBox(height: 8),
@@ -976,7 +999,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                 ),
               ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: UzaColors.surfaceOf(context),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
                 vertical: 20,
@@ -1010,16 +1033,22 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                 ),
               ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: UzaColors.surfaceOf(context),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
                 vertical: 20,
               ),
             ),
-            style: const TextStyle(fontSize: 16, color: UzaColors.textPrimary),
-            items: const [
-              DropdownMenuItem(value: ShopType.retail, child: Text('Détail')),
-              DropdownMenuItem(value: ShopType.wholesale, child: Text('Gros')),
+            style: TextStyle(fontSize: 16, color: UzaColors.onSurface(context)),
+            items: [
+              DropdownMenuItem(
+                value: ShopType.retail,
+                child: Text(tr(context, 'retail_type')),
+              ),
+              DropdownMenuItem(
+                value: ShopType.wholesale,
+                child: Text(tr(context, 'wholesale_type')),
+              ),
             ],
             onChanged: (v) => setState(() => _selectedType = v!),
           ),
@@ -1043,13 +1072,13 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                 ),
               ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: UzaColors.surfaceOf(context),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
                 vertical: 20,
               ),
             ),
-            style: const TextStyle(fontSize: 16, color: UzaColors.textPrimary),
+            style: TextStyle(fontSize: 16, color: UzaColors.onSurface(context)),
             items: cities.keys.map((city) {
               return DropdownMenuItem(value: city, child: Text(city));
             }).toList(),
@@ -1082,13 +1111,13 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                 ),
               ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: UzaColors.surfaceOf(context),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
                 vertical: 20,
               ),
             ),
-            style: const TextStyle(fontSize: 16, color: UzaColors.textPrimary),
+            style: TextStyle(fontSize: 16, color: UzaColors.onSurface(context)),
             items: _selectedCity != null
                 ? cities[_selectedCity]!.map((commune) {
                     return DropdownMenuItem(
@@ -1119,7 +1148,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             'Comment tes clients peuvent-ils te joindre ?',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: UzaColors.textPrimary,
+              color: UzaColors.onSurface(context),
             ),
           ),
           const SizedBox(height: 8),
@@ -1128,42 +1157,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             style: TextStyle(color: Colors.grey[600], fontSize: 15),
           ),
           const SizedBox(height: 32),
-          IntlPhoneField(
-            decoration: InputDecoration(
-              labelText: 'Numéro de téléphone *',
-              labelStyle: const TextStyle(fontSize: 16),
-              hintText: 'XX XXX XX XX',
-              hintStyle: TextStyle(fontSize: 18, color: Colors.grey[400]),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: UzaColors.divider),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.grey[300]!),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(
-                  color: UzaColors.primary,
-                  width: 2,
-                ),
-              ),
-              filled: true,
-              fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 22,
-              ),
-            ),
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.5,
-            ),
-            initialCountryCode: 'CD',
-            disableLengthCheck: false,
-            invalidNumberMessage: 'Numéro invalide',
+          UzaIntlPhoneField(
+            labelText: 'Numéro de téléphone *',
+            hintText: 'XX XXX XX XX',
             controller: _phoneController,
             onChanged: (phone) {
               _phoneComplete = phone.completeNumber;
@@ -1176,42 +1172,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             },
           ),
           const SizedBox(height: 24),
-          IntlPhoneField(
-            decoration: InputDecoration(
-              labelText: 'Numéro WhatsApp',
-              hintText: 'XX XXX XX XX',
-              labelStyle: const TextStyle(fontSize: 16),
-              hintStyle: TextStyle(fontSize: 18, color: Colors.grey[400]),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: UzaColors.divider),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.grey[300]!),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(
-                  color: UzaColors.primary,
-                  width: 2,
-                ),
-              ),
-              filled: true,
-              fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 22,
-              ),
-            ),
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.5,
-            ),
-            initialCountryCode: 'CD',
-            disableLengthCheck: false,
-            invalidNumberMessage: 'Numéro invalide',
+          UzaIntlPhoneField(
+            labelText: 'Numéro WhatsApp',
+            hintText: 'XX XXX XX XX',
             controller: _whatsappController,
             onChanged: (phone) {
               _whatsappComplete = phone.completeNumber;
@@ -1309,7 +1272,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             'Vérifie ton téléphone',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.bold,
-              color: UzaColors.textPrimary,
+              color: UzaColors.onSurface(context),
             ),
             textAlign: TextAlign.center,
           ),
@@ -1317,7 +1280,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
           Text(
             'Code envoyé au ${_phoneController.text}',
             style: TextStyle(
-              color: UzaColors.textSecondary,
+              color: UzaColors.onSurfaceSecondary(context),
               fontSize: 15,
               height: 1.4,
             ),
@@ -1458,7 +1421,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             'Parle-nous de ta boutique',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: UzaColors.textPrimary,
+              color: UzaColors.onSurface(context),
             ),
           ),
           const SizedBox(height: 8),
@@ -1546,7 +1509,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                 ),
               ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: UzaColors.surfaceOf(context),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
                 vertical: 20,
@@ -1647,7 +1610,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             'Créez votre mot de passe',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: UzaColors.textPrimary,
+              color: UzaColors.onSurface(context),
             ),
           ),
           const SizedBox(height: 8),
@@ -1690,7 +1653,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                 ),
               ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: UzaColors.surfaceOf(context),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
                 vertical: 20,
@@ -1734,7 +1697,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                 ),
               ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: UzaColors.surfaceOf(context),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
                 vertical: 20,
@@ -1785,7 +1748,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             'Localisez votre boutique',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: UzaColors.textPrimary,
+              color: UzaColors.onSurface(context),
             ),
           ),
           const SizedBox(height: 8),
@@ -1924,7 +1887,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
             'Voici comment ta boutique apparaîtra',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: UzaColors.textPrimary,
+              color: UzaColors.onSurface(context),
             ),
           ),
           const SizedBox(height: 8),
@@ -1971,10 +1934,10 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                               _nameController.text.trim().isNotEmpty
                                   ? _nameController.text.trim()
                                   : 'Nom de la boutique',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
-                                color: UzaColors.textPrimary,
+                                color: UzaColors.onSurface(context),
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,

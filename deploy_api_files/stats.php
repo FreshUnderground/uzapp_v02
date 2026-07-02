@@ -4,6 +4,82 @@ authenticate();
 
 header('Content-Type: application/json');
 
+function stats_shop_analytics_table_exists(PDO $db): bool
+{
+    static $exists = null;
+    if ($exists !== null) {
+        return $exists;
+    }
+    try {
+        $stmt = $db->query("SHOW TABLES LIKE 'shop_analytics'");
+        $exists = (bool)$stmt->fetch();
+    } catch (Exception $e) {
+        $exists = false;
+    }
+    return $exists;
+}
+
+function stats_allowed_shop_interactions(): array
+{
+    return [
+        'view',
+        'share',
+        'catalog_share',
+        'qr_share',
+        'story_share',
+        'whatsapp_status',
+        'facebook_status',
+        'tiktok_status',
+    ];
+}
+
+function stats_shop_share_types_sql(): string
+{
+    $types = array_filter(
+        stats_allowed_shop_interactions(),
+        fn($t) => $t !== 'view'
+    );
+    return "'" . implode("','", $types) . "'";
+}
+
+function stats_record_shop_interaction(PDO $db, int $shopId, string $interactionType): bool
+{
+    if (!stats_shop_analytics_table_exists($db)) {
+        return false;
+    }
+    if (!in_array($interactionType, stats_allowed_shop_interactions(), true)) {
+        return false;
+    }
+    $stmt = $db->prepare(
+        'INSERT INTO shop_analytics (shop_id, interaction_type, created_at) VALUES (?, ?, NOW())'
+    );
+    $stmt->execute([$shopId, $interactionType]);
+    return true;
+}
+
+function stats_fetch_shop_engagement(PDO $db, int $shopId): array
+{
+    $result = ['shop_views' => 0, 'shop_shares' => 0];
+    if (!stats_shop_analytics_table_exists($db)) {
+        return $result;
+    }
+
+    $stmt = $db->prepare(
+        "SELECT COUNT(*) AS cnt FROM shop_analytics WHERE shop_id = ? AND interaction_type = 'view'"
+    );
+    $stmt->execute([$shopId]);
+    $result['shop_views'] = (int)$stmt->fetch()['cnt'];
+
+    $shareTypes = stats_shop_share_types_sql();
+    $stmt = $db->prepare(
+        "SELECT COUNT(*) AS cnt FROM shop_analytics WHERE shop_id = ? AND interaction_type IN ($shareTypes)"
+    );
+    $stmt->execute([$shopId]);
+    $result['shop_shares'] = (int)$stmt->fetch()['cnt'];
+
+    return $result;
+}
+
 try {
     $db = DB::getInstance();
 
@@ -76,6 +152,8 @@ try {
             $totalShares = (int)$row['shares'];
         }
 
+        $shopEngagement = stats_fetch_shop_engagement($db, $shopId);
+
         echo json_encode([
             'success' => true,
             'stats' => [
@@ -88,6 +166,8 @@ try {
                 'unique_clients' => $uniqueClients,
                 'product_views' => $totalViews,
                 'product_shares' => $totalShares,
+                'shop_views' => $shopEngagement['shop_views'],
+                'shop_shares' => $shopEngagement['shop_shares'],
             ],
         ]);
         exit;
@@ -187,20 +267,53 @@ try {
                 if ($entityType === 'product') {
                     $stmt = $db->prepare("UPDATE products SET views_count = views_count + 1 WHERE id = ?");
                     $stmt->execute([$entityId]);
+                } elseif ($entityType === 'shop') {
+                    stats_record_shop_interaction($db, $entityId, 'view');
                 }
                 echo json_encode(['success' => true, 'action' => 'track_view']);
                 exit;
 
+            // ── TRACK SHOP INTERACTION (view, catalog/story/QR/status share…) ─
+            case 'track_shop_interaction':
+                $shopId = isset($input['shop_id']) ? (int)$input['shop_id'] : null;
+                $interactionType = isset($input['interaction_type'])
+                    ? trim((string)$input['interaction_type'])
+                    : '';
+                if (!$shopId || $interactionType === '') {
+                    http_response_code(400);
+                    echo json_encode(['success' => false, 'error' => 'shop_id and interaction_type are required']);
+                    exit;
+                }
+                if (!stats_record_shop_interaction($db, $shopId, $interactionType)) {
+                    http_response_code(400);
+                    echo json_encode(['success' => false, 'error' => 'Invalid shop interaction type']);
+                    exit;
+                }
+                echo json_encode(['success' => true, 'action' => 'track_shop_interaction', 'type' => $interactionType]);
+                exit;
+
             // ── TRACK SHARE ──────────────────────────────────────────────
             case 'track_share':
+                $entityType = isset($input['entity_type']) ? $input['entity_type'] : 'product';
                 $entityId = isset($input['entity_id']) ? (int)$input['entity_id'] : null;
                 if (!$entityId) {
                     http_response_code(400);
                     echo json_encode(['success' => false, 'error' => 'entity_id is required']);
                     exit;
                 }
-                $stmt = $db->prepare("UPDATE products SET shares_count = shares_count + 1 WHERE id = ?");
-                $stmt->execute([$entityId]);
+                if ($entityType === 'shop') {
+                    $shareType = isset($input['interaction_type'])
+                        ? trim((string)$input['interaction_type'])
+                        : 'share';
+                    if (!stats_record_shop_interaction($db, $entityId, $shareType)) {
+                        http_response_code(400);
+                        echo json_encode(['success' => false, 'error' => 'Invalid shop share type']);
+                        exit;
+                    }
+                } else {
+                    $stmt = $db->prepare("UPDATE products SET shares_count = shares_count + 1 WHERE id = ?");
+                    $stmt->execute([$entityId]);
+                }
                 echo json_encode(['success' => true, 'action' => 'track_share']);
                 exit;
 

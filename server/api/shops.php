@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/phone_utils.php';
 authenticate();
 
 header('Content-Type: application/json');
@@ -10,7 +11,7 @@ $ALLOWED_SHOP_COLUMNS = [
     'phone', 'email', 'instagram_url', 'tiktok_url', 'facebook_url', 'youtube_url',
     'banner_url', 'boost_status', 'banner_status', 'banner_text', 'video_url',
     'is_boosted', 'is_verified', 'verified_at', 'created_at', 'updated_at',
-    'latitude', 'longitude', 'city', 'commune'
+    'latitude', 'longitude', 'city', 'commune', 'last_active_at'
 ];
 
 try {
@@ -33,6 +34,13 @@ try {
 
         $id = isset($input['id']) ? $input['id'] : null;
         $ownerId = isset($input['owner_id']) ? $input['owner_id'] : null;
+        $normalizedOwnerId = $ownerId
+            ? (phone_normalize_drc($ownerId) ?: trim((string) $ownerId))
+            : null;
+        if ($normalizedOwnerId) {
+            $input['owner_id'] = $normalizedOwnerId;
+            $ownerId = $normalizedOwnerId;
+        }
 
         // --- Determine upsert target ---
         $exists = false;
@@ -50,12 +58,18 @@ try {
 
         // 2. If no ID match but owner_id provided, check by owner_id (upsert)
         if (!$exists && $ownerId) {
-            $stmt = $db->prepare("SELECT id, owner_id FROM shops WHERE owner_id = ?");
-            $stmt->execute([$ownerId]);
-            $existingShop = $stmt->fetch();
-            if ($existingShop) {
-                $exists = true;
-                $id = $existingShop['id']; // use existing ID for update
+            $ownerKeys = phone_lookup_keys($ownerId);
+            if (!empty($ownerKeys)) {
+                $placeholders = implode(',', array_fill(0, count($ownerKeys), '?'));
+                $stmt = $db->prepare(
+                    "SELECT id, owner_id FROM shops WHERE owner_id IN ($placeholders) LIMIT 1"
+                );
+                $stmt->execute($ownerKeys);
+                $existingShop = $stmt->fetch();
+                if ($existingShop) {
+                    $exists = true;
+                    $id = $existingShop['id']; // use existing ID for update
+                }
             }
         }
 

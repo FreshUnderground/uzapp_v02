@@ -9,6 +9,8 @@ if (!is_file($dbFile)) {
     $dbFile = __DIR__ . '/../db.php';
 }
 require_once $dbFile;
+require_once __DIR__ . '/phone_utils.php';
+require_once __DIR__ . '/shop_contact_utils.php';
 
 $shopId = $_GET['id'] ?? '';
 if (!$shopId) {
@@ -57,60 +59,37 @@ if (!$shop) {
     http_response_code(404);
 }
 
-$shopName        = $shop['name']        ?? null;
-$shopDescription = $shop['description'] ?? null;
-$shopLogo        = $shop['logo_url']    ?? null;
-$shopBanner      = $shop['banner_url']  ?? null;
-$shopAddress     = $shop['address']     ?? null;
-$shopCity        = $shop['city']        ?? null;
-$shopCommune     = $shop['commune']     ?? null;
-$shopVerified    = !empty($shop['is_verified']);
+$shopName        = $shop ? ($shop['name'] ?? null) : null;
+$shopDescription = $shop ? ($shop['description'] ?? null) : null;
+$shopVerified    = $shop ? !empty($shop['is_verified']) : false;
 
-function shopPageAbsoluteUrl(?string $url): ?string
-{
-    if ($url === null || trim($url) === '') {
-        return null;
-    }
-    $url = trim($url);
-    if (strpos($url, 'http') === 0) {
-        return $url;
-    }
-    return 'https://uzaapp.com/' . ltrim($url, '/');
-}
-
-$locationParts = array_filter([$shopCommune, $shopCity], function ($v) {
-    return !empty($v);
-});
-$locationText = !empty($locationParts)
-    ? implode(', ', $locationParts)
-    : ($shopAddress ?: null);
-
+$tagline = uzaapp_marketplace_tagline();
 $title = $shopName
     ? htmlspecialchars($shopName . ' - Uzaapp')
     : 'Boutique non trouvée - Uzaapp';
+$description = $shop
+    ? htmlspecialchars(shop_og_description($shop))
+    : 'Cette boutique n\'est plus disponible sur Uzaapp - ' . $tagline;
 
-$descriptionParts = [];
-if ($shopName) {
-    $descriptionParts[] = $shopName;
-}
-if ($locationText) {
-    $descriptionParts[] = $locationText;
-}
-$descriptionParts[] = 'sur Uzaapp - La marketplace des téléphones et gadgets en RDC';
-$description = $shopName
-    ? htmlspecialchars(implode(' · ', array_filter([
-        $shopName,
-        $shopDescription ? mb_substr(strip_tags($shopDescription), 0, 120) : null,
-        $locationText,
-    ])) . ' — Uzaapp')
-    : 'Cette boutique n\'est plus disponible sur Uzaapp - La marketplace des téléphones et gadgets en RDC';
-
-$image = shopPageAbsoluteUrl($shopBanner)
-    ?? shopPageAbsoluteUrl($shopLogo)
-    ?? 'https://uzaapp.com/assets/logo.png';
-
-$displayImage = shopPageAbsoluteUrl($shopLogo) ?? shopPageAbsoluteUrl($shopBanner);
+$image = $shop ? shop_og_image($shop) : 'https://uzaapp.com/assets/logo.png';
+$displayImage = $shop ? shop_preview_logo_url($shop) : null;
+$locationText = $shop ? shop_location_text($shop) : null;
 $pageUrl = 'https://uzaapp.com/shop/' . urlencode($shopId);
+
+$whatsAppPhone = null;
+$whatsAppUrl = null;
+if ($shop) {
+    $whatsAppPhone = shop_whatsapp_number(
+        $shop['whatsapp'] ?? null,
+        $shop['phone'] ?? null
+    );
+    if ($whatsAppPhone !== null) {
+        $whatsAppUrl = product_whatsapp_url(
+            $whatsAppPhone,
+            shop_whatsapp_message($shop, $pageUrl)
+        );
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -167,6 +146,21 @@ $pageUrl = 'https://uzaapp.com/shop/' . urlencode($shopId);
       transition: background 0.2s;
     }
     .btn:hover { background: #e03500; }
+    .btn-whatsapp {
+      background: #25D366;
+      width: 100%;
+      margin-top: 16px;
+    }
+    .btn-whatsapp:hover { background: #1da851; }
+    .btn-outline {
+      background: transparent;
+      color: #FE3E00;
+      border: 2px solid #FE3E00;
+      width: 100%;
+      margin-top: 10px;
+    }
+    .btn-outline:hover { background: #fff5f2; }
+    .actions { margin-top: 20px; display: flex; flex-direction: column; gap: 0; }
     .shop-info {
       margin-top: 20px;
       padding: 16px;
@@ -219,7 +213,7 @@ $pageUrl = 'https://uzaapp.com/shop/' . urlencode($shopId);
   <div class="container">
     <img src="/assets/logo.png" alt="Uzaapp" class="logo" onerror="this.style.display='none'">
     <h1>Uzaapp</h1>
-    <p>La marketplace des téléphones et gadgets en RDC</p>
+    <p><?= htmlspecialchars($tagline) ?></p>
 
     <?php if ($shop): ?>
     <div class="shop-info">
@@ -228,7 +222,7 @@ $pageUrl = 'https://uzaapp.com/shop/' . urlencode($shopId);
       <?php endif; ?>
       <div class="name"><?= htmlspecialchars($shopName ?? 'Boutique') ?></div>
       <?php if ($locationText): ?>
-        <div class="location">📍 <?= htmlspecialchars($locationText) ?></div>
+        <div class="location"><?= htmlspecialchars($locationText) ?></div>
       <?php endif; ?>
       <?php if ($shopVerified): ?>
         <div style="text-align:center;"><span class="verified">✓ Boutique vérifiée</span></div>
@@ -237,7 +231,16 @@ $pageUrl = 'https://uzaapp.com/shop/' . urlencode($shopId);
         <div class="desc"><?= htmlspecialchars(mb_substr(strip_tags($shopDescription), 0, 200)) ?></div>
       <?php endif; ?>
     </div>
-    <a href="uzaapp://shop/<?= htmlspecialchars($shopId) ?>" class="btn" id="openApp" style="margin-top:20px;">Ouvrir dans l'app</a>
+    <div class="actions">
+      <?php if ($whatsAppUrl): ?>
+        <a href="<?= htmlspecialchars($whatsAppUrl) ?>" class="btn btn-whatsapp" rel="noopener noreferrer">
+          Contacter sur WhatsApp
+        </a>
+      <?php endif; ?>
+      <a href="uzaapp://shop/<?= htmlspecialchars($shopId) ?>" class="btn btn-outline" id="openApp">
+        Ouvrir dans l'app
+      </a>
+    </div>
     <?php else: ?>
     <div class="shop-info" style="text-align:center; padding: 40px 20px;">
       <div style="font-size:64px; margin-bottom:16px; color:#FE3E00;">404</div>

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/cash_models.dart';
 import '../../core/res/uza_colors.dart';
@@ -69,7 +70,7 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Ouvrir la caisse'),
+        title: Text(tr(context, 'open_cash_register')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -88,8 +89,8 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Ouvrir')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr(context, 'cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr(context, 'open'))),
         ],
       ),
     );
@@ -105,7 +106,7 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
       await _refresh();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Caisse ouverte')),
+          SnackBar(content: Text(tr(context, 'cash_register_opened'))),
         );
       }
     } catch (e) {
@@ -127,12 +128,16 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Fermer la caisse'),
+        title: Text(tr(context, 'close_cash_register')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Solde attendu: ${expected.toStringAsFixed(0)} CDF'),
+            Text(
+              trf(context, 'expected_balance', {
+                'amount': expected.toStringAsFixed(0),
+              }),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: controller,
@@ -144,8 +149,8 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Fermer')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr(context, 'cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr(context, 'close'))),
         ],
       ),
     );
@@ -163,7 +168,7 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
       await _refresh();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Caisse fermée')),
+          SnackBar(content: Text(tr(context, 'cash_register_closed'))),
         );
       }
     } catch (e) {
@@ -212,10 +217,10 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
                 DropdownButtonFormField<String>(
                   value: paymentMethod,
                   decoration: const InputDecoration(labelText: 'Paiement'),
-                  items: const [
-                    DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                    DropdownMenuItem(value: 'mobile_money', child: Text('Mobile Money')),
-                    DropdownMenuItem(value: 'card', child: Text('Carte')),
+                  items: [
+                    DropdownMenuItem(value: 'cash', child: Text(tr(context, 'cash'))),
+                    DropdownMenuItem(value: 'mobile_money', child: Text(tr(context, 'mobile_money'))),
+                    DropdownMenuItem(value: 'card', child: Text(tr(context, 'card'))),
                   ],
                   onChanged: (v) => setDialogState(() => paymentMethod = v ?? 'cash'),
                 ),
@@ -223,8 +228,8 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Enregistrer')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr(context, 'cancel'))),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr(context, 'register'))),
           ],
         ),
       ),
@@ -257,13 +262,13 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Gestion Caisse'),
+        title: Text(tr(context, 'cash_management')),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
         ],
       ),
       body: _selectedShop == null
-          ? const Center(child: Text('Aucune boutique disponible'))
+          ? Center(child: Text(tr(context, 'no_shop_available')))
           : RefreshIndicator(
               onRefresh: _refresh,
               child: ListView(
@@ -364,7 +369,7 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
       return FilledButton.icon(
         onPressed: _openSession,
         icon: const Icon(Icons.lock_open),
-        label: const Text('Ouvrir la caisse'),
+        label: Text(tr(context, 'open_cash_register')),
       );
     }
     return Column(
@@ -373,8 +378,12 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
         ModernCard(
           child: ListTile(
             leading: const Icon(Icons.access_time, color: UzaColors.primary),
-            title: const Text('Session ouverte'),
-            subtitle: Text('Depuis ${session.openedAt.toLocal()}'),
+            title: Text(tr(context, 'session_open')),
+            subtitle: Text(
+              trf(context, 'session_since', {
+                'date': session.openedAt.toLocal().toString(),
+              }),
+            ),
           ),
         ),
         const SizedBox(height: 12),
@@ -392,7 +401,7 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
         OutlinedButton.icon(
           onPressed: _closeSession,
           icon: const Icon(Icons.lock),
-          label: const Text('Fermer la caisse'),
+          label: Text(tr(context, 'close_cash_register')),
         ),
       ],
     );
@@ -409,10 +418,10 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
   Widget _buildTransactionsList() {
     final txs = _dashboard?.transactions ?? [];
     if (txs.isEmpty) {
-      return const ModernCard(
+      return ModernCard(
         child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Center(child: Text('Aucune transaction')),
+          padding: const EdgeInsets.all(24),
+          child: Center(child: Text(tr(context, 'no_transactions'))),
         ),
       );
     }
@@ -420,9 +429,9 @@ class _CashManagementScreenState extends State<CashManagementScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('Transactions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(tr(context, 'transactions'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           ),
           ...txs.map(_transactionTile),
         ],

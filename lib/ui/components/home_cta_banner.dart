@@ -130,7 +130,7 @@ class HomeCTABanner extends StatelessWidget {
                 ElevatedButton(
                   onPressed: onTap,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
+                    backgroundColor: UzaColors.surfaceOf(context),
                     foregroundColor: color,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),

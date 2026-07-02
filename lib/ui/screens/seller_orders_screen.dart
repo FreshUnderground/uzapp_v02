@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -21,7 +22,7 @@ class SellerOrdersScreen extends StatelessWidget {
     final orderRepo = context.watch<OrderRepository>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Commandes reçues')),
+      appBar: AppBar(title: Text(tr(context, 'orders_received'))),
       body: StreamBuilder<List<Order>>(
         stream: orderRepo.watchOrdersForShop(shopId),
         builder: (context, snapshot) {
@@ -150,7 +151,7 @@ class _OrderCard extends StatelessWidget {
                       'confirmed',
                       syncService: context.read<SyncService>(),
                     ),
-                    child: const Text('Confirmer'),
+                    child: Text(tr(context, 'confirm')),
                   ),
                 if (order.status == 'pending_payment')
                   FilledButton(
@@ -159,7 +160,7 @@ class _OrderCard extends StatelessWidget {
                       'paid',
                       syncService: context.read<SyncService>(),
                     ),
-                    child: const Text('Paiement reçu'),
+                    child: Text(tr(context, 'payment_received')),
                   ),
                 if (order.status == 'paid' || order.status == 'confirmed')
                   OutlinedButton(
@@ -168,12 +169,12 @@ class _OrderCard extends StatelessWidget {
                       'delivered',
                       syncService: context.read<SyncService>(),
                     ),
-                    child: const Text('Livrée'),
+                    child: Text(tr(context, 'delivered')),
                   ),
                 TextButton.icon(
                   onPressed: () => _contactBuyer(context),
                   icon: const Icon(Icons.chat, size: 18),
-                  label: const Text('WhatsApp'),
+                  label: Text(tr(context, 'whatsapp_label')),
                 ),
               ],
             ),

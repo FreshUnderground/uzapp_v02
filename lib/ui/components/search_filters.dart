@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import '../../core/res/uza_colors.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/product_repository.dart';
@@ -178,7 +179,7 @@ class _SearchFiltersState extends State<SearchFilters> {
                         _apply();
                         Navigator.pop(context);
                       },
-                      child: const Text('Réinitialiser'),
+                      child: Text(tr(context, 'reset_filters')),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -196,7 +197,7 @@ class _SearchFiltersState extends State<SearchFilters> {
                         _apply();
                         Navigator.pop(context);
                       },
-                      child: const Text('Appliquer'),
+                      child: Text(tr(context, 'apply')),
                     ),
                   ),
                 ],
@@ -287,7 +288,7 @@ class _SearchFiltersState extends State<SearchFilters> {
                       _apply();
                       Navigator.pop(context);
                     },
-                    child: const Text('Réinitialiser'),
+                    child: Text(tr(context, 'reset_filters')),
                   ),
                 ),
               ],
@@ -327,7 +328,7 @@ class _SearchFiltersState extends State<SearchFilters> {
         selectedColor: UzaColors.primary.withValues(alpha: 0.15),
         checkmarkColor: UzaColors.primary,
         labelStyle: TextStyle(
-          color: isActive ? UzaColors.primary : Colors.black87,
+          color: isActive ? UzaColors.primary : UzaColors.onSurface(context),
           fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
         ),
         shape: RoundedRectangleBorder(
@@ -336,7 +337,7 @@ class _SearchFiltersState extends State<SearchFilters> {
             color: isActive ? UzaColors.primary : Colors.grey[300]!,
           ),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: UzaColors.surfaceOf(context),
       ),
     );
   }
@@ -381,7 +382,7 @@ class _SearchFiltersState extends State<SearchFilters> {
             ),
           ),
           if (_state.hasActiveFilters)
-            TextButton(onPressed: _reset, child: const Text('Tout effacer')),
+            TextButton(onPressed: _reset, child: Text(tr(context, 'clear_all'))),
         ],
       ),
     );
@@ -496,7 +497,7 @@ class _CategorySelectionSheetState extends State<_CategorySelectionSheet> {
 
                     final categories = rootSnapshot.data ?? [];
                     if (categories.isEmpty) {
-                      return const Center(child: Text('Aucune catégorie'));
+                      return Center(child: Text(tr(context, 'no_categories')));
                     }
 
                     return StreamBuilder<List<Category>>(
@@ -607,14 +608,14 @@ class _CategorySelectionSheetState extends State<_CategorySelectionSheet> {
                   Expanded(
                     child: OutlinedButton(
                       onPressed: _resetSelection,
-                      child: const Text('Réinitialiser'),
+                      child: Text(tr(context, 'reset_filters')),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton(
                       onPressed: _applySelection,
-                      child: const Text('Appliquer'),
+                      child: Text(tr(context, 'apply')),
                     ),
                   ),
                 ],

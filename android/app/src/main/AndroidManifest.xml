@@ -39,7 +39,7 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- App Links: https://uzaapp.com/product/* and /shop/* -->
+            <!-- App Links: https://uzaapp.com/product/*, /shop/* and /ya-cope/* -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -49,6 +49,7 @@
                 <data android:host="uzaapp.com" />
                 <data android:pathPrefix="/product" />
                 <data android:pathPrefix="/shop" />
+                <data android:pathPrefix="/ya-cope" />
             </intent-filter>
             <!-- Custom scheme fallback: uzaapp://product/8 -->
             <intent-filter>
@@ -63,7 +64,24 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="uzaapp" android:host="shop" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="uzaapp" android:host="ya-cope" />
+            </intent-filter>
         </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- flutter_local_notifications v16+ — required in app manifest (not auto-merged) -->
         <receiver
             android:exported="false"
@@ -110,6 +128,14 @@
         <!-- Allow WhatsApp -->
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="whatsapp" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="wa.me" />
+        </intent>
         <!-- Allow web browsers for WhatsApp web fallback -->
         <intent>
             <action android:name="android.intent.action.VIEW" />

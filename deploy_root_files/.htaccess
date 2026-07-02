@@ -12,22 +12,28 @@
   RewriteRule ^(product|shop)/ /index.html [L]
 
   # Social preview bots → Open Graph PHP pages
-  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
+  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|WhatsApp|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
   RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1 [L,QSA]
 
-  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
+  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|WhatsApp|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Googlebot|bingbot|Pinterest|Embedly) [NC]
   RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1 [L,QSA]
 
-  # Mobile → try native app, then web
+  # Mobile → product landing (image + WhatsApp contact)
   RewriteCond %{HTTP_USER_AGENT} (Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera\sMini) [NC]
-  RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1&bridge=1 [L,QSA]
+  RewriteRule ^product/([^/]+)/?$ /api/product_page.php?id=$1 [L,QSA]
 
+  # Mobile → shop landing (logo + WhatsApp contact)
   RewriteCond %{HTTP_USER_AGENT} (Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera\sMini) [NC]
-  RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1&bridge=1 [L,QSA]
+  RewriteRule ^shop/([^/]+)/?$ /api/shop_page.php?id=$1 [L,QSA]
 
   # Desktop / fallback — Flutter web (explicit, no file/dir check)
   RewriteRule ^product/([^/]+)/?$ /index.html [L]
   RewriteRule ^shop/([^/]+)/?$ /index.html [L]
+
+  # Missing upload files → 404 (never serve SPA HTML as an image)
+  RewriteCond %{REQUEST_URI} ^/uploads/ [NC]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^ - [R=404,L]
 
   # Other SPA routes
   RewriteCond %{REQUEST_FILENAME} !-f

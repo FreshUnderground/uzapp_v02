@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -8,6 +9,10 @@ import 'location_data.dart';
 import 'paginated_result.dart';
 import '../services/sync_service.dart';
 import '../../core/utils/phone_utils.dart';
+import '../../core/utils/shop_visibility_utils.dart';
+import '../../core/utils/shop_stats_types.dart';
+import '../../core/models/shop_visibility_models.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ShopRepository {
   final UzaDatabase db;
@@ -21,13 +26,26 @@ class ShopRepository {
 
   Stream<List<Shop>> watchFeaturedShops() {
     return db.select(db.shops).watch().map((items) {
-      // Prioritize shops with ACTIVE boost status
-      final boosted = items.where((s) => s.boostStatus == 2).toList()
-        ..shuffle();
-      final regular = items.where((s) => s.boostStatus != 2).toList()
-        ..shuffle();
-      return [...boosted, ...regular];
+      final now = DateTime.now();
+      return sortShopsByVisibility(items, now);
     });
+  }
+
+  /// Applies visibility rules: active today first; optionally hide inactive.
+  List<Shop> applyDirectoryVisibility(
+    List<Shop> shops, {
+    required bool showAll,
+    DateTime? now,
+  }) {
+    final reference = now ?? DateTime.now();
+    final sorted = sortShopsByVisibility(shops, reference);
+    if (showAll) return sorted;
+    return sorted.where((s) => isShopActiveToday(s, reference)).toList();
+  }
+
+  int countActiveShopsToday(List<Shop> shops, {DateTime? now}) {
+    final reference = now ?? DateTime.now();
+    return shops.where((s) => isShopActiveToday(s, reference)).length;
   }
 
   Stream<List<Shop>> watchActiveBanners() {
@@ -47,21 +65,56 @@ class ShopRepository {
         .watchSingleOrNull();
   }
 
+  Stream<Shop?> watchShopByRemoteId(String remoteId) {
+    if (remoteId.isEmpty) return Stream.value(null);
+    return (db.select(db.shops)..where((t) => t.remoteId.equals(remoteId)))
+        .watchSingleOrNull();
+  }
+
+  /// Stream that follows the canonical local row for [shop] (server id when synced).
+  Stream<Shop?> watchShop(Shop shop) {
+    if (shop.remoteId != null && shop.remoteId!.isNotEmpty) {
+      return watchShopByRemoteId(shop.remoteId!);
+    }
+    return watchShopById(shop.id);
+  }
+
   Future<Shop?> getShopById(int id) {
     return (db.select(
       db.shops,
     )..where((t) => t.id.equals(id))).getSingleOrNull();
   }
 
-  /// Resolves a shop for deep links: local DB first, then public API.
-  Future<Shop?> resolveShopById(int id) async {
-    final local = await getShopById(id);
+  Future<Shop?> getShopByRemoteId(String remoteId) {
+    if (remoteId.isEmpty) return Future.value(null);
+    return (db.select(db.shops)..where((t) => t.remoteId.equals(remoteId)))
+        .getSingleOrNull();
+  }
+
+  /// Resolves a shop from the server-side id stored on synced products.
+  Future<Shop?> resolveShopByServerId(int serverShopId) {
+    return getShopByRemoteId(serverShopId.toString());
+  }
+
+  /// [storedId] is usually a local row id; when missing locally, treats it as a
+  /// server shop id (legacy rows where server id was saved in [shopId]).
+  Future<Shop?> resolveShopForStoredId(int storedId) async {
+    final local = await getShopById(storedId);
     if (local != null) return local;
+    return getShopByRemoteId(storedId.toString());
+  }
+
+  /// Resolves a shop for deep links: remote id first, then public API.
+  Future<Shop?> resolveShopById(int id) async {
+    final serverKey = id.toString();
 
     final byRemote = await (db.select(db.shops)
-          ..where((t) => t.remoteId.equals(id.toString())))
+          ..where((t) => t.remoteId.equals(serverKey)))
         .getSingleOrNull();
     if (byRemote != null) return byRemote;
+
+    final local = await getShopById(id);
+    if (local != null && local.remoteId == serverKey) return local;
 
     try {
       final uri = Uri.parse(
@@ -79,14 +132,18 @@ class ShopRepository {
 
       final remoteId = data['remote_id']?.toString();
       final resolvedId = _toInt(data['id']) ?? id;
-      await db.into(db.shops).insert(
+      final rId = remoteId != null && remoteId.isNotEmpty
+          ? remoteId
+          : resolvedId.toString();
+
+      final existing = await (db.select(db.shops)
+            ..where((t) => t.remoteId.equals(rId)))
+          .getSingleOrNull();
+      if (existing != null) return existing;
+
+      final localId = await db.into(db.shops).insert(
         ShopsCompanion(
-          id: Value(resolvedId),
-          remoteId: Value(
-            remoteId != null && remoteId.isNotEmpty
-                ? remoteId
-                : resolvedId.toString(),
-          ),
+          remoteId: Value(rId),
           name: Value((data['name'] as String? ?? 'Boutique').trim()),
           description: Value(data['description'] as String?),
           logoUrl: Value(data['logo_url'] as String?),
@@ -119,9 +176,8 @@ class ShopRepository {
           latitude: Value((data['latitude'] as num?)?.toDouble()),
           longitude: Value((data['longitude'] as num?)?.toDouble()),
         ),
-        mode: InsertMode.insertOrReplace,
       );
-      return getShopById(resolvedId);
+      return getShopById(localId);
     } catch (e) {
       debugPrint('resolveShopById error: $e');
       return null;
@@ -180,40 +236,37 @@ class ShopRepository {
   Future<void> reconnectShopsForUser(String userId) async {
     if (userId.isEmpty) return;
 
-    // 1. Direct match — ownerId already equals the user's uid
-    final directMatch = await (db.select(
-      db.shops,
-    )..where((t) => t.ownerId.equals(userId))).get();
-    if (directMatch.isNotEmpty) return; // Already linked
-
-    // 2. Match by shop contact fields (owner might have used the same
-    //    number for both the shop contact and their login), including
-    //    common DRC phone-number format differences.
+    // 1. Direct match — ownerId already equals the user's uid (any format)
     final variations = _phoneVariations(userId);
     final allShops = await db.select(db.shops).get();
     for (final shop in allShops) {
-      if (!_shopBelongsToUser(shop, userId)) continue;
-      if (shop.ownerId != userId) {
-        await (db.update(db.shops)..where((t) => t.id.equals(shop.id))).write(
-          ShopsCompanion(ownerId: Value(userId)),
-        );
-      }
+      if (_matchesAnyPhone(shop.ownerId, variations)) return;
     }
 
-    // 3. Handle ownerId-only variations missed above.
-    for (final variant in variations) {
-      if (variant == userId) continue;
-      final variantMatch = await (db.select(
-        db.shops,
-      )..where((t) => t.ownerId.equals(variant))).get();
-      for (final shop in variantMatch) {
-        // Normalise ownerId to the current uid format
-        await (db.update(db.shops)..where((t) => t.id.equals(shop.id))).write(
-          ShopsCompanion(
-            ownerId: Value(PhoneUtils.normalizeDrc(userId).isNotEmpty
+    // 2. Backfill ownerId only when empty and shop contact matches login phone.
+    for (final shop in allShops) {
+      if (!_shopBelongsToUser(shop, userId)) continue;
+      if (shop.ownerId != null && shop.ownerId!.trim().isNotEmpty) continue;
+      await (db.update(db.shops)..where((t) => t.id.equals(shop.id))).write(
+        ShopsCompanion(
+          ownerId: Value(
+            PhoneUtils.normalizeDrc(userId).isNotEmpty
                 ? PhoneUtils.normalizeDrc(userId)
-                : userId),
+                : userId,
           ),
+        ),
+      );
+    }
+
+    // 3. Normalise ownerId format for shops already owned by this user.
+    for (final shop in allShops) {
+      if (!_matchesAnyPhone(shop.ownerId, variations)) continue;
+      final normalized = PhoneUtils.normalizeDrc(userId).isNotEmpty
+          ? PhoneUtils.normalizeDrc(userId)
+          : userId;
+      if (shop.ownerId != normalized) {
+        await (db.update(db.shops)..where((t) => t.id.equals(shop.id))).write(
+          ShopsCompanion(ownerId: Value(normalized)),
         );
       }
     }
@@ -223,8 +276,10 @@ class ShopRepository {
 
   bool _shopBelongsToUser(Shop shop, String userId) {
     final variations = _phoneVariations(userId);
-    return _matchesAnyPhone(shop.ownerId, variations) ||
-        _matchesAnyPhone(shop.phone, variations) ||
+    if (_matchesAnyPhone(shop.ownerId, variations)) return true;
+    final ownerEmpty = shop.ownerId == null || shop.ownerId!.trim().isEmpty;
+    if (!ownerEmpty) return false;
+    return _matchesAnyPhone(shop.phone, variations) ||
         _matchesAnyPhone(shop.whatsapp, variations);
   }
 
@@ -238,8 +293,10 @@ class ShopRepository {
   /// e.g. "+243823456789" → ["0823456789", "243823456789", "+243823456789"]
   List<String> _phoneVariations(String phone) => PhoneUtils.lookupKeys(phone);
 
-  Future<int> addShop(ShopsCompanion shop) {
-    return db.into(db.shops).insert(shop);
+  Future<int> addShop(ShopsCompanion shop) async {
+    final id = await db.into(db.shops).insert(shop);
+    unawaited(recordShopActivity(id));
+    return id;
   }
 
   Future<bool> updateShop(ShopsCompanion shop) {
@@ -258,6 +315,94 @@ class ShopRepository {
             interactionType: type,
           ),
         );
+    if (ShopStatsTypes.isSynced(type)) {
+      syncService?.reportShopInteractionByLocalId(shopId, type);
+    }
+  }
+
+  Future<Map<String, int>> _countContactsByType(int shopId) async {
+    final rows = await (db.select(db.userContacts)
+          ..where((t) => t.shopId.equals(shopId)))
+        .get();
+
+    var whatsapp = 0;
+    var call = 0;
+    var sms = 0;
+    for (final row in rows) {
+      switch (row.contactType) {
+        case 'whatsapp':
+          whatsapp++;
+          break;
+        case 'call':
+          call++;
+          break;
+        case 'sms':
+          sms++;
+          break;
+      }
+    }
+
+    return {
+      'whatsapp': whatsapp,
+      'call': call,
+      'sms': sms,
+      'total': whatsapp + call + sms,
+    };
+  }
+
+  int _maxInt(int a, int b) => a > b ? a : b;
+
+  void _mergeRemoteShopStats(Map<String, int> local, Map<String, int> remote) {
+    local['totalFollowers'] = _maxInt(
+      local['totalFollowers'] ?? 0,
+      remote['followers'] ?? 0,
+    );
+    local['totalLikes'] = _maxInt(
+      local['totalLikes'] ?? 0,
+      remote['likes'] ?? 0,
+    );
+    local['contact_whatsapp'] = _maxInt(
+      local['contact_whatsapp'] ?? 0,
+      remote['whatsapp_contacts'] ?? 0,
+    );
+    local['contact_call'] = _maxInt(
+      local['contact_call'] ?? 0,
+      remote['call_contacts'] ?? 0,
+    );
+    local['contact_sms'] = _maxInt(
+      local['contact_sms'] ?? 0,
+      remote['sms_contacts'] ?? 0,
+    );
+    local['totalContacts'] = _maxInt(
+      local['totalContacts'] ?? 0,
+      remote['total_contacts'] ?? 0,
+    );
+    local['uniqueClients'] = _maxInt(
+      local['uniqueClients'] ?? 0,
+      remote['unique_clients'] ?? 0,
+    );
+
+    final localProductViews = local['product_view_global'] ?? 0;
+    local['product_view_global'] = _maxInt(
+      localProductViews,
+      remote['product_views'] ?? 0,
+    );
+
+    local['view'] = _maxInt(local['view'] ?? 0, remote['shop_views'] ?? 0);
+
+    final shopShares = _maxInt(
+      local['shop_shares'] ?? 0,
+      remote['shop_shares'] ?? 0,
+    );
+    local['shop_shares'] = shopShares;
+
+    final mergedProductShares = _maxInt(
+      local['product_shares'] ?? 0,
+      remote['product_shares'] ?? 0,
+    );
+    local['product_shares'] = mergedProductShares;
+    local['totalShares'] = mergedProductShares + shopShares;
+    local['totalViews'] = (local['view'] ?? 0) + local['product_view_global']!;
   }
 
   Future<void> recordContact(
@@ -277,6 +422,12 @@ class ShopRepository {
           ),
         );
     await logShopInteraction(shopId, 'contact_$type');
+    syncService?.reportContactStat(
+      localShopId: shopId,
+      contactType: type,
+      localProductId: productId,
+      userPhone: phone,
+    );
   }
 
   Stream<List<UserContact>> watchRecentContacts(int shopId) {
@@ -307,44 +458,37 @@ class ShopRepository {
 
     int shopViews = 0;
     int productViews = 0;
-    int totalContacts = 0;
-    int totalShares = 0;
-    int whatsappContacts = 0;
-    int callContacts = 0;
-    int smsContacts = 0;
+    int shopShares = 0;
 
     for (final a in allAnalytics) {
       switch (a.interactionType) {
         case 'view':
           if (a.entityType == 'shop') {
             shopViews++;
-          } else {
-            productViews++;
           }
           break;
-        case 'whatsapp':
-          totalContacts++;
-          whatsappContacts++;
-          break;
-        case 'call':
-          totalContacts++;
-          callContacts++;
-          break;
-        case 'sms':
-          totalContacts++;
-          smsContacts++;
-          break;
         case 'share':
-          totalShares++;
+        case 'catalog_share':
+        case 'qr_share':
+        case 'story_share':
+        case 'whatsapp_status':
+        case 'facebook_status':
+        case 'tiktok_status':
+          if (a.entityType == 'shop') {
+            shopShares++;
+          }
           break;
       }
     }
 
-    // Also add global synced product views/shares from Products table
+    // Product views/shares: authoritative counters (synced from server on pull).
+    int productShares = 0;
     for (final p in products) {
       productViews += p.viewsCount;
-      totalShares += p.sharesCount;
+      productShares += p.sharesCount;
     }
+
+    final contacts = await _countContactsByType(shopId);
 
     // Followers count from ShopFollows table (user-tracked)
     final followersCount = await (db.select(
@@ -392,28 +536,41 @@ class ShopRepository {
             .where((s) => s.expiresAt.isAfter(now))
             .length;
 
-    return {
+    final stats = {
       // Views
       'view': shopViews,
       'product_view_global': productViews,
       'totalViews': shopViews + productViews,
       // Contacts
-      'contact_whatsapp': whatsappContacts,
-      'contact_call': callContacts,
-      'contact_sms': smsContacts,
-      'totalContacts': totalContacts,
+      'contact_whatsapp': contacts['whatsapp'] ?? 0,
+      'contact_call': contacts['call'] ?? 0,
+      'contact_sms': contacts['sms'] ?? 0,
+      'totalContacts': contacts['total'] ?? 0,
       // Engagement
       'totalFollowers': totalFollowers,
       'totalLikes': totalLikes,
-      'totalShares': totalShares,
+      'product_shares': productShares,
+      'shop_shares': shopShares,
+      'totalShares': productShares + shopShares,
       'uniqueClients': uniqueClients,
       // Meta
       'productsCount': products.length,
       'storiesCount': storiesCount,
     };
+
+    try {
+      final remote = await syncService?.fetchRemoteShopStats(shopId);
+      if (remote != null) {
+        _mergeRemoteShopStats(stats, remote);
+      }
+    } catch (e) {
+      debugPrint('getShopStats remote merge error: $e');
+    }
+
+    return stats;
   }
 
-  /// Get weekly stats (last 7 days)
+  /// Get weekly stats (last 7 days) from real local events only.
   Future<Map<String, int>> getWeeklyStats(int shopId) async {
     final weekAgo = DateTime.now().subtract(const Duration(days: 7));
     final products = await (db.select(
@@ -434,25 +591,24 @@ class ShopRepository {
             ))
             .get();
 
-    int weeklyViews = 0;
-    int weeklyContacts = 0;
-    int weeklyShares = 0;
+    var weeklyViews = 0;
+    var weeklyShares = 0;
 
     for (final a in recentAnalytics) {
-      switch (a.interactionType) {
-        case 'view':
-          weeklyViews++;
-          break;
-        case 'whatsapp':
-        case 'call':
-        case 'sms':
-          weeklyContacts++;
-          break;
-        case 'share':
-          weeklyShares++;
-          break;
+      if (a.interactionType == 'view') {
+        weeklyViews++;
+      } else if (ShopStatsTypes.isShare(a.interactionType)) {
+        weeklyShares++;
       }
     }
+
+    final weeklyContacts = await (db.select(db.userContacts)..where(
+          (t) =>
+              t.shopId.equals(shopId) &
+              t.createdAt.isBiggerOrEqualValue(weekAgo),
+        ))
+        .get()
+        .then((rows) => rows.length);
 
     return {
       'weeklyViews': weeklyViews,
@@ -580,30 +736,12 @@ class ShopRepository {
         .get();
     if (products.isEmpty) return [];
 
-    final productIds = products.map((p) => p.id).toList();
-    final viewCounts = <int, int>{};
-
-    for (final p in products) {
-      viewCounts[p.id] = p.viewsCount;
-    }
-
-    final localViews = await (db.select(db.analytics)..where(
-          (t) =>
-              t.entityType.equals('product') &
-              t.entityId.isIn(productIds) &
-              t.interactionType.equals('view'),
-        ))
-        .get();
-    for (final a in localViews) {
-      viewCounts[a.entityId] = (viewCounts[a.entityId] ?? 0) + 1;
-    }
-
     final ranked = products
         .map(
           (p) => {
             'id': p.id,
             'name': p.name,
-            'views': viewCounts[p.id] ?? 0,
+            'views': p.viewsCount,
           },
         )
         .toList()
@@ -614,26 +752,9 @@ class ShopRepository {
 
   /// Funnel: views → WhatsApp contacts → orders (local analytics).
   Future<Map<String, dynamic>> getConversionMetrics(int shopId) async {
-    final products = await (db.select(db.products)
-          ..where((t) => t.shopId.equals(shopId)))
-        .get();
-    final productIds = products.map((p) => p.id).toList();
-    final entityIds = <int>[shopId, ...productIds];
-
-    int views = 0;
-    int whatsapp = 0;
-    if (entityIds.isNotEmpty) {
-      final rows = await (db.select(db.analytics)
-            ..where((t) => t.entityId.isIn(entityIds)))
-          .get();
-      for (final a in rows) {
-        if (a.interactionType == 'view') views++;
-        if (a.interactionType == 'whatsapp') whatsapp++;
-      }
-    }
-    for (final p in products) {
-      views += p.viewsCount;
-    }
+    final stats = await getShopStats(shopId);
+    final views = stats['totalViews'] ?? 0;
+    final whatsapp = stats['contact_whatsapp'] ?? 0;
 
     final ordersCount = await (db.select(db.orders)
           ..where((t) => t.shopId.equals(shopId)))
@@ -661,15 +782,18 @@ class ShopRepository {
     final productIds = products.map((p) => p.id).toList();
     final entityIds = <int>[shopId, ...productIds];
     if (entityIds.isEmpty) {
-      return {'bestHour': 18, 'bestDay': 'Vendredi', 'hourCounts': List.filled(24, 0)};
+      return {
+        'hasData': false,
+        'bestHour': null,
+        'bestDay': null,
+        'hourCounts': List<int>.filled(24, 0),
+        'dayCounts': List<int>.filled(7, 0),
+      };
     }
 
     final relevantTypes = {
       'view',
-      'share',
-      'whatsapp_status',
-      'facebook_status',
-      'tiktok_status',
+      ...ShopStatsTypes.synced.where((t) => t != ShopStatsTypes.view),
     };
     final rows = await (db.select(db.analytics)
           ..where((t) => t.entityId.isIn(entityIds)))
@@ -694,7 +818,7 @@ class ShopRepository {
       if (weekday >= 0 && weekday < 7) dayCounts[weekday]++;
     }
 
-    var bestHour = 18;
+    var bestHour = 0;
     var maxHour = -1;
     for (var h = 0; h < 24; h++) {
       if (hourCounts[h] > maxHour) {
@@ -703,7 +827,7 @@ class ShopRepository {
       }
     }
 
-    var bestDayIndex = 4;
+    var bestDayIndex = 0;
     var maxDay = -1;
     for (var d = 0; d < 7; d++) {
       if (dayCounts[d] > maxDay) {
@@ -712,9 +836,12 @@ class ShopRepository {
       }
     }
 
+    final hasData = maxHour >= 0 && maxDay >= 0;
+
     return {
-      'bestHour': bestHour,
-      'bestDay': dayNames[bestDayIndex],
+      'hasData': hasData,
+      'bestHour': hasData ? bestHour : null,
+      'bestDay': hasData ? dayNames[bestDayIndex] : null,
       'hourCounts': hourCounts,
       'dayCounts': dayCounts,
     };
@@ -773,10 +900,14 @@ class ShopRepository {
           db.shopFollows,
         )..where((t) => t.id.equals(existing.id))).go();
         if (syncService != null) {
-          await syncService!.addToQueue('DELETE', 'shop_follows', {
-            'shop_id': shopId,
-            'user_phone': phone,
-          });
+          final remoteShopId =
+              await syncService!.resolveRemoteShopId(shopId);
+          if (remoteShopId != null) {
+            await syncService!.addToQueue('DELETE', 'shop_follows', {
+              'shop_id': remoteShopId,
+              'user_phone': phone,
+            });
+          }
         }
       } else {
         await db
@@ -785,10 +916,14 @@ class ShopRepository {
               ShopFollowsCompanion.insert(shopId: shopId, userPhone: phone),
             );
         if (syncService != null) {
-          await syncService!.addToQueue('CREATE', 'shop_follows', {
-            'shop_id': shopId,
-            'user_phone': phone,
-          });
+          final remoteShopId =
+              await syncService!.resolveRemoteShopId(shopId);
+          if (remoteShopId != null) {
+            await syncService!.addToQueue('CREATE', 'shop_follows', {
+              'shop_id': remoteShopId,
+              'user_phone': phone,
+            });
+          }
         }
       }
     } else {
@@ -951,6 +1086,247 @@ class ShopRepository {
       perPage: perPage,
       total: total,
       hasMore: (offset + data.length) < total,
+    );
+  }
+
+  static String _lastRankPrefKey(int shopId) => 'shop_last_rank_$shopId';
+
+  /// Marks the shop as active now and syncs [last_active_at] to the server.
+  Future<void> recordShopActivity(int shopId) async {
+    final shop = await getShopById(shopId);
+    if (shop == null) return;
+
+    final now = DateTime.now();
+    await (db.update(db.shops)..where((t) => t.id.equals(shopId))).write(
+      ShopsCompanion(
+        lastActiveAt: Value(now),
+        updatedAt: Value(now),
+      ),
+    );
+
+    try {
+      final ranking = await getLocalRanking(shopId);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_lastRankPrefKey(shopId), ranking.rank);
+    } catch (e) {
+      debugPrint('recordShopActivity rank cache error: $e');
+    }
+
+    if (syncService == null) return;
+
+    final remoteShopId =
+        (shop.remoteId != null && shop.remoteId!.isNotEmpty)
+            ? (int.tryParse(shop.remoteId!) ?? shop.id)
+            : shop.id;
+
+    await syncService!.addToQueue('UPDATE', 'shops', {
+      'local_id': shop.id,
+      'id': remoteShopId,
+      'name': shop.name,
+      'owner_id': shop.ownerId ?? '',
+      'last_active_at': now.toIso8601String(),
+    });
+    unawaited(syncService!.forcePush());
+  }
+
+  Future<ShopTodayStats> getTodayStats(int shopId) async {
+    final now = DateTime.now();
+    final dayStart = startOfToday(now);
+
+    final products = await (db.select(db.products)
+          ..where((t) => t.shopId.equals(shopId)))
+        .get();
+    final productIds = products.map((p) => p.id).toList();
+    final entityIds = <int>[shopId, ...productIds];
+
+    var todayViews = 0;
+
+    if (entityIds.isNotEmpty) {
+      final rows = await (db.select(db.analytics)..where(
+            (t) =>
+                t.entityId.isIn(entityIds) &
+                t.createdAt.isBiggerOrEqualValue(dayStart),
+          ))
+          .get();
+
+      for (final row in rows) {
+        if (row.interactionType == 'view') {
+          todayViews++;
+        }
+      }
+    }
+
+    final todayWhatsapp = await (db.select(db.userContacts)..where(
+          (t) =>
+              t.shopId.equals(shopId) &
+              t.contactType.equals('whatsapp') &
+              t.createdAt.isBiggerOrEqualValue(dayStart),
+        ))
+        .get()
+        .then((rows) => rows.length);
+
+    final activeProducts = products.where((p) => !p.isSold).length;
+
+    return ShopTodayStats(
+      todayViews: todayViews,
+      todayWhatsappClicks: todayWhatsapp,
+      activeProducts: activeProducts,
+    );
+  }
+
+  Future<Map<int, int>> _todayViewsByShopIds(
+    Iterable<int> shopIds, {
+    DateTime? now,
+  }) async {
+    final reference = now ?? DateTime.now();
+    final dayStart = startOfToday(reference);
+    final ids = shopIds.toSet().toList();
+    if (ids.isEmpty) return {};
+
+    final products = await (db.select(db.products)
+          ..where((t) => t.shopId.isIn(ids)))
+        .get();
+
+    final shopByProduct = <int, int>{};
+    for (final product in products) {
+      shopByProduct[product.id] = product.shopId;
+    }
+
+    final views = {for (final id in ids) id: 0};
+
+    final shopAnalytics = await (db.select(db.analytics)..where(
+          (t) =>
+              t.entityType.equals('shop') &
+              t.entityId.isIn(ids) &
+              t.interactionType.equals('view') &
+              t.createdAt.isBiggerOrEqualValue(dayStart),
+        ))
+        .get();
+    for (final row in shopAnalytics) {
+      views[row.entityId] = (views[row.entityId] ?? 0) + 1;
+    }
+
+    if (shopByProduct.isNotEmpty) {
+      final productIds = shopByProduct.keys.toList();
+      final productAnalytics = await (db.select(db.analytics)..where(
+            (t) =>
+                t.entityType.equals('product') &
+                t.entityId.isIn(productIds) &
+                t.interactionType.equals('view') &
+                t.createdAt.isBiggerOrEqualValue(dayStart),
+          ))
+          .get();
+      for (final row in productAnalytics) {
+        final shopId = shopByProduct[row.entityId];
+        if (shopId != null) {
+          views[shopId] = (views[shopId] ?? 0) + 1;
+        }
+      }
+    }
+
+    return views;
+  }
+
+  Future<ShopLocalRanking> getLocalRanking(int shopId) async {
+    final shop = await getShopById(shopId);
+    if (shop == null) {
+      return const ShopLocalRanking(
+        rank: 0,
+        totalShops: 0,
+        averageTodayViews: 0,
+      );
+    }
+
+    final allShops = await db.select(db.shops).get();
+    final commune = shop.commune?.trim();
+    final peers = commune != null && commune.isNotEmpty
+        ? allShops
+              .where(
+                (s) => (s.commune ?? '').toLowerCase() == commune.toLowerCase(),
+              )
+              .toList()
+        : allShops;
+
+    if (peers.isEmpty) {
+      return ShopLocalRanking(
+        rank: 1,
+        totalShops: 1,
+        averageTodayViews: 0,
+        communeLabel: commune,
+      );
+    }
+
+    final now = DateTime.now();
+    final viewsByShop = await _todayViewsByShopIds(
+      peers.map((s) => s.id),
+      now: now,
+    );
+
+    final ranked = peers.map((s) {
+      return (shop: s, views: viewsByShop[s.id] ?? 0);
+    }).toList()
+      ..sort((a, b) {
+        final viewCompare = b.views.compareTo(a.views);
+        if (viewCompare != 0) return viewCompare;
+        final aActive = isShopActiveToday(a.shop, now);
+        final bActive = isShopActiveToday(b.shop, now);
+        if (aActive != bActive) return aActive ? -1 : 1;
+        return a.shop.name.compareTo(b.shop.name);
+      });
+
+    var rank = ranked.length;
+    for (var i = 0; i < ranked.length; i++) {
+      if (ranked[i].shop.id == shopId) {
+        rank = i + 1;
+        break;
+      }
+    }
+
+    final viewValues = viewsByShop.values.where((v) => v > 0).toList();
+    final average = viewValues.isEmpty
+        ? 0
+        : (viewValues.reduce((a, b) => a + b) / viewValues.length).round();
+
+    final prefs = await SharedPreferences.getInstance();
+    final previousRank = prefs.getInt(_lastRankPrefKey(shopId));
+
+    return ShopLocalRanking(
+      rank: rank,
+      totalShops: peers.length,
+      averageTodayViews: average,
+      communeLabel: commune,
+      previousRank: previousRank,
+    );
+  }
+
+  Future<ShopVisibilityInsight> getVisibilityInsight(int shopId) async {
+    final shop = await getShopById(shopId);
+    if (shop == null) {
+      return ShopVisibilityInsight(
+        today: const ShopTodayStats(
+          todayViews: 0,
+          todayWhatsappClicks: 0,
+          activeProducts: 0,
+        ),
+        ranking: const ShopLocalRanking(
+          rank: 0,
+          totalShops: 0,
+          averageTodayViews: 0,
+        ),
+        isActiveToday: false,
+        daysSinceActivity: 0,
+      );
+    }
+
+    final now = DateTime.now();
+    final today = await getTodayStats(shopId);
+    final ranking = await getLocalRanking(shopId);
+
+    return ShopVisibilityInsight(
+      today: today,
+      ranking: ranking,
+      isActiveToday: isShopActiveToday(shop, now),
+      daysSinceActivity: daysSinceLastActivity(shop, now),
     );
   }
 }

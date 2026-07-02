@@ -11,13 +11,18 @@ import '../../core/services/notification_service.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/image_utils.dart';
 import '../../core/utils/phone_utils.dart';
+import '../../core/utils/test_data_cleanup.dart';
 import '../../core/services/product_alerts_service.dart';
 import '../../core/services/product_alert_notifier.dart';
 import '../../core/services/product_upload_service.dart';
 import '../repositories/order_repository.dart';
+import '../repositories/delivery_repository.dart';
 import '../repositories/product_repository.dart';
 import '../repositories/shop_repository.dart';
+import '../repositories/product_update_repository.dart';
 import '../repositories/story_repository.dart';
+import '../../core/services/product_update_notifier.dart';
+import '../../core/utils/shop_stats_types.dart';
 
 enum SyncStatus { idle, syncing, error, offline }
 
@@ -53,6 +58,7 @@ class SyncService extends ChangeNotifier {
   /// on app restart the counters reset, giving items fresh attempts.
   final Map<int, int> _retryCounts = {};
   static const int _maxRetries = 3;
+  Future<void>? _pushChain;
   static const String _kDeletedStoryRemoteIds = 'deleted_story_remote_ids';
 
   Future<void> markStoryDeletedRemotely(String remoteId) async {
@@ -114,7 +120,6 @@ class SyncService extends ChangeNotifier {
         if (queuedShopLocalIds.contains(shop.id)) continue; // already queued
         await addToQueue('CREATE', 'shops', {
           'local_id': shop.id,
-          'id': shop.id,
           'name': shop.name,
           'description': shop.description,
           'address': shop.address,
@@ -157,6 +162,7 @@ class SyncService extends ChangeNotifier {
   ProductRepository? productRepository;
   ShopRepository? shopRepository;
   OrderRepository? orderRepository;
+  DeliveryRepository? deliveryRepository;
   ProductAlertsService? productAlertsService;
 
   ConnectivityService? _connectivity;
@@ -262,6 +268,7 @@ class SyncService extends ChangeNotifier {
     try {
       debugPrint("Starting background sync...");
       await repairShopsWithoutRemoteId();
+      await repairProductShopLinks();
       if (productRepository != null && shopRepository != null) {
         await ProductUploadService.processAllPending(
           db: db,
@@ -316,7 +323,18 @@ class SyncService extends ChangeNotifier {
     }
   }
 
-  Future<void> pushLocalChanges() async {
+  Future<void> pushLocalChanges() {
+    final previous = _pushChain ?? Future<void>.value();
+    final current = previous.then((_) => _pushLocalChangesImpl());
+    _pushChain = current;
+    return current.whenComplete(() {
+      if (identical(_pushChain, current)) {
+        _pushChain = null;
+      }
+    });
+  }
+
+  Future<void> _pushLocalChangesImpl() async {
     try {
       final queue = await db.select(db.syncQueue).get();
       if (queue.isEmpty) {
@@ -365,11 +383,30 @@ class SyncService extends ChangeNotifier {
         debugPrint('PUSH DATA (full): ${item.entityData}');
 
         try {
+          var payload =
+              jsonDecode(item.entityData) as Map<String, dynamic>;
+
+          if (item.entityType == 'products') {
+            final prepared = await _prepareProductPushPayload(
+              item.action,
+              payload,
+            );
+            if (prepared == null) {
+              skipped++;
+              debugPrint(
+                'PUSH: deferring products/${item.action} queue id=${item.id} '
+                '— waiting for server id after CREATE',
+              );
+              continue;
+            }
+            payload = prepared;
+          }
+
           final responseData = await api
               .pushChange(
                 item.entityType,
                 item.action,
-                jsonDecode(item.entityData),
+                payload,
               )
               .timeout(_requestTimeout);
 
@@ -387,6 +424,9 @@ class SyncService extends ChangeNotifier {
             }
             if (serverId != null && item.entityType == 'orders') {
               await _mapServerIdToLocalOrder(item, serverId.toString());
+            }
+            if (serverId != null && item.entityType == 'deliveries') {
+              await _mapServerIdToLocalDelivery(item, serverId.toString());
             }
 
             await (db.delete(
@@ -462,7 +502,32 @@ class SyncService extends ChangeNotifier {
     );
     await pullRemoteUpdates();
 
+    if (productRepository != null) {
+      final dupesRemoved = await productRepository!.repairDisplayDuplicates();
+      if (dupesRemoved > 0) {
+        debugPrint('FORCE PUSH: removed $dupesRemoved duplicate product row(s)');
+        notifyListeners();
+      }
+    }
+
     await _updatePendingCount();
+  }
+
+  /// Vérifie users + shops sur le serveur après création de boutique.
+  /// Relance un push si la boutique manque encore.
+  Future<({bool userExists, bool shopExists})> verifyUserAndShopOnServer(
+    String phone, {
+    int? localShopId,
+  }) async {
+    var status = await api.verifyUserAndShopOnServer(phone);
+    if (localShopId != null && (!status.userExists || !status.shopExists)) {
+      debugPrint(
+        'VERIFY: retry push (user=${status.userExists} shop=${status.shopExists})',
+      );
+      await forcePush();
+      status = await api.verifyUserAndShopOnServer(phone);
+    }
+    return status;
   }
 
   /// Clear all items from the sync queue (use with caution)
@@ -589,7 +654,9 @@ class SyncService extends ChangeNotifier {
       if (shops.isEmpty) return 0;
 
       final serverToLocal = <String, int>{};
+      final localById = <int, Shop>{};
       for (final shop in shops) {
+        localById[shop.id] = shop;
         if (shop.remoteId != null && shop.remoteId!.isNotEmpty) {
           serverToLocal[shop.remoteId!] = shop.id;
         }
@@ -598,14 +665,15 @@ class SyncService extends ChangeNotifier {
       final products = await db.select(db.products).get();
       var fixed = 0;
       for (final product in products) {
-        final hasLocalShop = shops.any((s) => s.id == product.shopId);
-        if (hasLocalShop) continue;
-
-        final remapped = serverToLocal[product.shopId.toString()];
-        if (remapped == null || remapped == product.shopId) continue;
+        final targetLocalId = _targetLocalShopIdForRepair(
+          product,
+          serverToLocal: serverToLocal,
+          localById: localById,
+        );
+        if (targetLocalId == null || targetLocalId == product.shopId) continue;
 
         await (db.update(db.products)..where((t) => t.id.equals(product.id)))
-            .write(ProductsCompanion(shopId: Value(remapped)));
+            .write(ProductsCompanion(shopId: Value(targetLocalId)));
         fixed++;
       }
 
@@ -620,6 +688,84 @@ class SyncService extends ChangeNotifier {
     }
   }
 
+  int? _targetLocalShopIdForRepair(
+    Product product, {
+    required Map<String, int> serverToLocal,
+    required Map<int, Shop> localById,
+  }) {
+    final fromMeta = ProductRepository.readServerShopIdFromProduct(product);
+    if (fromMeta != null) {
+      return serverToLocal[fromMeta.toString()];
+    }
+
+    final serverKey = product.shopId.toString();
+    final mapped = serverToLocal[serverKey];
+    if (mapped == null) return null;
+
+    final currentShop = localById[product.shopId];
+    if (currentShop == null) return mapped;
+
+    final hasRemoteId =
+        product.remoteId != null && product.remoteId!.trim().isNotEmpty;
+    if (!hasRemoteId) return null;
+
+    if (currentShop.remoteId == serverKey) return null;
+    return mapped;
+  }
+
+  static String? _mergeProductSyncMetadata(
+    String? existingMetadata, {
+    required dynamic serverShopId,
+  }) {
+    if (serverShopId == null) return existingMetadata;
+
+    final parsed = serverShopId is int
+        ? serverShopId
+        : int.tryParse(serverShopId.toString());
+    if (parsed == null) return existingMetadata;
+
+    Map<String, dynamic> meta = {};
+    if (existingMetadata != null && existingMetadata.isNotEmpty) {
+      try {
+        meta = Map<String, dynamic>.from(
+          jsonDecode(existingMetadata) as Map<String, dynamic>,
+        );
+      } catch (_) {}
+    }
+
+    meta[ProductRepository.syncShopIdMetaKey] = parsed;
+    return jsonEncode(meta);
+  }
+
+  int? _findExistingLocalProductIdForPull({
+    required String remoteId,
+    required int localShopId,
+    required String sanitizedName,
+    required double? serverPrice,
+    required Map<String, int> productIdMap,
+    required List<Product> allProducts,
+  }) {
+    final mapped = productIdMap[remoteId];
+    if (mapped != null) return mapped;
+
+    final normalizedName = sanitizedName.toLowerCase();
+    for (final lp in allProducts) {
+      if (lp.remoteId != null && lp.remoteId!.isNotEmpty) {
+        if (lp.remoteId == remoteId) return lp.id;
+        continue;
+      }
+      if (lp.shopId != localShopId) continue;
+      if (lp.name.trim().toLowerCase() != normalizedName) continue;
+      if (serverPrice != null &&
+          lp.price != null &&
+          lp.price!.toStringAsFixed(2) != serverPrice.toStringAsFixed(2)) {
+        continue;
+      }
+      return lp.id;
+    }
+    return null;
+  }
+
   int _resolveLocalShopIdForProduct(
     Map<String, dynamic> product,
     Map<String, int> shopIdMap,
@@ -632,12 +778,8 @@ class SyncService extends ChangeNotifier {
     final mapped = shopIdMap[serverShopId];
     if (mapped != null && mapped > 0) return mapped;
 
-    final serverShopIdInt = int.tryParse(serverShopId);
     for (final shop in localShops) {
       if (shop.remoteId == serverShopId) return shop.id;
-      if (serverShopIdInt != null && shop.id == serverShopIdInt) {
-        return shop.id;
-      }
     }
 
     return 0;
@@ -659,23 +801,14 @@ class SyncService extends ChangeNotifier {
       if (localId != null) return localId;
     }
 
-    for (final key in PhoneUtils.lookupKeys(serverShop['phone']?.toString())) {
-      final localId = ownerIdToLocalShopId[key];
-      if (localId != null) return localId;
-    }
-
+    // Do not match by shop phone/whatsapp — contact numbers are not owner identity
+    // and merging here caused one seller's products to appear on another's profile.
     return null;
   }
 
   void _registerOwnerShopKeys(Map<String, int> map, Shop shop) {
     if (shop.remoteId != null && shop.remoteId!.isNotEmpty) return;
     for (final key in PhoneUtils.lookupKeys(shop.ownerId)) {
-      map[key] = shop.id;
-    }
-    for (final key in PhoneUtils.lookupKeys(shop.phone)) {
-      map.putIfAbsent(key, () => shop.id);
-    }
-    for (final key in PhoneUtils.lookupKeys(shop.whatsapp)) {
       map.putIfAbsent(key, () => shop.id);
     }
   }
@@ -798,6 +931,9 @@ class SyncService extends ChangeNotifier {
             commune: Value(s['commune'] as String?),
             latitude: Value(_toDouble(s['latitude'])),
             longitude: Value(_toDouble(s['longitude'])),
+            lastActiveAt: Value(
+              DateTime.tryParse(s['last_active_at']?.toString() ?? ''),
+            ),
           ),
           mode: InsertMode.insertOrReplace,
         );
@@ -1142,7 +1278,18 @@ class SyncService extends ChangeNotifier {
               continue;
             }
 
-            final int? existingLocalId = productIdMap[rId];
+            final serverPrice = (p['price'] as num?)?.toDouble();
+            final existingLocalId = _findExistingLocalProductIdForPull(
+              remoteId: rId,
+              localShopId: localShopId,
+              sanitizedName: sanitizedName,
+              serverPrice: serverPrice,
+              productIdMap: productIdMap,
+              allProducts: allProducts,
+            );
+            if (existingLocalId != null) {
+              productIdMap[rId] = existingLocalId;
+            }
             final Product? existingProduct = existingLocalId != null
                 ? localProductById[existingLocalId]
                 : null;
@@ -1183,7 +1330,12 @@ class SyncService extends ChangeNotifier {
                 sharesCount: Value(p['shares_count'] as int? ?? 0),
                 ratingsCount: Value(p['ratings_count'] as int? ?? 0),
                 ratingAvg: Value((p['rating_avg'] as num? ?? 0.0).toDouble()),
-                metadata: Value(p['metadata'] as String?),
+                metadata: Value(
+                  _mergeProductSyncMetadata(
+                    p['metadata'] as String?,
+                    serverShopId: p['shop_id'],
+                  ),
+                ),
               ),
               mode: InsertMode.insertOrReplace,
             );
@@ -1218,10 +1370,15 @@ class SyncService extends ChangeNotifier {
       var storiesPullOk = false;
 
       try {
-        remoteStories = await api
+        final fetched = await api
             .fetchStories(updatedSince: updatedSince)
             .timeout(_requestTimeout);
-        storiesPullOk = true;
+        if (fetched != null) {
+          remoteStories = fetched;
+          storiesPullOk = true;
+        } else {
+          debugPrint('PULL: stories fetch failed (non-200 or network error)');
+        }
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: stories');
       } catch (e) {
@@ -1230,6 +1387,7 @@ class SyncService extends ChangeNotifier {
 
       // Pre-check story deduplication and build conflict resolution map before batch insert
       final existingStoryRemoteIds = <String>{};
+      final Map<String, Story> existingStoriesByRemoteId = {};
       final Map<String, DateTime> storyTimestamps = {};
       if (remoteStories.isNotEmpty) {
         final remoteIds = remoteStories
@@ -1249,6 +1407,7 @@ class SyncService extends ChangeNotifier {
           for (final story in existingStories) {
             if (story.remoteId != null && story.remoteId!.isNotEmpty) {
               existingStoryRemoteIds.add(story.remoteId!);
+              existingStoriesByRemoteId[story.remoteId!] = story;
               storyTimestamps[story.remoteId!] = story.createdAt;
             }
           }
@@ -1303,11 +1462,16 @@ class SyncService extends ChangeNotifier {
           }
         }
 
-        final purgedStories = await _purgeOrphanedLocalStories(
-          serverStoryRemoteIds,
-        );
-        if (purgedStories > 0) {
-          notifyListeners();
+        // Only purge when we have a confirmed server snapshot.
+        // Never wipe local arrivages on an empty list during incremental sync
+        // (transient API issues used to delete everything after logout).
+        if (fullSync || remoteStories.isNotEmpty) {
+          final purgedStories = await _purgeOrphanedLocalStories(
+            serverStoryRemoteIds,
+          );
+          if (purgedStories > 0) {
+            notifyListeners();
+          }
         }
       }
 
@@ -1400,8 +1564,10 @@ class SyncService extends ChangeNotifier {
             }
 
             final String rawMediaUrl = st['media_url'] as String? ?? '';
-            final String storedMediaUrl =
-                _normalizeServerMedia(rawMediaUrl) ?? '';
+            final String? storedMediaUrl = _mergeMediaUrlForLocal(
+              rawMediaUrl,
+              null,
+            );
 
             // INSERT OR REPLACE to handle both new and updated stories
             batch.insert(
@@ -1409,7 +1575,7 @@ class SyncService extends ChangeNotifier {
               StoriesCompanion.insert(
                 remoteId: Value(rId),
                 shopId: localShopId,
-                mediaUrl: storedMediaUrl,
+                mediaUrl: storedMediaUrl ?? '',
                 mediaType: st['media_type'] as String? ?? 'image',
                 isArrivage: Value((_toInt(st['is_arrivage']) ?? 0) == 1),
                 expiresAt:
@@ -1477,13 +1643,35 @@ class SyncService extends ChangeNotifier {
         }
       }
 
+      if (remoteStories.isNotEmpty && existingStoriesByRemoteId.isNotEmpty) {
+        await _repairExistingStoriesFromServer(
+          remoteStories,
+          existingStoriesByRemoteId,
+        );
+      }
+      await _repairMisclassifiedArrivages();
+
       debugPrint(
         "Boutiques: ${remoteShops.length}, Produits: ${remoteProducts.length} synchronisés.",
       );
 
       await repairProductShopLinks();
+      if (productRepository != null) {
+        final dupesRemoved = await productRepository!.repairDisplayDuplicates();
+        if (dupesRemoved > 0) {
+          debugPrint(
+            'Sync: removed $dupesRemoved duplicate local product row(s)',
+          );
+        }
+      }
       await _repairMediaUrlsFromServer();
       await _pullRemoteOrders(updatedSince: updatedSince);
+      await _pullRemoteDeliveries(updatedSince: updatedSince);
+      await _pullProductUpdates(updatedSince: updatedSince);
+      final purged = await TestDataCleanup.purgeLocal(db);
+      if (purged > 0) {
+        debugPrint('TestDataCleanup: removed $purged local test records');
+      }
       unawaited(_prefetchPriorityMedia());
 
       // Update last sync time
@@ -1517,7 +1705,7 @@ class SyncService extends ChangeNotifier {
   static String? _normalizeShopPhone(String? value) {
     if (value == null || value.trim().isEmpty) return null;
     final normalized = PhoneUtils.normalizeDrc(value);
-    return normalized.isEmpty ? value.trim() : normalized;
+    return PhoneUtils.isValidDrc(normalized) ? normalized : null;
   }
 
   static String? _plainMediaUrl(String? value) {
@@ -1602,6 +1790,10 @@ class SyncService extends ChangeNotifier {
           final remoteImages =
               _normalizeServerMedia(remote['image_urls'] as String?);
           if (remoteImages == null || local.imageUrls == remoteImages) {
+            continue;
+          }
+          if (ImageUtils.hasDisplayableImage(local.imageUrls) &&
+              !ImageUtils.hasDisplayableImage(remoteImages)) {
             continue;
           }
 
@@ -1751,6 +1943,23 @@ class SyncService extends ChangeNotifier {
     String entityType,
     Map<String, dynamic> data,
   ) async {
+    if (entityType == 'products' &&
+        action == 'UPDATE' &&
+        data['id'] == null) {
+      final localId = data['local_id'] as int?;
+      if (localId != null) {
+        final merged = await _mergeIntoPendingProductCreate(localId, data);
+        if (merged) {
+          debugPrint(
+            'QUEUE: merged products/UPDATE into pending CREATE '
+            'for local_id=$localId',
+          );
+          await _updatePendingCount();
+          return;
+        }
+      }
+    }
+
     await db
         .into(db.syncQueue)
         .insert(
@@ -1760,6 +1969,64 @@ class SyncService extends ChangeNotifier {
             entityData: jsonEncode(data),
           ),
         );
+    await _updatePendingCount();
+  }
+
+  /// When images finish uploading after a local CREATE, fold UPDATE fields
+  /// into the pending CREATE row instead of enqueueing a second server write.
+  Future<bool> _mergeIntoPendingProductCreate(
+    int localId,
+    Map<String, dynamic> updates,
+  ) async {
+    final queue = await db.select(db.syncQueue).get();
+    for (final item in queue) {
+      if (item.entityType != 'products' || item.action != 'CREATE') continue;
+      try {
+        final existing =
+            jsonDecode(item.entityData) as Map<String, dynamic>;
+        if (existing['local_id'] != localId) continue;
+
+        final merged = Map<String, dynamic>.from(existing);
+        for (final entry in updates.entries) {
+          if (entry.key == 'local_id' || entry.key == 'id') continue;
+          merged[entry.key] = entry.value;
+        }
+
+        await (db.update(db.syncQueue)..where((t) => t.id.equals(item.id)))
+            .write(SyncQueueCompanion(entityData: Value(jsonEncode(merged))));
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  /// Inject server [id] from local [remoteId]; defer UPDATE until CREATE lands.
+  Future<Map<String, dynamic>?> _prepareProductPushPayload(
+    String action,
+    Map<String, dynamic> data,
+  ) async {
+    final localId = data['local_id'] as int?;
+    if (localId != null) {
+      final row = await (db.select(db.products)
+            ..where((t) => t.id.equals(localId)))
+          .getSingleOrNull();
+      final remoteId = row?.remoteId;
+      if ((data['id'] == null || '${data['id']}'.isEmpty) &&
+          remoteId != null &&
+          remoteId.isNotEmpty) {
+        final parsed = int.tryParse(remoteId);
+        if (parsed != null) {
+          data['id'] = parsed;
+        }
+      }
+    }
+
+    if (action == 'UPDATE' &&
+        (data['id'] == null || '${data['id']}'.isEmpty)) {
+      return null;
+    }
+
+    return data;
   }
 
   Future<void> reportInteraction(
@@ -1796,6 +2063,108 @@ class SyncService extends ChangeNotifier {
     } catch (e) {
       debugPrint("Error reporting interaction: $e");
     }
+  }
+
+  /// Resolve server product id from local row (required for cross-device stats).
+  Future<int?> resolveRemoteProductId(int localProductId) async {
+    final product = await (db.select(db.products)
+          ..where((t) => t.id.equals(localProductId)))
+        .getSingleOrNull();
+    if (product == null) return null;
+    if (product.remoteId != null && product.remoteId!.isNotEmpty) {
+      return int.tryParse(product.remoteId!) ?? localProductId;
+    }
+    return null;
+  }
+
+  /// Resolve server shop id from local row.
+  Future<int?> resolveRemoteShopId(int localShopId) async {
+    final shop = await (db.select(db.shops)
+          ..where((t) => t.id.equals(localShopId)))
+        .getSingleOrNull();
+    if (shop == null) return null;
+    if (shop.remoteId != null && shop.remoteId!.isNotEmpty) {
+      return int.tryParse(shop.remoteId!) ?? localShopId;
+    }
+    return shop.id;
+  }
+
+  /// Track product view/share using local id; updates local counters + server.
+  Future<void> reportProductStatByLocalId(
+    int localProductId,
+    String type, {
+    double? rating,
+  }) async {
+    final product = await (db.select(db.products)
+          ..where((t) => t.id.equals(localProductId)))
+        .getSingleOrNull();
+    if (product == null) return;
+
+    if (type == 'view') {
+      await (db.update(db.products)..where((t) => t.id.equals(localProductId)))
+          .write(ProductsCompanion(viewsCount: Value(product.viewsCount + 1)));
+    } else if (type == 'share') {
+      await (db.update(db.products)..where((t) => t.id.equals(localProductId)))
+          .write(ProductsCompanion(sharesCount: Value(product.sharesCount + 1)));
+    }
+
+    final remoteId = await resolveRemoteProductId(localProductId);
+    if (remoteId != null && isOnline) {
+      unawaited(reportInteraction(remoteId, type, rating: rating));
+    }
+  }
+
+  /// Sync a contact event to the server for seller stats on all devices.
+  Future<void> reportContactStat({
+    required int localShopId,
+    required String contactType,
+    int? localProductId,
+    String? userPhone,
+  }) async {
+    if (!isOnline) return;
+
+    final remoteShopId = await resolveRemoteShopId(localShopId);
+    if (remoteShopId == null) return;
+
+    int? remoteProductId;
+    if (localProductId != null) {
+      remoteProductId = await resolveRemoteProductId(localProductId);
+    }
+
+    await api.trackContact(
+      shopId: remoteShopId,
+      userPhone: (userPhone != null && userPhone.trim().isNotEmpty)
+          ? userPhone.trim()
+          : 'Client',
+      contactType: contactType,
+      productId: remoteProductId,
+    );
+  }
+
+  /// Sync shop view / catalog-story-QR-status share to server.
+  Future<void> reportShopInteractionByLocalId(
+    int localShopId,
+    String interactionType,
+  ) async {
+    if (!ShopStatsTypes.isSynced(interactionType) || !isOnline) return;
+
+    final remoteShopId = await resolveRemoteShopId(localShopId);
+    if (remoteShopId == null) return;
+
+    unawaited(
+      api.trackShopInteraction(
+        shopId: remoteShopId,
+        interactionType: interactionType,
+      ),
+    );
+  }
+
+  /// Fetch aggregated shop stats from server (likes, contacts, views…).
+  Future<Map<String, int>?> fetchRemoteShopStats(int localShopId) async {
+    if (!isOnline) return null;
+    final remoteShopId = await resolveRemoteShopId(localShopId);
+    if (remoteShopId == null) return null;
+    return api.fetchShopStats(remoteShopId);
   }
 
   /// Retry products that were skipped because their shop was not mapped yet.
@@ -1838,7 +2207,19 @@ class SyncService extends ChangeNotifier {
       );
       if (localShopId <= 0) continue;
 
-      final existingLocalId = productIdMap[rId];
+      final sanitizedName = ((p['name'] as String?) ?? 'Produit').trim();
+      final serverPrice = (p['price'] as num?)?.toDouble();
+      final existingLocalId = _findExistingLocalProductIdForPull(
+        remoteId: rId,
+        localShopId: localShopId,
+        sanitizedName: sanitizedName.isEmpty ? 'Produit' : sanitizedName,
+        serverPrice: serverPrice,
+        productIdMap: productIdMap,
+        allProducts: allProducts,
+      );
+      if (existingLocalId != null) {
+        productIdMap[rId] = existingLocalId;
+      }
       final existingProduct = existingLocalId != null
           ? localProductById[existingLocalId]
           : null;
@@ -1872,7 +2253,12 @@ class SyncService extends ChangeNotifier {
           sharesCount: Value(p['shares_count'] as int? ?? 0),
           ratingsCount: Value(p['ratings_count'] as int? ?? 0),
           ratingAvg: Value((p['rating_avg'] as num? ?? 0.0).toDouble()),
-          metadata: Value(p['metadata'] as String?),
+          metadata: Value(
+            _mergeProductSyncMetadata(
+              p['metadata'] as String?,
+              serverShopId: p['shop_id'],
+            ),
+          ),
         ),
         mode: InsertMode.insertOrReplace,
       );
@@ -2162,6 +2548,14 @@ class SyncService extends ChangeNotifier {
       debugPrint(
         '_mapServerIdToLocalProduct: mapped local product $localId → server ID $serverId',
       );
+      if (productRepository != null) {
+        final removed = await productRepository!.repairDisplayDuplicates();
+        if (removed > 0) {
+          debugPrint(
+            '_mapServerIdToLocalProduct: removed $removed duplicate row(s)',
+          );
+        }
+      }
     } catch (e) {
       debugPrint('_mapServerIdToLocalProduct error: $e');
     }
@@ -2207,6 +2601,55 @@ class SyncService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('_mapServerIdToLocalOrder error: $e');
+    }
+  }
+
+  Future<void> _mapServerIdToLocalDelivery(
+    SyncQueueData item,
+    String serverId,
+  ) async {
+    try {
+      final data = jsonDecode(item.entityData) as Map<String, dynamic>;
+      final localId = data['local_id'] as int?;
+      if (localId == null) return;
+
+      await (db.update(db.deliveries)..where((t) => t.id.equals(localId)))
+          .write(
+        DeliveriesCompanion(remoteId: Value(serverId), synced: const Value(1)),
+      );
+    } catch (e) {
+      debugPrint('_mapServerIdToLocalDelivery error: $e');
+    }
+  }
+
+  Future<void> _pullRemoteDeliveries({DateTime? updatedSince}) async {
+    final repo = deliveryRepository;
+    if (repo == null) return;
+
+    try {
+      final profile = await db.select(db.userProfiles).getSingleOrNull();
+      final buyerPhone = profile?.phone;
+      if (buyerPhone != null && buyerPhone.isNotEmpty) {
+        await repo.pullRemote(
+          apiService: api,
+          buyerPhone: buyerPhone,
+          updatedSince: updatedSince,
+        );
+      }
+
+      final shops = await db.select(db.shops).get();
+      for (final shop in shops) {
+        if (shop.remoteId == null || shop.remoteId!.isEmpty) continue;
+        final serverShopId = int.tryParse(shop.remoteId!);
+        if (serverShopId == null) continue;
+        await repo.pullRemote(
+          apiService: api,
+          shopId: serverShopId,
+          updatedSince: updatedSince,
+        );
+      }
+    } catch (e) {
+      debugPrint('_pullRemoteDeliveries error: $e');
     }
   }
 
@@ -2344,6 +2787,95 @@ class SyncService extends ChangeNotifier {
     return purged;
   }
 
+  /// Local arrivages saved with isArrivage=false (single-photo bug before fix).
+  Future<void> _repairMisclassifiedArrivages() async {
+    final now = DateTime.now();
+    const storyExpiry = Duration(hours: 24);
+    final candidates = await (db.select(db.stories)..where(
+          (t) =>
+              t.isArrivage.equals(false) &
+              t.expiresAt.isBiggerThanValue(now),
+        ))
+        .get();
+
+    for (final story in candidates) {
+      if (story.mediaUrl.isEmpty) continue;
+      final lifespan = story.expiresAt.difference(story.createdAt);
+      if (lifespan <= storyExpiry) continue;
+      await (db.update(db.stories)..where((t) => t.id.equals(story.id))).write(
+        const StoriesCompanion(isArrivage: Value(true)),
+      );
+      debugPrint(
+        'Story repair: reclassified arrivage id=${story.id} (lifespan ${lifespan.inHours}h)',
+      );
+    }
+  }
+
+  /// Repair local stories that were skipped during pull (preserve UI state)
+  /// but may have missing media or wrong isArrivage flag after a buggy create.
+  Future<void> _repairExistingStoriesFromServer(
+    List<Map<String, dynamic>> remoteStories,
+    Map<String, Story> existingByRemoteId,
+  ) async {
+    for (final st in remoteStories) {
+      final dynamic rawRemoteId = st['remote_id'];
+      final String rId = rawRemoteId != null && rawRemoteId.toString().isNotEmpty
+          ? rawRemoteId.toString()
+          : (st['id']?.toString() ?? '');
+      if (rId.isEmpty) continue;
+
+      final localStory = existingByRemoteId[rId];
+      if (localStory == null) continue;
+
+      final rawMediaUrl = st['media_url'] as String? ?? '';
+      final mergedMedia = _mergeMediaUrlForLocal(rawMediaUrl, localStory.mediaUrl);
+      final serverIsArrivage = (_toInt(st['is_arrivage']) ?? 0) == 1;
+
+      final needsMediaFix =
+          localStory.mediaUrl.isEmpty &&
+          mergedMedia != null &&
+          mergedMedia.isNotEmpty;
+      final needsArrivageFix = serverIsArrivage && !localStory.isArrivage;
+
+      if (needsMediaFix || needsArrivageFix) {
+        await (db.update(db.stories)..where((t) => t.id.equals(localStory.id)))
+            .write(
+          StoriesCompanion(
+            mediaUrl: needsMediaFix ? Value(mergedMedia) : const Value.absent(),
+            isArrivage: needsArrivageFix
+                ? const Value(true)
+                : const Value.absent(),
+          ),
+        );
+        debugPrint(
+          'Story repair: id=${localStory.id} remoteId=$rId '
+          'mediaFix=$needsMediaFix arrivageFix=$needsArrivageFix',
+        );
+      }
+
+      if (st['media_items'] is! List) continue;
+      final existingMedia = await (db.select(
+        db.storyMedia,
+      )..where((t) => t.storyId.equals(localStory.id))).get();
+      if (existingMedia.isNotEmpty) continue;
+
+      for (final mi in st['media_items'] as List) {
+        if (mi is! Map<String, dynamic>) continue;
+        final childRaw = mi['media_url'] as String? ?? '';
+        final childStored = _mergeMediaUrlForLocal(childRaw, null);
+        if (childStored == null || childStored.isEmpty) continue;
+        await db.into(db.storyMedia).insert(
+              StoryMediaCompanion.insert(
+                storyId: localStory.id,
+                mediaUrl: childStored,
+                mediaType: Value(mi['media_type'] as String? ?? 'image'),
+                sortOrder: Value(mi['sort_order'] as int? ?? 0),
+              ),
+            );
+      }
+    }
+  }
+
   /// Map server-returned story ID back to local story record.
   /// This prevents duplicate stories during pull sync.
   Future<void> _mapServerIdToLocalStory(
@@ -2396,6 +2928,28 @@ class SyncService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('_mapServerIdToLocalStory error: $e');
+    }
+  }
+
+  Future<void> _pullProductUpdates({DateTime? updatedSince}) async {
+    try {
+      final rows = await api.fetchProductUpdates(updatedSince: updatedSince);
+      if (rows.isEmpty) return;
+
+      final repo = ProductUpdateRepository(db);
+      for (final row in rows) {
+        await repo.upsertFromServer(row);
+      }
+
+      await ProductUpdateNotifier(
+        db: db,
+        updateRepository: repo,
+        notificationService: notificationService,
+      ).notifyNewUpdates();
+
+      debugPrint('PULL: product_updates → ${rows.length}');
+    } catch (e) {
+      debugPrint('_pullProductUpdates error: $e');
     }
   }
 }

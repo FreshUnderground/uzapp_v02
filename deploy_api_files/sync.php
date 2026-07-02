@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/phone_utils.php';
 authenticate();
 
 header('Content-Type: application/json');
@@ -12,8 +13,9 @@ $ALLOWED_COLUMNS = [
                    'banner_status', 'banner_text', 'video_url', 'is_boosted', 'is_verified', 'verified_at',
                    'created_at', 'updated_at', 'latitude', 'longitude', 'city', 'commune'],
     'products' => ['id', 'shop_id', 'category_id', 'name', 'description', 'price', 'image_urls',
-                   'is_arrival', 'is_promotion', 'boost_status', 'hide_price', 'show_stock', 'stock_count',
-                   'views_count', 'shares_count', 'ratings_count', 'rating_avg', 'metadata', 'updated_at'],
+                   'is_arrival', 'is_promotion', 'promotion_message', 'boost_status', 'hide_price',
+                   'show_stock', 'stock_count', 'views_count', 'shares_count', 'ratings_count',
+                   'rating_avg', 'metadata', 'updated_at'],
     'stories'  => ['id', 'shop_id', 'media_url', 'media_type', 'is_arrivage', 'expires_at', 'created_at'],
 ];
 
@@ -96,6 +98,13 @@ try {
         if ($action === 'CREATE' || $action === 'UPDATE') {
              $id = isset($data['id']) ? $data['id'] : null;
              $ownerId = isset($data['owner_id']) ? $data['owner_id'] : null;
+             $normalizedOwner = $ownerId
+                 ? (phone_normalize_drc($ownerId) ?: trim((string) $ownerId))
+                 : null;
+             if ($normalizedOwner) {
+                 $data['owner_id'] = $normalizedOwner;
+                 $ownerId = $normalizedOwner;
+             }
 
              if (empty($data['name'])) {
                  http_response_code(400);
@@ -108,17 +117,24 @@ try {
              // Add updated_at timestamp
              $data['updated_at'] = date('Y-m-d H:i:s');
 
-             // Check if shop exists by ID
-             $stmt = $db->prepare("SELECT id FROM shops WHERE id = ?");
-             $stmt->execute([$id]);
-             $existsById = $stmt->fetch();
+             $existsById = null;
+             if ($action === 'UPDATE' && $id) {
+                 $stmt = $db->prepare("SELECT id, owner_id FROM shops WHERE id = ?");
+                 $stmt->execute([$id]);
+                 $existsById = $stmt->fetch();
+             }
 
-             // Also check by owner_id for upsert
              $existsByOwner = null;
-             if (!$existsById && $ownerId) {
-                 $stmt = $db->prepare("SELECT id FROM shops WHERE owner_id = ?");
-                 $stmt->execute([$ownerId]);
-                 $existsByOwner = $stmt->fetch();
+             if ($ownerId) {
+                 $ownerKeys = phone_lookup_keys($ownerId);
+                 if (!empty($ownerKeys)) {
+                     $placeholders = implode(',', array_fill(0, count($ownerKeys), '?'));
+                     $stmt = $db->prepare(
+                         "SELECT id, owner_id FROM shops WHERE owner_id IN ($placeholders) LIMIT 1"
+                     );
+                     $stmt->execute($ownerKeys);
+                     $existsByOwner = $stmt->fetch();
+                 }
              }
 
              if ($existsById) {
@@ -131,7 +147,7 @@ try {
                  $params[] = $id;
                  $stmt = $db->prepare("UPDATE shops SET " . implode(', ', $fields) . " WHERE id = ?");
                  $stmt->execute($params);
-                 echo json_encode(['success' => true, 'id' => $id, 'action' => 'UPDATE']);
+                 echo json_encode(['success' => true, 'id' => (int) $id, 'action' => 'UPDATE']);
                  exit;
              } else if ($existsByOwner) {
                  $existingId = $existsByOwner['id'];
@@ -144,9 +160,10 @@ try {
                  $params[] = $existingId;
                  $stmt = $db->prepare("UPDATE shops SET " . implode(', ', $fields) . " WHERE id = ?");
                  $stmt->execute($params);
-                 echo json_encode(['success' => true, 'id' => $existingId, 'action' => 'UPDATE']);
+                 echo json_encode(['success' => true, 'id' => (int) $existingId, 'action' => 'UPDATE']);
                  exit;
              } else {
+                 unset($data['id']);
                  if (!isset($data['created_at'])) {
                      $data['created_at'] = date('Y-m-d H:i:s');
                  }
@@ -155,35 +172,71 @@ try {
                  $stmt = $db->prepare("INSERT INTO shops (" . implode(', ', $keys) . ") VALUES (" . implode(', ', $placeholders) . ")");
                  $stmt->execute($values);
                  $newId = $db->lastInsertId();
-                 echo json_encode(['success' => true, 'id' => $newId, 'action' => 'CREATE']);
+                 echo json_encode(['success' => true, 'id' => (int) $newId, 'action' => 'CREATE']);
                  exit;
              }
+        } else if ($action === 'DELETE') {
+             $id = isset($data['id']) ? (int)$data['id'] : 0;
+             if ($id <= 0) {
+                 http_response_code(400);
+                 echo json_encode(['success' => false, 'error' => 'Shop id required for DELETE']);
+                 exit;
+             }
+             $db->prepare("DELETE FROM products WHERE shop_id = ?")->execute([$id]);
+             try {
+                 $db->prepare("DELETE FROM deliveries WHERE shop_id = ?")->execute([$id]);
+             } catch (Exception $e) { /* table may not exist */ }
+             $db->prepare("DELETE FROM story_media WHERE story_id IN (SELECT id FROM stories WHERE shop_id = ?)")->execute([$id]);
+             $db->prepare("DELETE FROM stories WHERE shop_id = ?")->execute([$id]);
+             try {
+                 $db->prepare("DELETE FROM orders WHERE shop_id = ?")->execute([$id]);
+             } catch (Exception $e) { /* table may not exist */ }
+             $stmt = $db->prepare("DELETE FROM shops WHERE id = ?");
+             $stmt->execute([$id]);
+             echo json_encode(['success' => true, 'id' => $id, 'action' => 'DELETE']);
+             exit;
         }
 
     // ── PRODUCTS ─────────────────────────────────────────────────────────────
     } else if ($entityType === 'products') {
         if ($action === 'CREATE' || $action === 'UPDATE') {
              $id = isset($data['id']) ? $data['id'] : null;
+             $shopId = isset($data['shop_id']) ? (int) $data['shop_id'] : 0;
 
              if (empty($data['name'])) {
                  http_response_code(400);
                  echo json_encode(['success' => false, 'error' => 'Product name is required']);
                  exit;
              }
-             if (empty($data['shop_id'])) {
+             if ($shopId <= 0) {
                  http_response_code(400);
                  echo json_encode(['success' => false, 'error' => 'shop_id is required']);
                  exit;
              }
 
              $data = filterColumns($data, 'products', $ALLOWED_COLUMNS);
+             $data['shop_id'] = $shopId;
+
+             $shopStmt = $db->prepare('SELECT id FROM shops WHERE id = ?');
+             $shopStmt->execute([$shopId]);
+             if (!$shopStmt->fetch()) {
+                 http_response_code(400);
+                 echo json_encode([
+                     'success' => false,
+                     'error' => 'Referenced shop_id does not exist — create the shop first',
+                 ]);
+                 exit;
+             }
 
              // Add updated_at timestamp
              $data['updated_at'] = date('Y-m-d H:i:s');
 
-             $stmt = $db->prepare("SELECT id FROM products WHERE id = ?");
-             $stmt->execute([$id]);
-             $exists = $stmt->fetch();
+             $exists = null;
+             if ($action === 'UPDATE' && $id) {
+                 $stmt = $db->prepare('SELECT id FROM products WHERE id = ?');
+                 $stmt->execute([$id]);
+                 $exists = $stmt->fetch();
+             }
 
              if ($exists) {
                  $fields = [];
@@ -197,16 +250,22 @@ try {
                  $params[] = $id;
                  $stmt = $db->prepare("UPDATE products SET " . implode(', ', $fields) . " WHERE id = ?");
                  $stmt->execute($params);
-                 echo json_encode(['success' => true, 'id' => $id, 'action' => 'UPDATE']);
+                 echo json_encode(['success' => true, 'id' => (int) $id, 'action' => 'UPDATE']);
                  exit;
              } else {
+                 if ($action === 'UPDATE') {
+                     http_response_code(400);
+                     echo json_encode(['success' => false, 'error' => 'Product not found for UPDATE']);
+                     exit;
+                 }
+                 unset($data['id']);
                  $keys = array_keys($data);
                  $values = array_values($data);
                  $placeholders = array_fill(0, count($keys), '?');
                  $stmt = $db->prepare("INSERT INTO products (" . implode(', ', $keys) . ") VALUES (" . implode(', ', $placeholders) . ")");
                  $stmt->execute($values);
                  $newId = $db->lastInsertId();
-                 echo json_encode(['success' => true, 'id' => $newId, 'action' => 'CREATE']);
+                 echo json_encode(['success' => true, 'id' => (int) $newId, 'action' => 'CREATE']);
                  exit;
              }
         } else if ($action === 'DELETE') {

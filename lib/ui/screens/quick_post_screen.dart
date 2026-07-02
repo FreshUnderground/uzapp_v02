@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/res/uza_colors.dart';
@@ -47,13 +48,13 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nom du produit requis')),
+        SnackBar(content: Text(tr(context, 'product_name_required'))),
       );
       return;
     }
     if (_photo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ajoutez au moins une photo')),
+        SnackBar(content: Text(tr(context, 'add_photo_required'))),
       );
       return;
     }
@@ -109,14 +110,16 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Produit publié !')),
+          SnackBar(content: Text(tr(context, 'product_published'))),
         );
         Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : $e')),
+          SnackBar(
+            content: Text(trf(context, 'error_with_message', {'message': '$e'})),
+          ),
         );
       }
     } finally {
@@ -133,7 +136,7 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Publication rapide'),
+        title: Text(tr(context, 'quick_publish')),
         actions: [
           if (_saving)
             Padding(
@@ -146,7 +149,7 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
           else
             TextButton(
               onPressed: _save,
-              child: const Text('Publier'),
+              child: Text(tr(context, 'publish')),
             ),
         ],
       ),
@@ -164,12 +167,12 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
                   border: Border.all(color: Colors.grey[300]!),
                 ),
                 child: _photo == null
-                    ? const Column(
+                    ? Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.add_a_photo, size: 48, color: UzaColors.primary),
                           SizedBox(height: 8),
-                          Text('Appuyez pour ajouter une photo'),
+                          Text(tr(context, 'tap_add_photo')),
                         ],
                       )
                     : ClipRRect(

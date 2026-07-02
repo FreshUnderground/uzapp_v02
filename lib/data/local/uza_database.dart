@@ -44,6 +44,8 @@ class Shops extends Table {
   DateTimeColumn get verifiedAt => dateTime().nullable()();
   RealColumn get latitude => real().nullable()();
   RealColumn get longitude => real().nullable()();
+  /// Last seller activity (post, product update, story, WhatsApp status).
+  DateTimeColumn get lastActiveAt => dateTime().nullable()();
 }
 
 class Categories extends Table {
@@ -109,6 +111,21 @@ class StoryMedia extends Table {
   TextColumn get mediaUrl => text()();
   TextColumn get mediaType => text().withDefault(const Constant('image'))();
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+/// Public product update announcements (mise à jour produit).
+class ProductUpdates extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get remoteId => text().nullable()();
+  IntColumn get productId => integer().references(Products, #id)();
+  IntColumn get shopId => integer().references(Shops, #id)();
+  /// arrivage | restock | price | photos | note
+  TextColumn get updateType => text()();
+  TextColumn get message => text().nullable()();
+  TextColumn get productName => text()();
+  TextColumn get shopName => text()();
+  IntColumn get synced => integer().withDefault(const Constant(1))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -232,6 +249,28 @@ class Orders extends Table {
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+/// Client delivery requests — synced to server `deliveries` table.
+class Deliveries extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get remoteId => text().nullable()();
+  IntColumn get shopId => integer().references(Shops, #id)();
+  TextColumn get buyerPhone => text()();
+  TextColumn get buyerName => text().nullable()();
+  IntColumn get productId => integer().nullable().references(Products, #id)();
+  TextColumn get itemsJson => text().withDefault(const Constant('[]'))();
+  TextColumn get status => text().withDefault(const Constant('pending'))();
+  TextColumn get deliveryAddress => text().nullable()();
+  TextColumn get deliveryCommune => text().nullable()();
+  RealColumn get latitude => real().nullable()();
+  RealColumn get longitude => real().nullable()();
+  /// gps | manual | commune
+  TextColumn get locationMode => text().withDefault(const Constant('commune'))();
+  TextColumn get note => text().nullable()();
+  IntColumn get synced => integer().withDefault(const Constant(0))();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+}
+
 class ChatMessages extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get senderPhone => text()();
@@ -246,7 +285,7 @@ class ChatMessages extends Table {
 class AppPreferences extends Table {
   IntColumn get id => integer().withDefault(const Constant(1))();
   BoolColumn get isDarkMode => boolean().withDefault(const Constant(false))();
-  TextColumn get language => text().withDefault(const Constant('fr'))();
+  TextColumn get language => text().withDefault(const Constant('system'))();
   BoolColumn get notificationsEnabled =>
       boolean().withDefault(const Constant(true))();
   BoolColumn get isLiteMode => boolean().withDefault(const Constant(false))();
@@ -281,14 +320,16 @@ class AppPreferences extends Table {
     ProductLikes,
     ShopFollows,
     Orders,
+    Deliveries,
     ChatMessages,
+    ProductUpdates,
   ],
 )
 class UzaDatabase extends _$UzaDatabase {
   UzaDatabase() : super(ensureConnection());
 
   @override
-  int get schemaVersion => 27;
+  int get schemaVersion => 30;
 
   @override
   MigrationStrategy get migration {
@@ -417,6 +458,15 @@ class UzaDatabase extends _$UzaDatabase {
           await m.addColumn(orders, orders.remoteId);
           await m.addColumn(orders, orders.synced);
           await m.addColumn(appPreferences, appPreferences.pendingReferralCode);
+        }
+        if (from < 28) {
+          await m.createTable(deliveries);
+        }
+        if (from < 29) {
+          await m.addColumn(shops, shops.lastActiveAt);
+        }
+        if (from < 30) {
+          await m.createTable(productUpdates);
         }
       },
     );

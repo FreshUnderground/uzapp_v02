@@ -159,7 +159,7 @@ class GadgetFormState extends State<GadgetForm> {
                 selectedColor: UzaColors.primary.withValues(alpha: 0.15),
                 checkmarkColor: UzaColors.primary,
                 labelStyle: TextStyle(
-                  color: isSelected ? UzaColors.primary : Colors.black87,
+                  color: isSelected ? UzaColors.primary : UzaColors.onSurface(context),
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 ),
                 backgroundColor: Colors.grey[100],

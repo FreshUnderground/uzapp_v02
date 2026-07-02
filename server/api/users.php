@@ -92,6 +92,11 @@ try {
         $stmt = $db->prepare("SELECT * FROM users WHERE phone IN ($placeholders) LIMIT 1");
         $stmt->execute($phoneVariations);
         $user = $stmt->fetch();
+        if (!$user) {
+            $stmt = $db->prepare("SELECT * FROM users WHERE UPPER(name) = UPPER(?) LIMIT 1");
+            $stmt->execute([trim((string) $phone)]);
+            $user = $stmt->fetch();
+        }
         if ($user) {
             $user['is_phone_verified'] = (bool)$user['is_phone_verified'];
         }

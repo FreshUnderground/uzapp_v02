@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/l10n/tr.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/story_repository.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/services/sync_service.dart';
+import '../components/uza_secondary_app_bar.dart';
 import '../components/arrivage_thumbnail.dart';
 import '../components/custom_refresh_indicator.dart';
 import '../utils/page_transitions.dart';
@@ -18,25 +20,19 @@ class ArrivagesScreen extends StatelessWidget {
     final syncService = context.read<SyncService>();
     final shopRepo = context.read<ShopRepository>();
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text(
-          'Arrivages',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-        ),
-        backgroundColor: Colors.white,
+    return UzaBackScope(
+      child: Scaffold(
+      appBar: UzaSecondaryAppBar(
+        title: tr(context, 'arrivages'),
         elevation: 0,
-        scrolledUnderElevation: 0.5,
-        surfaceTintColor: Colors.transparent,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () async {
               // Show loading
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Synchronisation en cours...'),
+                SnackBar(
+                  content: Text(tr(context, 'sync_in_progress')),
                   duration: Duration(seconds: 2),
                 ),
               );
@@ -45,9 +41,9 @@ class ArrivagesScreen extends StatelessWidget {
               // Show success
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('✅ Synchronisation terminée!'),
-                    duration: Duration(seconds: 2),
+                  SnackBar(
+                    content: Text(tr(context, 'sync_complete')),
+                    duration: const Duration(seconds: 2),
                   ),
                 );
               }
@@ -94,7 +90,7 @@ class ArrivagesScreen extends StatelessWidget {
                         TextButton.icon(
                           onPressed: () => syncService.syncNow(),
                           icon: const Icon(Icons.refresh),
-                          label: const Text('Réessayer'),
+                          label: Text(tr(context, 'retry')),
                         ),
                       ],
                     ),
@@ -136,6 +132,7 @@ class ArrivagesScreen extends StatelessWidget {
             ),
           );
         },
+      ),
       ),
     );
   }

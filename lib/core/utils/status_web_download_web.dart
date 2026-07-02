@@ -33,16 +33,17 @@ Future<bool> downloadStatusFiles({
   if (files.isEmpty) return false;
 
   for (var i = 0; i < files.length; i++) {
+    final filename = files.length == 1
+        ? '${namePrefix}_$shopId.$extension'
+        : '${namePrefix}_${shopId}_$i.$extension';
     final blob = html.Blob([files[i]], mimeType);
     final url = html.Url.createObjectUrlFromBlob(blob);
-    html.AnchorElement(href: url)
-      ..setAttribute(
-        'download',
-        files.length == 1
-            ? '${namePrefix}_$shopId.$extension'
-            : '${namePrefix}_${shopId}_$i.$extension',
-      )
-      ..click();
+    final anchor = html.AnchorElement(href: url)
+      ..download = filename
+      ..style.display = 'none';
+    html.document.body?.children.add(anchor);
+    anchor.click();
+    anchor.remove();
     html.Url.revokeObjectUrl(url);
     await Future<void>.delayed(const Duration(milliseconds: 120));
   }

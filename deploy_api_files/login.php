@@ -66,6 +66,13 @@ try {
     $user = $stmt->fetch();
 
     if (!$user) {
+        $identifier = trim((string) $phone);
+        $stmt = $db->prepare("SELECT * FROM users WHERE UPPER(name) = UPPER(?) LIMIT 1");
+        $stmt->execute([$identifier]);
+        $user = $stmt->fetch();
+    }
+
+    if (!$user) {
         http_response_code(404);
         echo json_encode([
             'success' => false,

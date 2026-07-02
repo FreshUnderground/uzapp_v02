@@ -3,6 +3,55 @@
  * Aggregated platform statistics for the admin dashboard.
  */
 
+function platform_stats_shop_share_types_sql(): string
+{
+    return "'share','catalog_share','qr_share','story_share','whatsapp_status','facebook_status','tiktok_status'";
+}
+
+function platform_stats_shop_engagement_totals(PDO $db): array
+{
+    if (!platform_stats_table_exists($db, 'shop_analytics')) {
+        return ['shop_views' => 0, 'shop_shares' => 0];
+    }
+
+    $shareTypes = platform_stats_shop_share_types_sql();
+    return [
+        'shop_views' => platform_stats_scalar(
+            $db,
+            "SELECT COUNT(*) FROM shop_analytics WHERE interaction_type = 'view'"
+        ),
+        'shop_shares' => platform_stats_scalar(
+            $db,
+            "SELECT COUNT(*) FROM shop_analytics WHERE interaction_type IN ($shareTypes)"
+        ),
+    ];
+}
+
+function platform_stats_shop_engagement_in_range(PDO $db, string $from, string $to): array
+{
+    if (!platform_stats_table_exists($db, 'shop_analytics')) {
+        return ['shop_views' => 0, 'shop_shares' => 0];
+    }
+
+    $shareTypes = platform_stats_shop_share_types_sql();
+    return [
+        'shop_views' => platform_stats_scalar(
+            $db,
+            "SELECT COUNT(*) FROM shop_analytics
+             WHERE interaction_type = 'view'
+             AND DATE(created_at) >= ? AND DATE(created_at) <= ?",
+            [$from, $to]
+        ),
+        'shop_shares' => platform_stats_scalar(
+            $db,
+            "SELECT COUNT(*) FROM shop_analytics
+             WHERE interaction_type IN ($shareTypes)
+             AND DATE(created_at) >= ? AND DATE(created_at) <= ?",
+            [$from, $to]
+        ),
+    ];
+}
+
 function platform_stats_table_exists(PDO $db, string $table): bool
 {
     static $cache = [];
@@ -178,6 +227,18 @@ function platform_stats_collect(PDO $db, ?array $range = null): array
     $hasFollows = platform_stats_table_exists($db, 'shop_follows');
     $hasFcm = platform_stats_table_exists($db, 'fcm_tokens');
     $hasPlatformVisits = platform_stats_table_exists($db, 'platform_visits');
+    $hasShopAnalytics = platform_stats_table_exists($db, 'shop_analytics');
+    $shopEngagementTotals = platform_stats_shop_engagement_totals($db);
+    $shopEngagementPeriod = platform_stats_shop_engagement_in_range($db, $from, $to);
+
+    $productViewsTotal = platform_stats_scalar(
+        $db,
+        'SELECT COALESCE(SUM(views_count), 0) FROM products'
+    );
+    $productSharesTotal = platform_stats_scalar(
+        $db,
+        'SELECT COALESCE(SUM(shares_count), 0) FROM products'
+    );
 
     $overview = [
         'shops_total' => platform_stats_scalar($db, 'SELECT COUNT(*) FROM shops'),
@@ -201,8 +262,14 @@ function platform_stats_collect(PDO $db, ?array $range = null): array
             $db,
             'SELECT COUNT(*) FROM stories WHERE expires_at > NOW() AND is_arrivage = 1'
         ),
-        'views_total' => platform_stats_scalar($db, 'SELECT COALESCE(SUM(views_count), 0) FROM products'),
-        'shares_total' => platform_stats_scalar($db, 'SELECT COALESCE(SUM(shares_count), 0) FROM products'),
+        'views_total' => $productViewsTotal,
+        'product_views_total' => $productViewsTotal,
+        'shares_total' => $productSharesTotal,
+        'product_shares_total' => $productSharesTotal,
+        'shop_views_total' => $shopEngagementTotals['shop_views'],
+        'shop_shares_total' => $shopEngagementTotals['shop_shares'],
+        'engagement_views_total' => $productViewsTotal + $shopEngagementTotals['shop_views'],
+        'engagement_shares_total' => $productSharesTotal + $shopEngagementTotals['shop_shares'],
         'reports_total' => $hasReports
             ? platform_stats_scalar($db, 'SELECT COUNT(*) FROM product_reports')
             : platform_stats_scalar($db, 'SELECT COALESCE(SUM(report_count), 0) FROM products'),
@@ -281,6 +348,47 @@ function platform_stats_collect(PDO $db, ?array $range = null): array
     $overview['reports_period'] = $hasReports
         ? platform_stats_count_in_range($db, 'product_reports', 'created_at', $from, $to)
         : 0;
+    $overview['shop_views_period'] = $shopEngagementPeriod['shop_views'];
+    $overview['shop_shares_period'] = $shopEngagementPeriod['shop_shares'];
+    $overview['engagement_views_period'] = ($overview['shop_views_period'] ?? 0);
+    $overview['engagement_shares_period'] = ($overview['shop_shares_period'] ?? 0);
+
+    $shopInteractionsByType = $hasShopAnalytics
+        ? platform_stats_fetch_all(
+            $db,
+            'SELECT interaction_type, COUNT(*) AS count FROM shop_analytics
+             WHERE DATE(created_at) >= ? AND DATE(created_at) <= ?
+             GROUP BY interaction_type ORDER BY count DESC',
+            [$from, $to]
+        )
+        : [];
+
+    $shareTypes = platform_stats_shop_share_types_sql();
+    $shopAnalyticsJoin = $hasShopAnalytics
+        ? "LEFT JOIN (
+            SELECT shop_id,
+              SUM(CASE WHEN interaction_type = 'view' THEN 1 ELSE 0 END) AS shop_views,
+              SUM(CASE WHEN interaction_type IN ($shareTypes) THEN 1 ELSE 0 END) AS shop_shares
+            FROM shop_analytics
+            GROUP BY shop_id
+          ) sa ON sa.shop_id = s.id"
+        : 'LEFT JOIN (SELECT NULL AS shop_id, 0 AS shop_views, 0 AS shop_shares) sa ON 1=0';
+
+    $topShopsByViews = platform_stats_fetch_all(
+        $db,
+        "SELECT s.id, s.name, s.city, s.commune,
+                COUNT(p.id) AS product_count,
+                COALESCE(SUM(p.views_count), 0) AS product_views,
+                COALESCE(sa.shop_views, 0) AS shop_views,
+                COALESCE(SUM(p.views_count), 0) + COALESCE(sa.shop_views, 0) AS views,
+                COALESCE(SUM(p.shares_count), 0) + COALESCE(sa.shop_shares, 0) AS shares
+         FROM shops s
+         LEFT JOIN products p ON p.shop_id = s.id
+         $shopAnalyticsJoin
+         GROUP BY s.id, s.name, s.city, s.commune, sa.shop_views, sa.shop_shares
+         ORDER BY views DESC
+         LIMIT 10"
+    );
 
     $visitsByPlatform = $hasPlatformVisits
         ? platform_stats_fetch_all(
@@ -301,19 +409,6 @@ function platform_stats_collect(PDO $db, ?array $range = null): array
             [$from, $to]
         )
         : [];
-
-    $topShopsByViews = platform_stats_fetch_all(
-        $db,
-        'SELECT s.id, s.name, s.city, s.commune,
-                COUNT(p.id) AS product_count,
-                COALESCE(SUM(p.views_count), 0) AS views,
-                COALESCE(SUM(p.shares_count), 0) AS shares
-         FROM shops s
-         LEFT JOIN products p ON p.shop_id = s.id
-         GROUP BY s.id, s.name, s.city, s.commune
-         ORDER BY views DESC
-         LIMIT 10'
-    );
 
     $topShopsByContacts = $hasContacts
         ? platform_stats_fetch_all(
@@ -421,6 +516,7 @@ function platform_stats_collect(PDO $db, ?array $range = null): array
         'period' => $range,
         'overview' => $overview,
         'contacts_by_type' => $contactsByType,
+        'shop_interactions_by_type' => $shopInteractionsByType,
         'top_shops_views' => $topShopsByViews,
         'top_shops_contacts' => $topShopsByContacts,
         'top_products' => $topProducts,
@@ -450,6 +546,26 @@ function platform_stats_collect(PDO $db, ?array $range = null): array
                 : [],
             'platform_visits' => $hasPlatformVisits
                 ? platform_stats_daily_series($db, 'platform_visits', 'created_at', $from, $to)
+                : [],
+            'shop_views' => $hasShopAnalytics
+                ? platform_stats_daily_series(
+                    $db,
+                    'shop_analytics',
+                    'created_at',
+                    $from,
+                    $to,
+                    "interaction_type = 'view'"
+                )
+                : [],
+            'shop_shares' => $hasShopAnalytics
+                ? platform_stats_daily_series(
+                    $db,
+                    'shop_analytics',
+                    'created_at',
+                    $from,
+                    $to,
+                    'interaction_type IN (' . platform_stats_shop_share_types_sql() . ')'
+                )
                 : [],
         ],
     ];
@@ -491,7 +607,7 @@ function platform_stats_export_csv(array $stats): string
     $out .= "\r\n";
 
     $out .= platform_stats_csv_row(['# Activité quotidienne']);
-    $seriesKeys = ['products', 'shops', 'users', 'contacts', 'orders', 'app_opens', 'web_visits', 'platform_visits'];
+    $seriesKeys = ['products', 'shops', 'users', 'contacts', 'orders', 'app_opens', 'web_visits', 'platform_visits', 'shop_views', 'shop_shares'];
     $series = $stats['series'] ?? [];
     $days = [];
     foreach ($seriesKeys as $key) {
@@ -520,9 +636,10 @@ function platform_stats_export_csv(array $stats): string
 
     $sections = [
         'contacts_by_type' => ['Contacts par canal', ['Canal', 'Nombre']],
+        'shop_interactions_by_type' => ['Engagement boutique (période)', ['Type', 'Nombre']],
         'visits_by_platform' => ['Visites par plateforme', ['Plateforme', 'Nombre']],
         'orders_by_status' => ['Commandes par statut', ['Statut', 'Nombre']],
-        'top_shops_views' => ['Top boutiques — vues (cumul)', ['Boutique', 'Ville', 'Produits', 'Vues', 'Partages']],
+        'top_shops_views' => ['Top boutiques — vues (cumul)', ['Boutique', 'Ville', 'Produits', 'Vues produits', 'Vues boutique', 'Vues totales', 'Partages']],
         'top_shops_contacts' => ['Top boutiques — contacts (période)', ['Boutique', 'Ville', 'Contacts']],
         'top_products' => ['Top produits — vues (cumul)', ['Produit', 'Boutique', 'Vues', 'Partages', 'Prix']],
         'recent_orders' => ['Commandes (période)', ['ID', 'Boutique', 'Acheteur', 'Statut', 'Date']],
@@ -585,6 +702,10 @@ function platform_stats_export_csv(array $stats): string
                     $r['boost_status'] ?? '',
                     $r['updated_at'] ?? '',
                 ]);
+            }
+        } elseif ($key === 'shop_interactions_by_type') {
+            foreach ($rows as $r) {
+                $out .= platform_stats_csv_row([$r['interaction_type'] ?? '', $r['count'] ?? 0]);
             }
         } elseif ($key === 'contacts_by_type') {
             foreach ($rows as $r) {

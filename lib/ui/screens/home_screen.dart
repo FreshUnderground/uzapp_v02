@@ -5,23 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
-import '../../data/repositories/cart_repository.dart';
 import '../../data/local/uza_database.dart';
 import '../components/product_card.dart';
-import '../../core/res/uza_colors.dart';
 import '../screens/product_detail_screen.dart';
 import '../screens/story_view_screen.dart';
-import '../screens/notification_screen.dart';
-import '../../core/services/notification_service.dart';
-import 'search_screen.dart';
-import 'cart_screen.dart';
 import 'shops_directory_screen.dart';
-import 'profile_screen.dart';
+import 'ya_cope_feed_screen.dart';
+import 'add_ya_cope_screen.dart';
 import 'story_feed_screen.dart';
 import 'discover_feed_screen.dart';
 import 'arrivages_screen.dart';
 import '../../core/services/auth_service.dart';
-import '../../core/utils/image_utils.dart';
 import '../components/arrivage_thumbnail.dart';
 import 'create_shop_screen.dart';
 import '../components/responsive_layout.dart';
@@ -32,16 +26,15 @@ import '../../data/repositories/story_repository.dart';
 import '../components/animated_bottom_nav.dart';
 import '../../data/services/sync_service.dart';
 import '../components/skeletons.dart';
-import '../components/tap_animator.dart';
 import '../components/custom_refresh_indicator.dart';
 import '../components/sync_status_banner.dart';
-import '../components/home_discovery_sections.dart';
-import '../components/boost_banner_carousel.dart';
 import '../utils/page_transitions.dart';
 import '../../core/l10n/tr.dart';
-import '../../core/l10n/app_translations.dart';
-import '../../core/services/settings_service.dart';
-import '../components/pwa_install_banner.dart';
+import '../components/desktop_shell.dart';
+import '../components/uza_search_bar.dart';
+import '../components/home_app_actions.dart';
+import '../components/product_updates_feed.dart';
+import '../../core/res/uza_colors.dart';
 
 class HomeScreen extends StatefulWidget {
   final int initialIndex;
@@ -60,18 +53,21 @@ class _HomeScreenState extends State<HomeScreen> {
   late int _selectedIndex;
   List<Story>? _overlayStories;
   int _overlayStoryIndex = 0;
+  final _yaCopeFeedKey = GlobalKey<YaCopeFeedScreenState>();
+  var _openingYaCopeAdd = false;
 
   @override
   void initState() {
     super.initState();
-    _selectedIndex = widget.initialIndex.clamp(0, 3);
+    _selectedIndex = widget.navigationShell?.currentIndex ??
+        widget.initialIndex.clamp(0, 3);
 
     if (kIsWeb) {
       final shortcut = Uri.base.queryParameters['shortcut'];
       if (shortcut == 'shops') {
-        _selectedIndex = 2;
+        _selectedIndex = 3;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          widget.navigationShell?.goBranch(2);
+          _onItemTapped(3);
         });
       }
     }
@@ -79,10 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (kIsWeb && Uri.base.queryParameters['shortcut'] == 'search') {
-        Navigator.push(
-          context,
-          SlideUpRoute(page: const SearchScreen()),
-        );
+        context.go('/search');
       }
       try {
         final sync = context.read<SyncService>();
@@ -109,126 +102,87 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onItemTapped(int index) {
+    final safeIndex = index.clamp(0, 3);
+    if (_selectedIndex != safeIndex) {
+      setState(() => _selectedIndex = safeIndex);
+    }
     final shell = widget.navigationShell;
     if (shell != null) {
-      shell.goBranch(index, initialLocation: index == shell.currentIndex);
-    } else {
-      setState(() => _selectedIndex = index);
+      shell.goBranch(
+        safeIndex,
+        initialLocation: safeIndex == shell.currentIndex,
+      );
     }
   }
 
-  int get _activeIndex =>
-      widget.navigationShell?.currentIndex ?? _selectedIndex;
+  int get _activeIndex => _selectedIndex;
 
-  List<Widget> _getActions() {
-    List<Widget> actions = [];
+  PreferredSizeWidget _buildAppBar(
+    BuildContext context, {
+    required bool isDesktop,
+    bool showCreateInToolbar = false,
+  }) {
+    final authService = context.watch<AuthService>();
+    final shopRepo = context.read<ShopRepository>();
+    final userId = authService.user?.uid;
 
-    // Cart icon with Badge
-    try {
-      actions.add(
-        StreamBuilder<int>(
-          stream: context.watch<CartRepository>().watchCartCount(),
+    // Boutique tab has its own shop search — avoid duplicate search bars.
+    final showGlobalSearch = _activeIndex != 3;
+
+    Widget? searchField;
+    if (isDesktop && showGlobalSearch) {
+      searchField = SizedBox(
+        width: 420,
+        child: UzaSearchBar(
+          variant: UzaSearchBarVariant.inline,
+          onTap: () => context.go('/search'),
+        ),
+      );
+    }
+
+    List<Widget> actions;
+    if (showCreateInToolbar && userId != null) {
+      actions = [
+        StreamBuilder<Shop?>(
+          stream: shopRepo.watchUserShop(userId),
           builder: (context, snapshot) {
-            final count = snapshot.data ?? 0;
-            return Badge(
-              label: Text('$count'),
-              isLabelVisible: count > 0,
-              child: IconButton(
-                icon: const Icon(Icons.shopping_cart_outlined),
-                onPressed: () => Navigator.push(
+            final hasShop = snapshot.hasData && snapshot.data != null;
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: HomeAppActions.build(
+                context,
+                includeCreate: _activeIndex == 0,
+                hasShop: hasShop,
+                onCreateShop: () => Navigator.push(
                   context,
-                  SlideUpRoute(page: const CartScreen()),
+                  SlideUpRoute(page: const CreateShopScreen()),
                 ),
+                onCreateProduct: () {
+                  final shop = snapshot.data;
+                  if (shop != null) _showCreateBottomSheet(context, shop);
+                },
               ),
             );
           },
         ),
-      );
-    } catch (e) {
-      debugPrint('Error building cart badge: $e');
-      // Fallback: show cart without badge
-      actions.add(
-        IconButton(
-          icon: const Icon(Icons.shopping_cart_outlined),
-          onPressed: () =>
-              Navigator.push(context, SlideUpRoute(page: const CartScreen())),
-        ),
-      );
+      ];
+    } else {
+      actions = HomeAppActions.build(context);
     }
 
-    // Notification badge
-    actions.add(
-      Consumer<NotificationService>(
-        builder: (context, notificationService, _) {
-          return Badge(
-            label: Text('${notificationService.unreadCount}'),
-            isLabelVisible: notificationService.unreadCount > 0,
-            child: IconButton(
-              icon: const Icon(Icons.notifications_none),
-              onPressed: () => Navigator.push(
-                context,
-                SlideUpRoute(page: const NotificationScreen()),
-              ),
-            ),
-          );
-        },
-      ),
+    return UzaAppBar(
+      showLogo: !isDesktop,
+      title: isDesktop ? HomeAppActions.tabTitle(context, _activeIndex) : null,
+      titleWidget: isDesktop ? searchField : null,
+      actions: actions,
+      bottom: !isDesktop && showGlobalSearch
+          ? UzaSearchBar(
+              onTap: () => context.go('/search'),
+              variant: UzaSearchBarVariant.compact,
+            )
+          : null,
+      height: kToolbarHeight,
     );
-
-    // Language selector dropdown
-    actions.add(_buildLanguageSelector());
-
-    actions.add(const SizedBox(width: 8));
-    return actions;
-  }
-
-  Widget _buildLanguageSelector() {
-    final settings = context.watch<SettingsService>();
-    final currentFlag = _getLanguageFlag(settings.currentLanguage);
-
-    return PopupMenuButton<String>(
-      icon: Text(currentFlag, style: const TextStyle(fontSize: 22)),
-      tooltip: 'Change language',
-      itemBuilder: (context) {
-        return AppTranslations.supportedLocales.map((String code) {
-          final languageName = AppTranslations.languageNames[code] ?? code;
-          final flag = _getLanguageFlag(code);
-          final isSelected =
-              context.read<SettingsService>().currentLanguage == code;
-          return PopupMenuItem<String>(
-            value: code,
-            child: Row(
-              children: [
-                Text(flag, style: const TextStyle(fontSize: 18)),
-                const SizedBox(width: 10),
-                Text(languageName),
-                const Spacer(),
-                if (isSelected)
-                  const Icon(Icons.check, color: Colors.green, size: 20),
-              ],
-            ),
-          );
-        }).toList();
-      },
-      onSelected: (String languageCode) {
-        context.read<SettingsService>().setLanguage(languageCode);
-      },
-    );
-  }
-
-  String _getLanguageFlag(String code) {
-    switch (code) {
-      case 'fr':
-        return '🇫🇷';
-      case 'en':
-        return '🇬🇧';
-      case 'ln':
-        return '🇨🇩';
-      case 'sw':
-        return '🇰🇪';
-      default:
-        return '🌍';
-    }
   }
 
   @override
@@ -239,33 +193,14 @@ class _HomeScreenState extends State<HomeScreen> {
         isTabActive: _activeIndex == 0,
       ),
       const DiscoverFeedScreen(),
+      YaCopeFeedScreen(key: _yaCopeFeedKey),
       const ShopsDirectoryScreen(),
-      const ProfileScreen(showAppBar: false),
     ];
 
     return ResponsiveLayout(
       mobile: Scaffold(
         extendBody: true,
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(kToolbarHeight),
-          child: ClipRRect(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: AppBar(
-                backgroundColor: Colors.white.withValues(alpha: 0.8),
-                elevation: 0,
-                automaticallyImplyLeading: false,
-                leading: Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Image.asset('assets/logo.png', fit: BoxFit.contain),
-                ),
-                title: null,
-                actions: _getActions(),
-                centerTitle: false,
-              ),
-            ),
-          ),
-        ),
+        appBar: _buildAppBar(context, isDesktop: false),
         floatingActionButton: _buildDynamicFAB(context),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
         body: Column(
@@ -279,75 +214,20 @@ class _HomeScreenState extends State<HomeScreen> {
           onTap: _onItemTapped,
         ),
       ),
-      desktop: Scaffold(
-        body: Row(
+      desktop: DesktopShell(
+        selectedIndex: _activeIndex,
+        onDestinationSelected: _onItemTapped,
+        appBar: _buildAppBar(
+          context,
+          isDesktop: true,
+          showCreateInToolbar: true,
+        ),
+        floatingActionButton: _buildDynamicFAB(context, includeDesktop: true),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+        child: Column(
           children: [
-            NavigationRail(
-              extended: true,
-              selectedIndex: _activeIndex,
-              onDestinationSelected: _onItemTapped,
-              leading: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 32),
-                child: Image.asset('assets/logo.png', height: 60),
-              ),
-              destinations: [
-                NavigationRailDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home),
-                  label: Text(tr(context, 'home')),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.explore_outlined),
-                  selectedIcon: Icon(Icons.explore),
-                  label: Text(tr(context, 'discover')),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.storefront_outlined),
-                  selectedIcon: Icon(Icons.storefront),
-                  label: Text(tr(context, 'boutiques')),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.person_outline),
-                  selectedIcon: Icon(Icons.person),
-                  label: Text(tr(context, 'profile')),
-                ),
-              ],
-            ),
-            const VerticalDivider(thickness: 1, width: 1),
-            Expanded(
-              child: Scaffold(
-                appBar: PreferredSize(
-                  preferredSize: const Size.fromHeight(kToolbarHeight),
-                  child: ClipRRect(
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                      child: AppBar(
-                        elevation: 0,
-                        automaticallyImplyLeading: false,
-                        backgroundColor: Colors.white.withValues(alpha: 0.8),
-                        leading: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Image.asset(
-                            'assets/logo.png',
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                        actions: _getActions(),
-                      ),
-                    ),
-                  ),
-                ),
-                floatingActionButton: _buildDynamicFAB(context),
-                floatingActionButtonLocation:
-                    FloatingActionButtonLocation.endFloat,
-                body: Column(
-                  children: [
-                    const SyncStatusBanner(),
-                    Expanded(child: _buildBody(pages)),
-                  ],
-                ),
-              ),
-            ),
+            const SyncStatusBanner(),
+            Expanded(child: _buildBody(pages)),
           ],
         ),
       ),
@@ -371,9 +251,34 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget? _buildDynamicFAB(BuildContext context) {
+  void _openAddYaCope() {
+    if (_openingYaCopeAdd) return;
+    _openingYaCopeAdd = true;
+    Navigator.push(
+      context,
+      SlideUpRoute(page: const AddYaCopeScreen()),
+    ).then((created) {
+      if (created == true) {
+        _yaCopeFeedKey.currentState?.refreshListings();
+      }
+    }).whenComplete(() {
+      _openingYaCopeAdd = false;
+    });
+  }
+
+  Widget? _buildDynamicFAB(BuildContext context, {bool includeDesktop = false}) {
+    if (!includeDesktop && ResponsiveLayout.isDesktop(context)) return null;
     // Hide FAB when story overlay is active
     if (_overlayStories != null) return null;
+
+    if (_activeIndex == 2) {
+      return FloatingActionButton.extended(
+        onPressed: _openAddYaCope,
+        backgroundColor: const Color(0xFF019C94),
+        icon: const Icon(Icons.add_a_photo_outlined),
+        label: Text(tr(context, 'ya_cope_add')),
+      );
+    }
 
     // Show FAB only on Accueil (0) tab
     if (_activeIndex != 0) return null;
@@ -421,9 +326,11 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(28),
+          ),
         ),
         child: SafeArea(
           child: SingleChildScrollView(
@@ -448,10 +355,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Row(
                     children: [
                       Text(
-                        'Créer',
+                        tr(context, 'create_title'),
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: UzaColors.textPrimary,
+                          color: UzaColors.onSurface(context),
                         ),
                       ),
                       const Spacer(),
@@ -476,7 +383,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Text(
-                    'Que souhaitez-vous publier ?',
+                    tr(context, 'what_to_create'),
                     style: TextStyle(color: Colors.grey[500], fontSize: 14),
                   ),
                 ),
@@ -486,8 +393,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icons.shopping_bag_outlined,
                   iconColor: UzaColors.primary,
                   iconBgColor: UzaColors.primary.withValues(alpha: 0.1),
-                  title: 'Créer un produit',
-                  subtitle: 'Ajoutez un nouveau produit à votre boutique',
+                  title: tr(context, 'create_product_action'),
+                  subtitle: tr(context, 'no_products_manage_hint'),
                   onTap: () {
                     Navigator.pop(context);
                     Navigator.push(
@@ -500,8 +407,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icons.camera_alt_outlined,
                   iconColor: UzaColors.secondary,
                   iconBgColor: UzaColors.secondary.withValues(alpha: 0.1),
-                  title: 'Créer une story',
-                  subtitle: 'Partagez un moment avec votre communauté',
+                  title: tr(context, 'create_story_action'),
+                  subtitle: tr(context, 'create_shop_for_stories'),
                   onTap: () {
                     Navigator.pop(context);
                     Navigator.push(
@@ -586,10 +493,10 @@ class _CreateOptionTile extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
-                          color: UzaColors.textPrimary,
+                          color: UzaColors.onSurface(context),
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -685,6 +592,14 @@ class _HomeContentState extends State<_HomeContent> {
     _isLoadingMore = false;
   }
 
+  int _gridCrossAxisCount(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (ResponsiveLayout.isDesktop(context)) {
+      return width >= 1400 ? 5 : 4;
+    }
+    return 2;
+  }
+
   @override
   void didUpdateWidget(_HomeContent oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -704,6 +619,9 @@ class _HomeContentState extends State<_HomeContent> {
 
   void _onAllProductsUpdated(List<Product> all) {
     if (!mounted) return;
+
+    final productRepo = context.read<ProductRepository>();
+    all = productRepo.deduplicateForDisplay(all);
 
     _allProducts = all;
     _productPool = all.take(_poolSize).toList();
@@ -738,10 +656,13 @@ class _HomeContentState extends State<_HomeContent> {
 
     setState(() {
       if (newProducts.isNotEmpty) {
-        _displayedProducts = [...newProducts, ...merged];
+        _displayedProducts = productRepo.deduplicateForDisplay([
+          ...newProducts,
+          ...merged,
+        ]);
         _hasReachedEnd = _displayedProducts.length >= _allProducts.length;
       } else {
-        _displayedProducts = merged;
+        _displayedProducts = productRepo.deduplicateForDisplay(merged);
       }
     });
   }
@@ -786,7 +707,9 @@ class _HomeContentState extends State<_HomeContent> {
               children: [
                 Icon(Icons.error, color: Colors.white),
                 SizedBox(width: 8),
-                Text('Sync failed: $e'),
+                Expanded(
+                  child: Text(trf(context, 'sync_failed', {'error': '$e'})),
+                ),
               ],
             ),
             backgroundColor: Colors.red,
@@ -827,16 +750,16 @@ class _HomeContentState extends State<_HomeContent> {
       );
     }
     final screenWidth = MediaQuery.of(context).size.width;
-    final isDesktop = screenWidth > 900;
-    final cardWidth = screenWidth * 0.65;
-    final responsiveCardWidth = cardWidth.clamp(180.0, 250.0);
+    final isDesktop = ResponsiveLayout.isDesktop(context);
+    final gridColumns = _gridCrossAxisCount(context);
+    final aspectRatio = screenWidth < 360 ? 0.74 : (isDesktop ? 0.72 : 0.76);
     final storyHeight = MediaQuery.of(context).size.height * 0.12;
     final responsiveStoryHeight = storyHeight.clamp(95.0, 115.0);
     final hPad = screenWidth < 360 ? 12.0 : 16.0;
     final hPadWide = screenWidth < 360 ? 12.0 : 20.0;
 
     return Container(
-      color: Colors.white,
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(
@@ -847,80 +770,7 @@ class _HomeContentState extends State<_HomeContent> {
             child: CustomScrollView(
               controller: _scrollController,
               slivers: [
-                // 1. Unified Search Bar (Glassmorphic) - Floating
-                SliverAppBar(
-                  floating: true,
-                  pinned: false,
-                  automaticallyImplyLeading: false,
-                  backgroundColor: Colors.transparent,
-                  elevation: 0,
-                  toolbarHeight: 70,
-                  flexibleSpace: ClipRRect(
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: hPad,
-                          vertical: 12,
-                        ),
-                        child: TapAnimator(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              FadeThroughRoute(
-                                page: const SearchScreen(showAppBar: true),
-                              ),
-                            );
-                          },
-                          child: Container(
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.85),
-                              borderRadius: BorderRadius.circular(24),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.04),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.5),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                SizedBox(width: 16),
-                                Icon(
-                                  Icons.search_rounded,
-                                  color: Colors.grey,
-                                  size: 20,
-                                ),
-                                SizedBox(width: 12),
-                                Text(
-                                  tr(context, 'search_hint'),
-                                  style: TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                                Spacer(),
-                                Icon(
-                                  Icons.tune_rounded,
-                                  color: UzaColors.primary,
-                                  size: 20,
-                                ),
-                                SizedBox(width: 16),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // 2. Stories
+                // 1. Stories
                 SliverToBoxAdapter(
                   child: SizedBox(
                     height: responsiveStoryHeight,
@@ -952,14 +802,6 @@ class _HomeContentState extends State<_HomeContent> {
                       },
                     ),
                   ),
-                ),
-
-                // 3. Bannières boostées + découverte
-                const SliverToBoxAdapter(
-                  child: BoostBannerCarousel(),
-                ),
-                const SliverToBoxAdapter(
-                  child: HomeDiscoverySections(),
                 ),
 
                 // 4. Nouveaux Arrivages
@@ -1012,7 +854,13 @@ class _HomeContentState extends State<_HomeContent> {
                               onTap: () {
                                 final sRepo = context.read<StoryRepository>();
                                 sRepo.logStoryView(story.id);
-                                widget.onOpenStory([story], 0);
+                                final index = stories.indexWhere(
+                                  (s) => s.id == story.id,
+                                );
+                                widget.onOpenStory(
+                                  stories,
+                                  index >= 0 ? index : 0,
+                                );
                               },
                               child: Container(
                                 width: 120,
@@ -1116,6 +964,11 @@ class _HomeContentState extends State<_HomeContent> {
                   ),
                 ),
 
+                // 4b. Mises à jour produits récentes
+                const SliverToBoxAdapter(
+                  child: ProductUpdatesFeed(),
+                ),
+
                 // 5. Populaires (Grid)
                 SliverToBoxAdapter(
                   child: _buildSectionHeader(tr(context, 'popular')),
@@ -1132,15 +985,10 @@ class _HomeContentState extends State<_HomeContent> {
                         sliver: SliverGrid(
                           gridDelegate:
                               SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount:
-                                    MediaQuery.of(context).size.width > 700
-                                    ? 4
-                                    : 2,
+                                crossAxisCount: gridColumns,
                                 mainAxisSpacing: 12,
                                 crossAxisSpacing: 12,
-                                childAspectRatio: screenWidth < 360
-                                    ? 0.78
-                                    : (screenWidth > 700 ? 0.75 : 0.86),
+                                childAspectRatio: aspectRatio,
                               ),
                           delegate: SliverChildBuilderDelegate(
                             (context, index) => Skeletons.productCard(context),
@@ -1167,7 +1015,9 @@ class _HomeContentState extends State<_HomeContent> {
                                   Text(
                                     tr(context, 'loading'),
                                     style: TextStyle(
-                                      color: Colors.grey[500],
+                                      color: UzaColors.onSurfaceSecondary(
+                                        context,
+                                      ),
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
@@ -1187,7 +1037,9 @@ class _HomeContentState extends State<_HomeContent> {
                                 Text(
                                   tr(context, 'no_popular'),
                                   style: TextStyle(
-                                    color: Colors.grey[500],
+                                    color: UzaColors.onSurfaceSecondary(
+                                      context,
+                                    ),
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
@@ -1207,13 +1059,10 @@ class _HomeContentState extends State<_HomeContent> {
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       sliver: SliverGrid(
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount:
-                              MediaQuery.of(context).size.width > 700 ? 4 : 2,
+                          crossAxisCount: gridColumns,
                           mainAxisSpacing: 12,
                           crossAxisSpacing: 12,
-                          childAspectRatio: screenWidth < 360
-                              ? 0.78
-                              : (screenWidth > 700 ? 0.75 : 0.86),
+                          childAspectRatio: aspectRatio,
                         ),
                         delegate: SliverChildBuilderDelegate(
                           (context, index) => ProductCard(
@@ -1234,10 +1083,8 @@ class _HomeContentState extends State<_HomeContent> {
                   },
                 ),
 
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: MediaQuery.of(context).padding.bottom + 60,
-                  ),
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: 100),
                 ),
               ],
             ),
@@ -1265,7 +1112,11 @@ class _HomeContentState extends State<_HomeContent> {
         children: [
           Text(
             title,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: UzaColors.onSurface(context),
+            ),
           ),
           if (onAction != null)
             GestureDetector(

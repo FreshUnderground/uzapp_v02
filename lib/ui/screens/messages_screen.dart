@@ -5,6 +5,7 @@ import '../../core/res/uza_colors.dart';
 import '../../core/services/auth_service.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/message_repository.dart';
+import '../components/uza_secondary_app_bar.dart';
 import '../components/empty_state.dart';
 import '../components/async_content.dart';
 import '../components/custom_refresh_indicator.dart';
@@ -20,8 +21,9 @@ class MessagesScreen extends StatelessWidget {
     final userPhone = context.watch<AuthService>().user?.phoneNumber ?? '';
 
     if (userPhone.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: Text(tr(context, 'messages'))),
+      return UzaBackScope(
+        child: Scaffold(
+        appBar: UzaSecondaryAppBar(title: tr(context, 'messages')),
         body: EmptyState(
           icon: Icons.chat_bubble_outline,
           title: tr(context, 'messages_empty'),
@@ -32,13 +34,15 @@ class MessagesScreen extends StatelessWidget {
             SlideUpRoute(page: const LoginScreen()),
           ),
         ),
-      );
+      ),
+    );
     }
 
     final msgRepo = context.watch<MessageRepository>();
 
-    return Scaffold(
-      appBar: AppBar(title: Text(tr(context, 'messages'))),
+    return UzaBackScope(
+      child: Scaffold(
+      appBar: UzaSecondaryAppBar(title: tr(context, 'messages')),
       body: UzaRefreshIndicator(
         onRefresh: () async {
           await context.read<SyncService>().syncNow();
@@ -116,6 +120,7 @@ class MessagesScreen extends StatelessWidget {
             );
           },
         ),
+      ),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import '../../core/l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
@@ -16,6 +17,9 @@ import '../../core/services/whatsapp_status_service.dart';
 import '../../core/utils/status_image_composer.dart';
 import '../../core/utils/status_template_prefs.dart';
 import '../../data/local/uza_database.dart';
+import '../../data/repositories/shop_repository.dart';
+import '../components/marketing_share_sheet.dart';
+import '../components/uza_secondary_app_bar.dart';
 import '../utils/page_transitions.dart';
 import 'manage_products_screen.dart';
 
@@ -46,6 +50,7 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
   DateTime? _batchNextAt;
   String? _error;
   StatusVisualTemplate _template = StatusVisualTemplate.classic;
+  bool _showTemplateOptions = false;
   bool _customSchedule = false;
   TimeOfDay _scheduleTime = const TimeOfDay(hour: 18, minute: 0);
   final GlobalKey _shareButtonKey = GlobalKey();
@@ -290,6 +295,18 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
 
   Future<void> _shareToFacebook() async {
     if (_preparedImages.isEmpty || _isSharing) return;
+
+    await MarketingShareSheet.showStatusCollection(
+      context,
+      shop: widget.shop,
+      imageCount: _preparedImages.length,
+      shareLabel: 'Partager sur Facebook',
+      onShare: _executeShareToFacebook,
+    );
+  }
+
+  Future<void> _executeShareToFacebook() async {
+    if (_preparedImages.isEmpty || _isSharing) return;
     setState(() => _isSharing = true);
     try {
       final statusService = context.read<WhatsAppStatusService>();
@@ -306,17 +323,21 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
         sharePositionOrigin: _shareOriginRect(),
         rawImagesForWebFallback: _preparedImages,
       );
+      if (!mounted) return;
+      unawaited(
+        context.read<ShopRepository>().recordShopActivity(widget.shop.id),
+      );
       if (mounted && kIsWeb) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Images partagées ou téléchargées selon votre navigateur.'),
+          SnackBar(
+            content: Text(tr(context, 'share_images_hint')),
           ),
         );
       }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Partage Facebook impossible.')),
+          SnackBar(content: Text(tr(context, 'share_facebook_failed'))),
         );
       }
     } finally {
@@ -325,6 +346,18 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
   }
 
   Future<void> _shareToTikTok() async {
+    if (_preparedImages.isEmpty || _isTikTokGenerating) return;
+
+    await MarketingShareSheet.showStatusCollection(
+      context,
+      shop: widget.shop,
+      imageCount: _preparedImages.length,
+      shareLabel: 'Créer et partager sur TikTok',
+      onShare: _executeShareToTikTok,
+    );
+  }
+
+  Future<void> _executeShareToTikTok() async {
     if (_preparedImages.isEmpty || _isTikTokGenerating) return;
 
     setState(() => _isTikTokGenerating = true);
@@ -434,8 +467,8 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Création vidéo TikTok impossible.'),
+          SnackBar(
+            content: Text(tr(context, 'tiktok_video_failed')),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -446,6 +479,18 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
   }
 
   Future<void> _shareCollection() async {
+    if (_preparedImages.isEmpty || _isSharing) return;
+
+    await MarketingShareSheet.showStatusCollection(
+      context,
+      shop: widget.shop,
+      imageCount: _preparedImages.length,
+      shareLabel: 'Publier / partager',
+      onShare: _executeShareCollection,
+    );
+  }
+
+  Future<void> _executeShareCollection() async {
     if (_preparedImages.isEmpty || _isSharing) return;
 
     setState(() => _isSharing = true);
@@ -468,6 +513,9 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
       );
 
       if (!mounted) return;
+      unawaited(
+        context.read<ShopRepository>().recordShopActivity(widget.shop.id),
+      );
       if (kIsWeb) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -480,7 +528,7 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Partage impossible. Réessayez.')),
+        SnackBar(content: Text(tr(context, 'share_failed_retry'))),
       );
     } finally {
       if (mounted) setState(() => _isSharing = false);
@@ -489,9 +537,10 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Statut WhatsApp'),
+    return UzaBackScope(
+      child: Scaffold(
+      appBar: UzaSecondaryAppBar(
+        title: tr(context, 'whatsapp_status'),
         backgroundColor: UzaColors.primary,
         foregroundColor: Colors.white,
         actions: [
@@ -515,6 +564,7 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
       ),
       body: _buildBody(),
       bottomNavigationBar: _buildBottomBar(),
+      ),
     );
   }
 
@@ -579,7 +629,7 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
               FilledButton.icon(
                 onPressed: _loadAndPrepare,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Réessayer'),
+                label: Text(tr(context, 'retry')),
               ),
             if (_products.isEmpty) ...[
               OutlinedButton.icon(
@@ -590,7 +640,7 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
                   ),
                 ),
                 icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: const Text('Gérer mes produits'),
+                label: Text(tr(context, 'manage_my_products')),
               ),
             ],
           ],
@@ -644,11 +694,38 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${_preparedImages.length} image(s) prête(s)',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    flex: _showTemplateOptions ? 2 : 1,
+                    child: Text(
+                      '${_preparedImages.length} image(s) prête(s)',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (_showTemplateOptions)
+                    Expanded(
+                      flex: 3,
+                      child: _buildTemplateSelector(compact: true),
+                    )
+                  else
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Style visuel',
+                      icon: Icon(
+                        Icons.palette_outlined,
+                        color: Colors.grey.shade600,
+                        size: 22,
+                      ),
+                      onPressed: () =>
+                          setState(() => _showTemplateOptions = true),
+                    ),
+                ],
               ),
               const SizedBox(height: 4),
               Text(
@@ -666,8 +743,6 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
                   style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                 ),
               ],
-              const SizedBox(height: 12),
-              _buildTemplateSelector(),
               const SizedBox(height: 8),
               _buildScheduleSelector(),
             ],
@@ -698,28 +773,50 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
     );
   }
 
-  Widget _buildTemplateSelector() {
+  Widget _buildTemplateSelector({bool compact = false}) {
     const labels = {
       StatusVisualTemplate.classic: 'Classique',
       StatusVisualTemplate.minimal: 'Minimal',
       StatusVisualTemplate.promo: 'Promo',
       StatusVisualTemplate.flash: 'Flash',
     };
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: StatusVisualTemplate.values.map((t) {
-        final selected = _template == t;
-        return ChoiceChip(
-          label: Text(labels[t]!),
+    final chips = StatusVisualTemplate.values.map((t) {
+      final selected = _template == t;
+      return Padding(
+        padding: EdgeInsets.only(right: compact ? 6 : 8),
+        child: ChoiceChip(
+          label: Text(
+            labels[t]!,
+            style: TextStyle(fontSize: compact ? 11 : 13),
+          ),
+          visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+          padding: compact
+              ? const EdgeInsets.symmetric(horizontal: 4)
+              : null,
+          materialTapTargetSize: compact
+              ? MaterialTapTargetSize.shrinkWrap
+              : MaterialTapTargetSize.padded,
           selected: selected,
           onSelected: (v) async {
             if (!v) return;
             setState(() => _template = t);
             await StatusTemplatePrefs.saveTemplate(t);
           },
-        );
-      }).toList(),
+        ),
+      );
+    }).toList();
+
+    if (compact) {
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: chips),
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: chips,
     );
   }
 
@@ -760,7 +857,7 @@ class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> {
                 minute: picked.minute,
               );
             },
-            child: const Text('Changer'),
+            child: Text(tr(context, 'change')),
           ),
       ],
     );

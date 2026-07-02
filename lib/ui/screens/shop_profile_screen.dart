@@ -16,19 +16,23 @@ import '../../core/services/auth_service.dart';
 import '../../core/services/api_service.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../core/utils/image_utils.dart';
+import '../../core/utils/phone_utils.dart';
 import '../../core/utils/shop_qr_utils.dart';
 import '../../core/utils/picker_utils.dart';
 import '../../core/utils/image_prepare_utils.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/utils/profile_shop_sync.dart';
+import '../components/contact_seller_sheet.dart';
 import '../components/responsive_layout.dart';
 import '../components/animated_bottom_nav.dart';
+import '../components/uza_back_button.dart';
 import '../components/shop_share_sheet.dart';
 import '../components/arrivage_thumbnail.dart';
 import '../components/async_content.dart';
 import '../components/empty_state.dart';
 import '../../core/l10n/tr.dart';
 import '../components/shop_video_player.dart';
+import '../components/modern_card.dart';
 import 'story_view_screen.dart';
 import 'edit_shop_screen.dart';
 
@@ -80,6 +84,10 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _nameController = TextEditingController(text: widget.shop.name);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<ShopRepository>().logShopInteraction(widget.shop.id, 'view');
+    });
   }
 
   @override
@@ -114,12 +122,12 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
           children: [
             ListTile(
               leading: const Icon(Icons.photo_library),
-              title: const Text('Galerie'),
+              title: Text(tr(context, 'gallery')),
               onTap: () => Navigator.pop(context, PickerImageSource.gallery),
             ),
             ListTile(
               leading: const Icon(Icons.camera_alt),
-              title: const Text('Appareil photo'),
+              title: Text(tr(context, 'camera')),
               onTap: () => Navigator.pop(context, PickerImageSource.camera),
             ),
           ],
@@ -137,7 +145,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
     final name = _nameController.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Le nom de la boutique est requis')),
+        SnackBar(content: Text(tr(context, 'shop_name_required'))),
       );
       return;
     }
@@ -159,7 +167,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
         setState(() => _isUploadingLogo = false);
         if (logoUrl == null && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Échec de l\'upload du logo')),
+            SnackBar(content: Text(tr(context, 'logo_upload_failed'))),
           );
         }
       }
@@ -182,12 +190,14 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
         _logoBytes = null;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profil mis à jour')),
+        SnackBar(content: Text(tr(context, 'profile_updated'))),
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
+          SnackBar(
+            content: Text(trf(context, 'error_with_message', {'message': '$e'})),
+          ),
         );
       }
     } finally {
@@ -205,8 +215,14 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
   }
 
   bool _isShopOwner(BuildContext context, Shop shop) {
-    final userPhone = context.read<AuthService>().user?.phoneNumber ?? '';
-    return shop.phone == userPhone || shop.ownerId == userPhone;
+    final user = context.read<AuthService>().user;
+    if (user == null) return false;
+    final keys = PhoneUtils.lookupKeys(user.uid);
+    for (final field in [shop.ownerId, shop.phone, shop.whatsapp]) {
+      if (field == null || field.trim().isEmpty) continue;
+      if (PhoneUtils.lookupKeys(field).any(keys.contains)) return true;
+    }
+    return false;
   }
 
   List<Widget> _buildAppBarActions(
@@ -221,7 +237,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
         actions.add(
           TextButton(
             onPressed: _isSaving ? null : () => _cancelEditing(shop),
-            child: const Text('Annuler'),
+            child: Text(tr(context, 'cancel')),
           ),
         );
         actions.add(
@@ -299,36 +315,69 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final productRepo = context.watch<ProductRepository>();
     final contactService = context.read<ContactService>();
 
     return StreamBuilder<Shop?>(
-      stream: context.read<ShopRepository>().watchShopById(widget.shop.id),
+      stream: context.read<ShopRepository>().watchShop(widget.shop),
       initialData: widget.shop,
       builder: (context, snapshot) {
         final shop = snapshot.data ?? widget.shop;
 
-        return Title(
-          title: '${shop.name.toUpperCase()} | UZAAPP',
-          color: Colors.white,
-          child: ResponsiveLayout(
-            mobile: Scaffold(
-              appBar: AppBar(
-                title: Text(shop.name.toUpperCase()),
-                actions: _buildAppBarActions(shop, contactService),
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            AppNavUtils.popRoute(context, fallback: '/shops');
+          },
+          child: Title(
+            title: '${shop.name} | UZAAPP',
+            color: Colors.white,
+            child: ResponsiveLayout(
+              mobile: Scaffold(
+                backgroundColor: theme.colorScheme.surface,
+                appBar: AppBar(
+                  elevation: 0,
+                  scrolledUnderElevation: 1,
+                  centerTitle: true,
+                  leading: const UzaBackButton(fallbackLocation: '/shops'),
+                  automaticallyImplyLeading: false,
+                  title: Text(
+                    shop.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  actions: _buildAppBarActions(shop, contactService),
+                ),
+                body: _buildBody(shop, productRepo, contactService),
+                bottomNavigationBar: AnimatedBottomNav(
+                  currentIndex: AppNavUtils.overlayTabIndex,
+                  onTap: (index) => AppNavUtils.navigateToTab(context, index),
+                ),
               ),
-              body: _buildBody(shop, productRepo, contactService),
-              bottomNavigationBar: AnimatedBottomNav(
-                currentIndex: AppNavUtils.overlayTabIndex,
-                onTap: (index) => AppNavUtils.navigateToTab(context, index),
+              desktop: Scaffold(
+                backgroundColor: theme.colorScheme.surface,
+                appBar: AppBar(
+                  elevation: 0,
+                  scrolledUnderElevation: 1,
+                  centerTitle: false,
+                  leading: const UzaBackButton(fallbackLocation: '/shops'),
+                  automaticallyImplyLeading: false,
+                  title: Text(
+                    shop.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 18,
+                    ),
+                  ),
+                  actions: _buildAppBarActions(shop, contactService),
+                ),
+                body: _buildBody(shop, productRepo, contactService),
               ),
-            ),
-            desktop: Scaffold(
-              appBar: AppBar(
-                title: Text(shop.name.toUpperCase()),
-                actions: _buildAppBarActions(shop, contactService),
-              ),
-              body: _buildBody(shop, productRepo, contactService),
             ),
           ),
         );
@@ -419,26 +468,50 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [UzaColors.primary, Color(0xFFD84315)],
+          colors: [
+            Color(0xFFFE3E00),
+            Color(0xFFFF6B35),
+            Color(0xFF019C94),
+          ],
+          stops: [0.0, 0.55, 1.0],
         ),
       ),
     );
   }
 
   Widget _buildLogoWithBorder(Shop shop, {required double size}) {
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 4),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 4),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: _buildShopLogo(shop, size: size),
+          child: _buildShopLogo(shop, size: size),
+        ),
+        if (_isShopVerified(shop))
+          Positioned(
+            bottom: 2,
+            right: 2,
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: UzaColors.secondary,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+              child: const Icon(Icons.verified, color: Colors.white, size: 14),
+            ),
+          ),
+      ],
     );
   }
 
@@ -448,99 +521,239 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
     required bool isWide,
     required Color mutedText,
   }) {
+    final theme = Theme.of(context);
     final nameStyle = TextStyle(
-      fontSize: isWide ? 32 : 24,
-      fontWeight: FontWeight.bold,
+      fontSize: isWide ? 28 : 22,
+      fontWeight: FontWeight.w700,
+      letterSpacing: -0.3,
+      color: theme.colorScheme.onSurface,
     );
 
+    final description = shop.description?.trim();
+    final hasDescription = description != null && description.isNotEmpty;
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Flexible(
-              child: _buildShopName(
-                shop,
-                textAlign: TextAlign.center,
-                style: nameStyle,
-              ),
-            ),
-            if (_isShopVerified(shop)) ...[
-              const SizedBox(width: 6),
-              Icon(Icons.verified, color: Colors.blue, size: isWide ? 18 : 16),
-            ],
-          ],
+        Center(
+          child: _buildShopName(
+            shop,
+            textAlign: TextAlign.center,
+            style: nameStyle,
+          ),
         ),
-        SizedBox(height: isWide ? 4 : 2),
-        Builder(
-          builder: (_) {
-            final locationText = _shopLocationText(shop);
-            final hasLocation =
-                locationText != null && locationText.isNotEmpty;
-            final socialLinks = _buildInlineSocialLinks(shop, contactService);
-            return Center(
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 4,
+        if (_isShopVerified(shop) && !_isEditing) ...[
+          const SizedBox(height: 6),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: UzaColors.secondary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.location_on,
-                        size: isWide ? 16 : 14,
-                        color: hasLocation ? Colors.grey : Colors.orange,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        hasLocation
-                            ? locationText
-                            : 'Localisation non renseignée',
-                        style: TextStyle(
-                          fontSize: isWide ? 14 : 12,
-                          color:
-                              hasLocation ? Colors.grey : Colors.orange[800],
-                        ),
-                      ),
-                    ],
+                  Icon(Icons.verified, color: UzaColors.secondary, size: 14),
+                  const SizedBox(width: 4),
+                  Text(
+                    tr(context, 'verified_shop'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: UzaColors.secondary,
+                    ),
                   ),
-                  socialLinks,
                 ],
               ),
-            );
-          },
+            ),
+          ),
+        ],
+        const SizedBox(height: 10),
+        if (hasDescription || _isEditing) ...[
+          Text(
+            hasDescription ? description! : 'Aucune description',
+            textAlign: TextAlign.center,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: hasDescription
+                  ? mutedText
+                  : mutedText.withValues(alpha: 0.7),
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        _buildAddressDirectionRow(shop, mutedText),
+        const SizedBox(height: 14),
+        _buildSocialAndFollowRow(shop, contactService),
+      ],
+    );
+  }
+
+  Widget _buildAddressDirectionRow(Shop shop, Color mutedText) {
+    final locationText = _shopLocationText(shop);
+    final hasLocation = locationText != null && locationText.isNotEmpty;
+    final hasCoords = shop.latitude != null && shop.longitude != null;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.location_on_outlined,
+          size: 18,
+          color: hasLocation ? mutedText : UzaColors.warning,
         ),
-        const SizedBox(height: 8),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(child: _buildGoToShopButton(context, shop)),
-            const SizedBox(width: 8),
-            _buildFollowButton(context, shop, compact: true),
-          ],
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            hasLocation ? locationText! : 'Localisation non renseignée',
+            style: TextStyle(
+              fontSize: 13,
+              color: hasLocation ? mutedText : UzaColors.warning,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-        SizedBox(height: isWide ? 12 : 8),
-        Text(
-          shop.description ?? 'Aucune description',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: mutedText, fontSize: 14),
+        const SizedBox(width: 8),
+        SizedBox(
+          height: _actionButtonHeight,
+          child: OutlinedButton.icon(
+            onPressed: hasCoords || hasLocation
+                ? () => LocationService.openShopLocation(
+                      latitude: shop.latitude,
+                      longitude: shop.longitude,
+                      destinationName: shop.name,
+                      addressQuery: locationText,
+                    )
+                : null,
+            icon: const Icon(Icons.map_outlined, size: 16),
+            label: Text(
+              tr(context, 'address'),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              visualDensity: VisualDensity.compact,
+              foregroundColor: UzaColors.secondary,
+              side: BorderSide(
+                color: (hasCoords || hasLocation)
+                    ? UzaColors.secondary.withValues(alpha: 0.5)
+                    : Colors.grey.shade300,
+              ),
+            ),
+          ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildSocialActionsRow(Shop shop, ContactService contactService) {
+    final contactPhone = PhoneUtils.shopWhatsAppNumber(
+      whatsapp: shop.whatsapp,
+      phone: shop.phone,
+    );
+    final hasWhatsApp = contactPhone != null;
+    final hasFacebook = shop.facebookUrl?.trim().isNotEmpty == true;
+    final hasTiktok = shop.tiktokUrl?.trim().isNotEmpty == true;
+
+    if (!hasWhatsApp && !hasFacebook && !hasTiktok) {
+      return const SizedBox.shrink();
+    }
+
+    final children = <Widget>[];
+
+    void addSocial({
+      required bool visible,
+      required String label,
+      required Widget icon,
+      required Color color,
+      required VoidCallback onTap,
+      bool filled = false,
+    }) {
+      if (!visible) return;
+      if (children.isNotEmpty) children.add(const SizedBox(width: 8));
+      children.add(
+        Expanded(
+          child: _QuickActionButton(
+            label: label,
+            icon: icon,
+            color: color,
+            filled: filled,
+            onTap: onTap,
+          ),
+        ),
+      );
+    }
+
+    addSocial(
+      visible: hasWhatsApp,
+      label: 'WhatsApp',
+      icon: const FaIcon(FontAwesomeIcons.whatsapp),
+      color: const Color(0xFF25D366),
+      filled: true,
+      onTap: () => ContactSellerSheet.show(context, shop: shop),
+    );
+    addSocial(
+      visible: hasFacebook,
+      label: 'Facebook',
+      icon: const FaIcon(FontAwesomeIcons.facebook),
+      color: const Color(0xFF1877F2),
+      onTap: () => contactService.launchSocial(
+        urlString: shop.facebookUrl!,
+        entityType: 'shop',
+        entityId: shop.id,
+      ),
+    );
+    addSocial(
+      visible: hasTiktok,
+      label: 'TikTok',
+      icon: const FaIcon(FontAwesomeIcons.tiktok),
+      color: UzaColors.onSurface(context),
+      onTap: () => contactService.launchSocial(
+        urlString: shop.tiktokUrl!,
+        entityType: 'shop',
+        entityId: shop.id,
+      ),
+    );
+
+    return Row(children: children);
+  }
+
+  Widget _buildSocialAndFollowRow(Shop shop, ContactService contactService) {
+    final hasSocial = shop.whatsapp?.trim().isNotEmpty == true ||
+        shop.phone?.trim().isNotEmpty == true ||
+        shop.facebookUrl?.trim().isNotEmpty == true ||
+        shop.tiktokUrl?.trim().isNotEmpty == true;
+    final follow = _buildFollowButton(context, shop, compact: true);
+
+    if (!hasSocial) {
+      return Align(alignment: Alignment.center, child: follow);
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(child: _buildSocialActionsRow(shop, contactService)),
+        const SizedBox(width: 8),
+        follow,
       ],
     );
   }
 
   Widget _buildProfileHeader(
     Shop shop,
-    ContactService contactService, {
+    ContactService contactService,
+    ProductRepository productRepo, {
     required bool isWide,
     required Color mutedText,
   }) {
     final coverSource = _getCoverImageSource(shop);
-    final coverHeight = isWide ? 180.0 : 140.0;
-    final logoSize = isWide ? 110.0 : 96.0;
+    final coverHeight = isWide ? 200.0 : 160.0;
+    final logoSize = isWide ? 108.0 : 92.0;
     final logoOverlap = logoSize / 2;
 
     return Column(
@@ -551,7 +764,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
           children: [
             ClipRRect(
               borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(16),
+                bottom: Radius.circular(UzaColors.radiusLg),
               ),
               child: SizedBox(
                 height: coverHeight,
@@ -566,8 +779,8 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            Colors.black.withValues(alpha: 0.1),
-                            Colors.black.withValues(alpha: 0.4),
+                            Colors.black.withValues(alpha: 0.05),
+                            Colors.black.withValues(alpha: 0.45),
                           ],
                         ),
                       ),
@@ -582,7 +795,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
             ),
           ],
         ),
-        SizedBox(height: logoOverlap + (isWide ? 10 : 8)),
+        SizedBox(height: logoOverlap + (isWide ? 16 : 12)),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: _buildShopInfoSection(
@@ -592,7 +805,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
             mutedText: mutedText,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
       ],
     );
   }
@@ -623,7 +836,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
       );
     }
 
-    return Text(shop.name.toUpperCase(), style: style);
+    return Text(shop.name, style: style);
   }
 
   Widget _buildBody(
@@ -634,6 +847,10 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final mutedText = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final tabBarBg = isDark
+        ? theme.colorScheme.surfaceContainerHighest
+        : const Color(0xFFF0F2F5);
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth > 700;
@@ -642,116 +859,91 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
         return Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: contentWidth),
-            child: CustomScrollView(
-              slivers: [
+            child: NestedScrollView(
+              headerSliverBuilder: (context, innerBoxIsScrolled) => [
                 SliverToBoxAdapter(
                   child: _buildProfileHeader(
                     shop,
                     contactService,
+                    productRepo,
                     isWide: isWide,
                     mutedText: mutedText,
                   ),
                 ),
-
                 _buildVideo(context, shop),
                 _buildBanner(shop),
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Divider(),
-                  ),
-                ),
-
-                // Tab Bar
-                SliverToBoxAdapter(
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 15),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? theme.colorScheme.surfaceContainerHighest
-                          : Colors.grey[100],
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: TabBar(
-                      controller: _tabController,
-                      indicator: BoxDecoration(
-                        color: UzaColors.primary,
-                        borderRadius: BorderRadius.circular(5),
-                        boxShadow: [
-                          BoxShadow(
-                            color: UzaColors.primary.withValues(alpha: 0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _ShopTabBarDelegate(
+                    backgroundColor: theme.colorScheme.surface,
+                    child: Container(
+                      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: tabBarBg,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: TabBar(
+                        controller: _tabController,
+                        indicator: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(11),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.08),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        indicatorSize: TabBarIndicatorSize.tab,
+                        dividerColor: Colors.transparent,
+                        labelColor: UzaColors.primary,
+                        unselectedLabelColor: mutedText,
+                        labelStyle: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        unselectedLabelStyle: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        tabs: [
+                          Tab(
+                            height: 42,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.shopping_bag_outlined, size: 16),
+                                SizedBox(width: 6),
+                                Text(tr(context, 'products')),
+                              ],
+                            ),
+                          ),
+                          Tab(
+                            height: 42,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.local_shipping_outlined, size: 16),
+                                SizedBox(width: 6),
+                                Text(tr(context, 'arrivages')),
+                              ],
+                            ),
                           ),
                         ],
                       ),
-                      indicatorSize: TabBarIndicatorSize.tab,
-                      dividerColor: Colors.transparent,
-                      labelColor: Colors.white,
-                      unselectedLabelColor: mutedText,
-                      labelStyle: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        height: 1.0,
-                      ),
-                      unselectedLabelStyle: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        height: 1.0,
-                      ),
-                      tabs: const [
-                        Tab(
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.shopping_bag, size: 14),
-                              SizedBox(width: 4),
-                              Text('Produits'),
-                            ],
-                          ),
-                        ),
-                        Tab(
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.new_releases, size: 14),
-                              SizedBox(width: 4),
-                              Text('Arrivages'),
-                            ],
-                          ),
-                        ),
-                      ],
-                      tabAlignment: TabAlignment.fill,
-                      padding: EdgeInsets.zero,
-                      indicatorPadding: const EdgeInsets.all(3),
-                      labelPadding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 2,
-                      ),
                     ),
                   ),
                 ),
-
-                // Tab Content
-                SliverFillRemaining(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: [
-                      // Produits Tab
-                      _buildProductsTab(
-                        context,
-                        shop,
-                        productRepo,
-                        constraints,
-                      ),
-                      // Arrivages Tab
-                      _buildArrivagesTab(context, shop),
-                    ],
-                  ),
-                ),
               ],
+              body: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildProductsTab(context, shop, productRepo, constraints),
+                  _buildArrivagesTab(context, shop),
+                ],
+              ),
             ),
           ),
         );
@@ -766,7 +958,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
     BoxConstraints constraints,
   ) {
     return StreamBuilder<List<Product>>(
-      stream: productRepo.watchProductsByShop(shop.id),
+      stream: productRepo.watchProductsForShop(shop),
       builder: (context, snapshot) {
         return AsyncContent<List<Product>>(
           snapshot: snapshot,
@@ -788,7 +980,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
         }
 
         return GridView.builder(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
             childAspectRatio: constraints.maxWidth > 700 ? 0.75 : 0.86,
@@ -853,7 +1045,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
           ),
           builder: (arrivages) {
         return GridView.builder(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             childAspectRatio: 0.65,
@@ -868,17 +1060,17 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
               onTap: () => _openArrivage(context, shop, arrivages, index),
               child: Container(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
@@ -1035,7 +1227,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Supprimer ?'),
+        title: Text(tr(context, 'delete_confirm_title')),
         content: Text(
           story.isArrivage
               ? 'Voulez-vous vraiment supprimer cet arrivage ?'
@@ -1044,7 +1236,7 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
+            child: Text(tr(context, 'cancel')),
           ),
           TextButton(
             onPressed: () async {
@@ -1055,14 +1247,14 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
               );
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Supprimé avec succès'),
+                  SnackBar(
+                    content: Text(tr(context, 'deleted_success')),
                     duration: Duration(seconds: 2),
                   ),
                 );
               }
             },
-            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+            child: Text(tr(context, 'delete'), style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -1077,17 +1269,43 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
 
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Présentation Vidéo',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            ShopVideoPlayer(videoUrl: videoUrl),
-          ],
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+        child: ModernCard(
+          margin: EdgeInsets.zero,
+          padding: const EdgeInsets.all(16),
+          borderRadius: UzaColors.radiusMd,
+          hasBorder: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: UzaColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.play_circle_outline,
+                      color: UzaColors.primary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Présentation vidéo',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: ShopVideoPlayer(videoUrl: videoUrl),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1103,9 +1321,9 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
 
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(UzaColors.radiusMd),
           child: ImageUtils.buildCachedImage(
             shop.bannerUrl,
             height: 180,
@@ -1134,12 +1352,39 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
           stream: context.read<ShopRepository>().watchFollowerCount(shop.id),
           builder: (context, countSnapshot) {
             final followerCount = countSnapshot.data ?? 0;
+            final buttonStyle = ElevatedButton.styleFrom(
+              backgroundColor: isFollowing
+                  ? Theme.of(context).colorScheme.surfaceContainerHighest
+                  : UzaColors.primary,
+              foregroundColor: isFollowing
+                  ? Theme.of(context).colorScheme.onSurface
+                  : Colors.white,
+              elevation: isFollowing ? 0 : 2,
+              shadowColor: UzaColors.primary.withValues(alpha: 0.35),
+              minimumSize: Size(0, _actionButtonHeight),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 12 : 16,
+                vertical: compact ? 0 : 10,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: isFollowing
+                    ? BorderSide(
+                        color: Theme.of(context)
+                            .dividerColor
+                            .withValues(alpha: 0.2),
+                      )
+                    : BorderSide.none,
+              ),
+            );
+
             final followButton = ElevatedButton.icon(
               onPressed: () => context
                   .read<ShopRepository>()
                   .toggleFollowShop(shop.id, userPhone: userPhone),
               icon: Icon(
-                isFollowing ? Icons.check : Icons.add,
+                isFollowing ? Icons.check_rounded : Icons.add_rounded,
                 size: compact ? 16 : 14,
               ),
               label: Text(
@@ -1149,37 +1394,17 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isFollowing
-                    ? Theme.of(context).colorScheme.surfaceContainerHighest
-                    : UzaColors.primary,
-                foregroundColor: isFollowing
-                    ? Theme.of(context).colorScheme.onSurface
-                    : Colors.white,
-                padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 12 : 16,
-                  vertical: compact ? 0 : 10,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(compact ? 8 : 18),
-                ),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                minimumSize: compact
-                    ? const Size(0, _actionButtonHeight)
-                    : Size.zero,
-              ),
+              style: buttonStyle,
             );
+
+            if (compact) {
+              return followButton;
+            }
 
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (compact)
-                  SizedBox(
-                    height: _actionButtonHeight,
-                    child: followButton,
-                  )
-                else
-                  followButton,
+                followButton,
                 if (!compact && followerCount > 0) ...[
                   const SizedBox(width: 8),
                   Container(
@@ -1188,13 +1413,13 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.purple.withValues(alpha: 0.1),
+                      color: UzaColors.secondary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       '$followerCount',
-                      style: TextStyle(
-                        color: Colors.purple[700],
+                      style: const TextStyle(
+                        color: UzaColors.secondary,
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1208,184 +1433,107 @@ class _ShopProfileScreenState extends State<ShopProfileScreen>
       },
     );
   }
-
-  Widget _buildInlineSocialLinks(Shop shop, ContactService contactService) {
-    final links = <Widget>[];
-
-    void addLink({
-      required bool visible,
-      required IconData icon,
-      required Color color,
-      required VoidCallback onTap,
-    }) {
-      if (!visible) return;
-      if (links.isNotEmpty) links.add(const SizedBox(width: 3));
-      links.add(_SocialIcon(icon: icon, color: color, onTap: onTap));
-    }
-
-    addLink(
-      visible: shop.whatsapp?.trim().isNotEmpty == true ||
-          shop.phone?.trim().isNotEmpty == true,
-      icon: FontAwesomeIcons.whatsapp,
-      color: Colors.green,
-      onTap: () => contactService.launchWhatsApp(
-        phone: shop.whatsapp ?? shop.phone!,
-        entityType: 'shop',
-        entityId: shop.id,
-        name: shop.name,
-        productUrl: ShopQrUtils.shopUrl(shop),
-      ),
-    );
-    addLink(
-      visible: shop.facebookUrl?.trim().isNotEmpty == true,
-      icon: FontAwesomeIcons.facebook,
-      color: const Color(0xFF1877F2),
-      onTap: () => contactService.launchSocial(
-        urlString: shop.facebookUrl!,
-        entityType: 'shop',
-        entityId: shop.id,
-      ),
-    );
-    addLink(
-      visible: shop.instagramUrl?.trim().isNotEmpty == true,
-      icon: FontAwesomeIcons.instagram,
-      color: const Color(0xFFE4405F),
-      onTap: () => contactService.launchSocial(
-        urlString: shop.instagramUrl!,
-        entityType: 'shop',
-        entityId: shop.id,
-      ),
-    );
-    addLink(
-      visible: shop.tiktokUrl?.trim().isNotEmpty == true,
-      icon: FontAwesomeIcons.tiktok,
-      color: Colors.black,
-      onTap: () => contactService.launchSocial(
-        urlString: shop.tiktokUrl!,
-        entityType: 'shop',
-        entityId: shop.id,
-      ),
-    );
-    addLink(
-      visible: shop.youtubeUrl?.trim().isNotEmpty == true,
-      icon: FontAwesomeIcons.youtube,
-      color: Colors.red,
-      onTap: () => contactService.launchSocial(
-        urlString: shop.youtubeUrl!,
-        entityType: 'shop',
-        entityId: shop.id,
-      ),
-    );
-
-    if (links.isEmpty) return const SizedBox.shrink();
-
-    return Row(mainAxisSize: MainAxisSize.min, children: links);
-  }
-
-  Widget _buildGoToShopButton(BuildContext context, Shop shop) {
-    final hasCoords = shop.latitude != null && shop.longitude != null;
-
-    return InkWell(
-      onTap: hasCoords
-          ? () => LocationService.getDirections(
-                latitude: shop.latitude!,
-                longitude: shop.longitude!,
-                destinationName: shop.name,
-              )
-          : null,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        height: _actionButtonHeight,
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              UzaColors.secondary.withValues(alpha: hasCoords ? 0.1 : 0.05),
-              UzaColors.secondary.withValues(alpha: hasCoords ? 0.05 : 0.02),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: UzaColors.secondary.withValues(
-              alpha: hasCoords ? 0.3 : 0.15,
-            ),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.navigation,
-              color: hasCoords ? UzaColors.secondary : Colors.grey,
-              size: 16,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'Aller à la Boutique',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-                color: hasCoords ? UzaColors.secondary : Colors.grey,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatItem({
-    required IconData icon,
-    required int value,
-    required String label,
-  }) {
-    return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: UzaColors.primary, size: 20),
-          const SizedBox(height: 6),
-          Text(
-            '$value',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 2),
-          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-        ],
-      ),
-    );
-  }
-
 }
 
-class _SocialIcon extends StatelessWidget {
-  final IconData icon;
+class _QuickActionButton extends StatelessWidget {
+  final String label;
+  final Widget icon;
   final Color color;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool filled;
+  final bool enabled;
 
-  const _SocialIcon({
+  const _QuickActionButton({
+    required this.label,
     required this.icon,
     required this.color,
-    required this.onTap,
+    this.onTap,
+    this.filled = false,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        shape: BoxShape.circle,
+    final isActive = enabled && onTap != null;
+    final fg = filled
+        ? Colors.white
+        : (isActive ? color : Colors.grey);
+    final bg = filled
+        ? (isActive ? color : color.withValues(alpha: 0.35))
+        : (isActive
+            ? color.withValues(alpha: 0.1)
+            : Theme.of(context).colorScheme.surfaceContainerHighest);
+
+    return Material(
+      color: Colors.transparent,
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: InkWell(
+          onTap: isActive ? onTap : null,
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            height: 44,
+            child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconTheme(
+                data: IconThemeData(size: 18, color: fg),
+                child: icon,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: fg,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
       ),
-      child: IconButton(
-        icon: FaIcon(icon, color: color, size: 11),
-        onPressed: onTap,
-        padding: const EdgeInsets.all(4),
-        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-        visualDensity: VisualDensity.compact,
-      ),
+    ),
     );
+  }
+}
+
+class _ShopTabBarDelegate extends SliverPersistentHeaderDelegate {
+  final Widget child;
+  final Color backgroundColor;
+
+  _ShopTabBarDelegate({
+    required this.child,
+    required this.backgroundColor,
+  });
+
+  @override
+  double get minExtent => 66;
+
+  @override
+  double get maxExtent => 66;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Container(
+      color: backgroundColor,
+      child: child,
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _ShopTabBarDelegate oldDelegate) {
+    return child != oldDelegate.child ||
+        backgroundColor != oldDelegate.backgroundColor;
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 import '../../core/utils/picker_utils.dart';
 import '../../data/repositories/story_repository.dart';
@@ -43,9 +44,12 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
   final List<_PendingMedia> _selectedMedia = [];
   bool _isLoading = false;
   bool _isUploading = false;
+  bool _isPickingMedia = false;
   String? _uploadMessage;
 
   Future<void> _pickImage() async {
+    if (_isPickingMedia) return;
+    setState(() => _isPickingMedia = true);
     try {
       if (widget.isArrivage) {
         final images = await PickerUtils.pickMultipleImages(context);
@@ -80,13 +84,21 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Impossible de charger l\'image: $e')),
+          SnackBar(
+            content: Text(trf(context, 'error_with_message', {'message': '$e'})),
+          ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isPickingMedia = false);
       }
     }
   }
 
   Future<void> _pickVideo() async {
+    if (_isPickingMedia) return;
+    setState(() => _isPickingMedia = true);
     try {
       final picked = await PickerUtils.pickVideo(context);
       if (picked == null) return;
@@ -126,8 +138,14 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Impossible de charger la vidéo: $e')),
+          SnackBar(
+            content: Text(trf(context, 'error_with_message', {'message': '$e'})),
+          ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isPickingMedia = false);
       }
     }
   }
@@ -192,7 +210,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
     if (_isUploading) return;
     if (_selectedMedia.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez sélectionner un média')),
+        SnackBar(content: Text(tr(context, 'select_media'))),
       );
       return;
     }
@@ -286,14 +304,24 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
           ),
           mediaItems,
         );
+      } else if (widget.isArrivage) {
+        // Single-image arrivage — must use addStoryWithMedia so isArrivage stays true
+        localStoryId = await storyRepo.addStoryWithMedia(
+          StoriesCompanion.insert(
+            shopId: widget.shopId,
+            mediaUrl: CryptoUtils.encrypt(remoteUrls.first),
+            mediaType: mediaTypes.first,
+            expiresAt: expiresAt,
+          ),
+          const [],
+        );
       } else {
-        // Single media story (or regular story)
+        // Single media regular story (24h)
         localStoryId = await storyRepo.addStory(
           StoriesCompanion.insert(
             shopId: widget.shopId,
             mediaUrl: CryptoUtils.encrypt(remoteUrls.first),
             mediaType: mediaTypes.first,
-            isArrivage: Value(widget.isArrivage),
             expiresAt: expiresAt,
           ),
         );
@@ -350,7 +378,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
         final scaffoldMessenger = ScaffoldMessenger.of(context);
         scaffoldMessenger.showSnackBar(
           SnackBar(
-            content: const Text('La connexion est lente. Réessayer?'),
+            content: Text(tr(context, 'slow_connection_retry')),
             action: SnackBarAction(label: 'RÉESSAYER', onPressed: _submit),
             duration: const Duration(seconds: 10),
           ),
@@ -363,7 +391,11 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
           _isUploading = false;
         });
         final scaffoldMessenger = ScaffoldMessenger.of(context);
-        scaffoldMessenger.showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text(trf(context, 'error_with_message', {'message': '$e'})),
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -409,9 +441,9 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _pickImage,
+                    onPressed: _isLoading || _isPickingMedia ? null : _pickImage,
                     icon: const Icon(Icons.photo_library),
-                    label: const Text('Photo'),
+                    label: Text(tr(context, 'photo_label')),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: UzaColors.primary,
                       side: const BorderSide(color: UzaColors.primary),
@@ -422,9 +454,9 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _pickVideo,
+                    onPressed: _isLoading || _isPickingMedia ? null : _pickVideo,
                     icon: const Icon(Icons.videocam),
-                    label: const Text('Vidéo'),
+                    label: Text(tr(context, 'video')),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: UzaColors.primary,
                       side: const BorderSide(color: UzaColors.primary),
@@ -434,6 +466,26 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
                 ),
               ],
             ),
+            if (_isPickingMedia)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      widget.isArrivage
+                          ? 'Chargement des médias...'
+                          : 'Chargement du média...',
+                      style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
             if (_selectedMedia.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -455,7 +507,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
               width: double.infinity,
               height: 56,
               child: ElevatedButton(
-                onPressed: _isLoading || _selectedMedia.isEmpty
+                onPressed: _isLoading || _isPickingMedia || _selectedMedia.isEmpty
                     ? null
                     : _submit,
                 style: ElevatedButton.styleFrom(
@@ -509,7 +561,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
 
   Widget _buildEmptyPicker() {
     return GestureDetector(
-      onTap: _showMediaSourceSheet,
+      onTap: _isPickingMedia ? null : _showMediaSourceSheet,
       child: Container(
         width: double.infinity,
         height: 200,
@@ -531,7 +583,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
                 Icon(Icons.photo_library_outlined, size: 36, color: Colors.grey[400]),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('ou', style: TextStyle(color: Colors.grey[500])),
+                  child: Text(tr(context, 'or_label'), style: TextStyle(color: Colors.grey[500])),
                 ),
                 Icon(Icons.videocam_outlined, size: 36, color: Colors.grey[400]),
               ],
@@ -565,7 +617,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
             TextButton.icon(
               onPressed: _removeMedia,
               icon: const Icon(Icons.clear, size: 18),
-              label: const Text('Effacer tout'),
+              label: Text(tr(context, 'clear_all_media')),
               style: TextButton.styleFrom(foregroundColor: Colors.red[400]),
             ),
           ],
@@ -591,7 +643,12 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: media.mediaType == 'image'
-                      ? Image.memory(media.bytes, fit: BoxFit.cover)
+                      ? Image.memory(
+                          media.bytes,
+                          fit: BoxFit.cover,
+                          filterQuality: FilterQuality.low,
+                          cacheWidth: 1080,
+                        )
                       : Stack(
                           alignment: Alignment.center,
                           children: [

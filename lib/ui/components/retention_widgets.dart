@@ -63,7 +63,7 @@ class WishlistReminder extends StatelessWidget {
                   Text(
                     'Ils pourraient ne plus être disponibles',
                     style: TextStyle(
-                      color: UzaColors.textSecondary,
+                      color: UzaColors.onSurfaceSecondary(context),
                       fontSize: 12,
                     ),
                   ),
@@ -268,7 +268,7 @@ class _StatItem extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: UzaColors.textSecondary,
+              color: UzaColors.onSurfaceSecondary(context),
               fontSize: 11,
               fontWeight: FontWeight.w600,
             ),
@@ -448,7 +448,7 @@ class _ClientChip extends StatelessWidget {
               ),
               Text(
                 '${client.contactCount}× · $timeAgo',
-                style: TextStyle(color: UzaColors.textSecondary, fontSize: 10),
+                style: TextStyle(color: UzaColors.onSurfaceSecondary(context), fontSize: 10),
               ),
             ],
           ),

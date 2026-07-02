@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/services/client_reengagement_service.dart';
@@ -84,19 +85,23 @@ class _ClientReengagementScreenState extends State<ClientReengagementScreen> {
         context: context,
         barrierDismissible: false,
         builder: (ctx) => AlertDialog(
-          title: Text('Client ${i + 1}/${phones.length}'),
+          title: Text(
+            trf(ctx, 'reengage_client_title', {
+              'current': '${i + 1}',
+              'total': '${phones.length}',
+            }),
+          ),
           content: Text(
-            'Ouvrir WhatsApp pour +${phones[i]} ?\n\n'
-            'Appuyez sur « Suivant » après l\'envoi.',
+            trf(ctx, 'reengage_client_dialog', {'phone': phones[i]}),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Annuler'),
+              child: Text(tr(ctx, 'cancel')),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Ouvrir WhatsApp'),
+              child: Text(tr(ctx, 'reengage_open_whatsapp')),
             ),
           ],
         ),
@@ -117,9 +122,7 @@ class _ClientReengagementScreenState extends State<ClientReengagementScreen> {
     if (!mounted) return;
     setState(() => _sending = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Campagne terminée. Prochaine relance possible dans 7 jours.'),
-      ),
+      SnackBar(content: Text(tr(context, 'reengage_campaign_done'))),
     );
     await _load();
   }
@@ -128,7 +131,7 @@ class _ClientReengagementScreenState extends State<ClientReengagementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Relance clients WhatsApp'),
+        title: Text(tr(context, 'reengage_title')),
         backgroundColor: const Color(0xFF25D366),
         foregroundColor: Colors.white,
       ),
@@ -142,9 +145,11 @@ class _ClientReengagementScreenState extends State<ClientReengagementScreen> {
                     color: Colors.orange.shade50,
                     child: ListTile(
                       leading: const Icon(Icons.timer, color: Colors.orange),
-                      title: const Text('Limite anti-spam'),
+                      title: Text(tr(context, 'reengage_antispam_limit')),
                       subtitle: Text(
-                        'Prochaine campagne dans ${_campaignGate.daysRemaining} jour(s).',
+                        trf(context, 'reengage_next_campaign_in', {
+                          'days': '${_campaignGate.daysRemaining}',
+                        }),
                       ),
                     ),
                   ),
@@ -154,9 +159,9 @@ class _ClientReengagementScreenState extends State<ClientReengagementScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Message',
-                          style: TextStyle(fontWeight: FontWeight.bold),
+                        Text(
+                          tr(context, 'reengage_message_label'),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
                         Wrap(
@@ -166,11 +171,15 @@ class _ClientReengagementScreenState extends State<ClientReengagementScreen> {
                               .map((entry) {
                             final (template, label) = entry;
                             return ChoiceChip(
-                              label: Text(label, style: const TextStyle(fontSize: 11)),
+                              label: Text(
+                                label,
+                                style: const TextStyle(fontSize: 11),
+                              ),
                               selected: _template == template,
                               onSelected: (_) {
                                 setState(() => _template = template);
-                                _messageController.text = ClientReengagementService(
+                                _messageController.text =
+                                    ClientReengagementService(
                                   context.read<UzaDatabase>(),
                                 ).buildMessage(
                                   shop: widget.shop,
@@ -184,15 +193,17 @@ class _ClientReengagementScreenState extends State<ClientReengagementScreen> {
                         TextField(
                           controller: _messageController,
                           maxLines: 6,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            hintText: 'Votre message de relance…',
+                          decoration: InputDecoration(
+                            border: const OutlineInputBorder(),
+                            hintText: tr(context, 'reengage_message_hint'),
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Max $kReengagementMaxContactsPerSession contacts · '
-                          '1 campagne / $kReengagementMinDaysBetweenCampaigns jours',
+                          trf(context, 'reengage_limits_info', {
+                            'max': '$kReengagementMaxContactsPerSession',
+                            'days': '$kReengagementMinDaysBetweenCampaigns',
+                          }),
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade600,
@@ -206,35 +217,33 @@ class _ClientReengagementScreenState extends State<ClientReengagementScreen> {
                 CheckboxListTile(
                   value: _consent,
                   onChanged: (v) => setState(() => _consent = v ?? false),
-                  title: const Text('Consentement'),
-                  subtitle: const Text(
-                    'Je confirme que ces clients ont déjà contacté ma boutique '
-                    'et acceptent de recevoir des nouveautés.',
-                  ),
+                  title: Text(tr(context, 'reengage_consent_title')),
+                  subtitle: Text(tr(context, 'reengage_consent_subtitle')),
                   controlAffinity: ListTileControlAffinity.leading,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Clients éligibles (${_clients.length})',
+                  trf(context, 'reengage_eligible_clients', {
+                    'count': '${_clients.length}',
+                  }),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
                 if (_clients.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 24),
                     child: Text(
-                      'Aucun client avec numéro enregistré. '
-                      'Les contacts apparaîtront après commandes ou messages.',
+                      tr(context, 'reengage_no_clients'),
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade600),
                     ),
                   ),
                 ..._clients.map((client) {
                   final selected = _selectedPhones.contains(client.phone);
-                  final canSelect =
-                      selected ||
-                      _selectedPhones.length < kReengagementMaxContactsPerSession;
+                  final canSelect = selected ||
+                      _selectedPhones.length <
+                          kReengagementMaxContactsPerSession;
                   return CheckboxListTile(
                     value: selected,
                     onChanged: canSelect || selected
@@ -253,9 +262,10 @@ class _ClientReengagementScreenState extends State<ClientReengagementScreen> {
                         : null,
                     title: Text('+${client.phone}'),
                     subtitle: Text(
-                      '${client.source} · ${client.contactCount} interaction(s)',
+                      '${client.source} · ${trf(context, 'interactions_count', {'count': '${client.contactCount}'})}',
                     ),
-                    secondary: const Icon(Icons.chat, color: Color(0xFF25D366)),
+                    secondary:
+                        const Icon(Icons.chat, color: Color(0xFF25D366)),
                   );
                 }),
                 const SizedBox(height: 80),
@@ -283,8 +293,13 @@ class _ClientReengagementScreenState extends State<ClientReengagementScreen> {
                 : const Icon(Icons.send),
             label: Text(
               _sending
-                  ? 'Envoi $_sendIndex/${_selectedPhones.length}…'
-                  : 'Lancer la relance (${_selectedPhones.length})',
+                  ? trf(context, 'reengage_send_progress', {
+                      'current': '$_sendIndex',
+                      'total': '${_selectedPhones.length}',
+                    })
+                  : trf(context, 'reengage_launch', {
+                      'count': '${_selectedPhones.length}',
+                    }),
             ),
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF25D366),

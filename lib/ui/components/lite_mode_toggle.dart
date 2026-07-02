@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 
 class LiteModeToggle extends StatelessWidget {
   final bool isEnabled;
@@ -13,8 +14,8 @@ class LiteModeToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SwitchListTile(
-      title: const Text('Mode Léger'),
-      subtitle: const Text('Masquer les images pour économiser les données'),
+      title: Text(tr(context, 'lite_mode')),
+      subtitle: Text(tr(context, 'lite_mode_subtitle')),
       value: isEnabled,
       onChanged: onChanged,
       secondary: const Icon(Icons.data_saver_on),

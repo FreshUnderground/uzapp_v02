@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
+import '../../core/res/uza_colors.dart';
 
 class Skeletons {
   static Widget productCard(BuildContext context) {
@@ -24,13 +25,14 @@ class ProductCardSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final shimmer = UzaColors.shimmerOf(context);
     return Shimmer.fromColors(
-      baseColor: Colors.grey[200]!,
-      highlightColor: Colors.white,
+      baseColor: shimmer.base,
+      highlightColor: shimmer.highlight,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: shimmer.container,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
@@ -39,9 +41,10 @@ class ProductCardSkeleton extends StatelessWidget {
             AspectRatio(
               aspectRatio: 1.35,
               child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                decoration: BoxDecoration(
+                  color: shimmer.container,
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(16)),
                 ),
               ),
             ),
@@ -53,10 +56,10 @@ class ProductCardSkeleton extends StatelessWidget {
                   Container(
                     height: 14,
                     width: double.infinity,
-                    color: Colors.white,
+                    color: shimmer.container,
                   ),
                   const SizedBox(height: 4),
-                  Container(height: 10, width: 60, color: Colors.white),
+                  Container(height: 10, width: 60, color: shimmer.container),
                 ],
               ),
             ),
@@ -72,12 +75,13 @@ class ShopCardSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final shimmer = UzaColors.shimmerOf(context);
     return Shimmer.fromColors(
-      baseColor: Colors.grey[200]!,
-      highlightColor: Colors.white,
+      baseColor: shimmer.base,
+      highlightColor: shimmer.highlight,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: shimmer.container,
           borderRadius: BorderRadius.circular(24),
         ),
         child: Column(
@@ -85,9 +89,10 @@ class ShopCardSkeleton extends StatelessWidget {
             Expanded(
               flex: 3,
               child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                decoration: BoxDecoration(
+                  color: shimmer.container,
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
                 ),
               ),
             ),
@@ -98,9 +103,9 @@ class ShopCardSkeleton extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Container(height: 14, width: 100, color: Colors.white),
+                    Container(height: 14, width: 100, color: shimmer.container),
                     const SizedBox(height: 4),
-                    Container(height: 10, width: 60, color: Colors.white),
+                    Container(height: 10, width: 60, color: shimmer.container),
                   ],
                 ),
               ),
@@ -117,14 +122,15 @@ class ArrivageCardSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final shimmer = UzaColors.shimmerOf(context);
     return Shimmer.fromColors(
-      baseColor: Colors.grey[200]!,
-      highlightColor: Colors.white,
+      baseColor: shimmer.base,
+      highlightColor: shimmer.highlight,
       child: Container(
         width: 120,
         margin: const EdgeInsets.only(right: 10),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: shimmer.container,
           borderRadius: BorderRadius.circular(12),
         ),
       ),
@@ -137,9 +143,10 @@ class StoryCircleSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final shimmer = UzaColors.shimmerOf(context);
     return Shimmer.fromColors(
-      baseColor: Colors.grey[200]!,
-      highlightColor: Colors.white,
+      baseColor: shimmer.base,
+      highlightColor: shimmer.highlight,
       child: Padding(
         padding: const EdgeInsets.only(right: 12),
         child: Column(
@@ -147,13 +154,13 @@ class StoryCircleSkeleton extends StatelessWidget {
             Container(
               width: 66,
               height: 66,
-              decoration: const BoxDecoration(
-                color: Colors.white,
+              decoration: BoxDecoration(
+                color: shimmer.container,
                 shape: BoxShape.circle,
               ),
             ),
             const SizedBox(height: 6),
-            Container(height: 10, width: 50, color: Colors.white),
+            Container(height: 10, width: 50, color: shimmer.container),
           ],
         ),
       ),

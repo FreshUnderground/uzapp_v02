@@ -10,6 +10,7 @@ import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../data/local/uza_database.dart';
+import '../models/product_update_type.dart';
 import 'platform_system_notifier.dart';
 import 'push_notification_service.dart';
 
@@ -282,6 +283,29 @@ class DailyEngagementScheduler {
             title: '📦 Nouvel arrivage !',
             body: '$shopName vient de publier un arrivage — jetez un œil 🔥',
             payload: jsonEncode({'type': 'arrivage', 'id': arrivage.id}),
+          ),
+        );
+      }
+
+      final productUpdates =
+          await (db.select(db.productUpdates)
+                ..orderBy([(t) => OrderingTerm.desc(t.createdAt)])
+                ..limit(20))
+              .get();
+
+      for (final update in productUpdates) {
+        final type = ProductUpdateType.fromCode(update.updateType);
+        pool.add(
+          _EngagementMessage(
+            title: '${type.emoji} ${type.notificationTitle(update.productName)}',
+            body: type.notificationBody(
+              update.shopName,
+              message: update.message,
+            ),
+            payload: jsonEncode({
+              'type': 'product_update',
+              'id': update.productId,
+            }),
           ),
         );
       }

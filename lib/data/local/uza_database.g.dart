@@ -333,6 +333,17 @@ class $ShopsTable extends Shops with TableInfo<$ShopsTable, Shop> {
     type: DriftSqlType.double,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _lastActiveAtMeta = const VerificationMeta(
+    'lastActiveAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastActiveAt = GeneratedColumn<DateTime>(
+    'last_active_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -364,6 +375,7 @@ class $ShopsTable extends Shops with TableInfo<$ShopsTable, Shop> {
     verifiedAt,
     latitude,
     longitude,
+    lastActiveAt,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -562,6 +574,15 @@ class $ShopsTable extends Shops with TableInfo<$ShopsTable, Shop> {
         longitude.isAcceptableOrUnknown(data['longitude']!, _longitudeMeta),
       );
     }
+    if (data.containsKey('last_active_at')) {
+      context.handle(
+        _lastActiveAtMeta,
+        lastActiveAt.isAcceptableOrUnknown(
+          data['last_active_at']!,
+          _lastActiveAtMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -689,6 +710,10 @@ class $ShopsTable extends Shops with TableInfo<$ShopsTable, Shop> {
         DriftSqlType.double,
         data['${effectivePrefix}longitude'],
       ),
+      lastActiveAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_active_at'],
+      ),
     );
   }
 
@@ -731,6 +756,9 @@ class Shop extends DataClass implements Insertable<Shop> {
   final DateTime? verifiedAt;
   final double? latitude;
   final double? longitude;
+
+  /// Last seller activity (post, product update, story, WhatsApp status).
+  final DateTime? lastActiveAt;
   const Shop({
     required this.id,
     this.remoteId,
@@ -761,6 +789,7 @@ class Shop extends DataClass implements Insertable<Shop> {
     this.verifiedAt,
     this.latitude,
     this.longitude,
+    this.lastActiveAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -838,6 +867,9 @@ class Shop extends DataClass implements Insertable<Shop> {
     if (!nullToAbsent || longitude != null) {
       map['longitude'] = Variable<double>(longitude);
     }
+    if (!nullToAbsent || lastActiveAt != null) {
+      map['last_active_at'] = Variable<DateTime>(lastActiveAt);
+    }
     return map;
   }
 
@@ -912,6 +944,9 @@ class Shop extends DataClass implements Insertable<Shop> {
       longitude: longitude == null && nullToAbsent
           ? const Value.absent()
           : Value(longitude),
+      lastActiveAt: lastActiveAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastActiveAt),
     );
   }
 
@@ -954,6 +989,7 @@ class Shop extends DataClass implements Insertable<Shop> {
       verifiedAt: serializer.fromJson<DateTime?>(json['verifiedAt']),
       latitude: serializer.fromJson<double?>(json['latitude']),
       longitude: serializer.fromJson<double?>(json['longitude']),
+      lastActiveAt: serializer.fromJson<DateTime?>(json['lastActiveAt']),
     );
   }
   @override
@@ -991,6 +1027,7 @@ class Shop extends DataClass implements Insertable<Shop> {
       'verifiedAt': serializer.toJson<DateTime?>(verifiedAt),
       'latitude': serializer.toJson<double?>(latitude),
       'longitude': serializer.toJson<double?>(longitude),
+      'lastActiveAt': serializer.toJson<DateTime?>(lastActiveAt),
     };
   }
 
@@ -1024,6 +1061,7 @@ class Shop extends DataClass implements Insertable<Shop> {
     Value<DateTime?> verifiedAt = const Value.absent(),
     Value<double?> latitude = const Value.absent(),
     Value<double?> longitude = const Value.absent(),
+    Value<DateTime?> lastActiveAt = const Value.absent(),
   }) => Shop(
     id: id ?? this.id,
     remoteId: remoteId.present ? remoteId.value : this.remoteId,
@@ -1056,6 +1094,7 @@ class Shop extends DataClass implements Insertable<Shop> {
     verifiedAt: verifiedAt.present ? verifiedAt.value : this.verifiedAt,
     latitude: latitude.present ? latitude.value : this.latitude,
     longitude: longitude.present ? longitude.value : this.longitude,
+    lastActiveAt: lastActiveAt.present ? lastActiveAt.value : this.lastActiveAt,
   );
   Shop copyWithCompanion(ShopsCompanion data) {
     return Shop(
@@ -1108,6 +1147,9 @@ class Shop extends DataClass implements Insertable<Shop> {
           : this.verifiedAt,
       latitude: data.latitude.present ? data.latitude.value : this.latitude,
       longitude: data.longitude.present ? data.longitude.value : this.longitude,
+      lastActiveAt: data.lastActiveAt.present
+          ? data.lastActiveAt.value
+          : this.lastActiveAt,
     );
   }
 
@@ -1142,7 +1184,8 @@ class Shop extends DataClass implements Insertable<Shop> {
           ..write('city: $city, ')
           ..write('verifiedAt: $verifiedAt, ')
           ..write('latitude: $latitude, ')
-          ..write('longitude: $longitude')
+          ..write('longitude: $longitude, ')
+          ..write('lastActiveAt: $lastActiveAt')
           ..write(')'))
         .toString();
   }
@@ -1178,6 +1221,7 @@ class Shop extends DataClass implements Insertable<Shop> {
     verifiedAt,
     latitude,
     longitude,
+    lastActiveAt,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -1211,7 +1255,8 @@ class Shop extends DataClass implements Insertable<Shop> {
           other.city == this.city &&
           other.verifiedAt == this.verifiedAt &&
           other.latitude == this.latitude &&
-          other.longitude == this.longitude);
+          other.longitude == this.longitude &&
+          other.lastActiveAt == this.lastActiveAt);
 }
 
 class ShopsCompanion extends UpdateCompanion<Shop> {
@@ -1244,6 +1289,7 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
   final Value<DateTime?> verifiedAt;
   final Value<double?> latitude;
   final Value<double?> longitude;
+  final Value<DateTime?> lastActiveAt;
   const ShopsCompanion({
     this.id = const Value.absent(),
     this.remoteId = const Value.absent(),
@@ -1274,6 +1320,7 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
     this.verifiedAt = const Value.absent(),
     this.latitude = const Value.absent(),
     this.longitude = const Value.absent(),
+    this.lastActiveAt = const Value.absent(),
   });
   ShopsCompanion.insert({
     this.id = const Value.absent(),
@@ -1305,6 +1352,7 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
     this.verifiedAt = const Value.absent(),
     this.latitude = const Value.absent(),
     this.longitude = const Value.absent(),
+    this.lastActiveAt = const Value.absent(),
   }) : name = Value(name),
        type = Value(type);
   static Insertable<Shop> custom({
@@ -1337,6 +1385,7 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
     Expression<DateTime>? verifiedAt,
     Expression<double>? latitude,
     Expression<double>? longitude,
+    Expression<DateTime>? lastActiveAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1369,6 +1418,7 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
       if (verifiedAt != null) 'verified_at': verifiedAt,
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
+      if (lastActiveAt != null) 'last_active_at': lastActiveAt,
     });
   }
 
@@ -1402,6 +1452,7 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
     Value<DateTime?>? verifiedAt,
     Value<double?>? latitude,
     Value<double?>? longitude,
+    Value<DateTime?>? lastActiveAt,
   }) {
     return ShopsCompanion(
       id: id ?? this.id,
@@ -1433,6 +1484,7 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
       verifiedAt: verifiedAt ?? this.verifiedAt,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
+      lastActiveAt: lastActiveAt ?? this.lastActiveAt,
     );
   }
 
@@ -1528,6 +1580,9 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
     if (longitude.present) {
       map['longitude'] = Variable<double>(longitude.value);
     }
+    if (lastActiveAt.present) {
+      map['last_active_at'] = Variable<DateTime>(lastActiveAt.value);
+    }
     return map;
   }
 
@@ -1562,7 +1617,8 @@ class ShopsCompanion extends UpdateCompanion<Shop> {
           ..write('city: $city, ')
           ..write('verifiedAt: $verifiedAt, ')
           ..write('latitude: $latitude, ')
-          ..write('longitude: $longitude')
+          ..write('longitude: $longitude, ')
+          ..write('lastActiveAt: $lastActiveAt')
           ..write(')'))
         .toString();
   }
@@ -9793,6 +9849,955 @@ class OrdersCompanion extends UpdateCompanion<Order> {
   }
 }
 
+class $DeliveriesTable extends Deliveries
+    with TableInfo<$DeliveriesTable, Delivery> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DeliveriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _remoteIdMeta = const VerificationMeta(
+    'remoteId',
+  );
+  @override
+  late final GeneratedColumn<String> remoteId = GeneratedColumn<String>(
+    'remote_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _shopIdMeta = const VerificationMeta('shopId');
+  @override
+  late final GeneratedColumn<int> shopId = GeneratedColumn<int>(
+    'shop_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES shops (id)',
+    ),
+  );
+  static const VerificationMeta _buyerPhoneMeta = const VerificationMeta(
+    'buyerPhone',
+  );
+  @override
+  late final GeneratedColumn<String> buyerPhone = GeneratedColumn<String>(
+    'buyer_phone',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _buyerNameMeta = const VerificationMeta(
+    'buyerName',
+  );
+  @override
+  late final GeneratedColumn<String> buyerName = GeneratedColumn<String>(
+    'buyer_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _productIdMeta = const VerificationMeta(
+    'productId',
+  );
+  @override
+  late final GeneratedColumn<int> productId = GeneratedColumn<int>(
+    'product_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES products (id)',
+    ),
+  );
+  static const VerificationMeta _itemsJsonMeta = const VerificationMeta(
+    'itemsJson',
+  );
+  @override
+  late final GeneratedColumn<String> itemsJson = GeneratedColumn<String>(
+    'items_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('pending'),
+  );
+  static const VerificationMeta _deliveryAddressMeta = const VerificationMeta(
+    'deliveryAddress',
+  );
+  @override
+  late final GeneratedColumn<String> deliveryAddress = GeneratedColumn<String>(
+    'delivery_address',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _deliveryCommuneMeta = const VerificationMeta(
+    'deliveryCommune',
+  );
+  @override
+  late final GeneratedColumn<String> deliveryCommune = GeneratedColumn<String>(
+    'delivery_commune',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _latitudeMeta = const VerificationMeta(
+    'latitude',
+  );
+  @override
+  late final GeneratedColumn<double> latitude = GeneratedColumn<double>(
+    'latitude',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _longitudeMeta = const VerificationMeta(
+    'longitude',
+  );
+  @override
+  late final GeneratedColumn<double> longitude = GeneratedColumn<double>(
+    'longitude',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _locationModeMeta = const VerificationMeta(
+    'locationMode',
+  );
+  @override
+  late final GeneratedColumn<String> locationMode = GeneratedColumn<String>(
+    'location_mode',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('commune'),
+  );
+  static const VerificationMeta _noteMeta = const VerificationMeta('note');
+  @override
+  late final GeneratedColumn<String> note = GeneratedColumn<String>(
+    'note',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _syncedMeta = const VerificationMeta('synced');
+  @override
+  late final GeneratedColumn<int> synced = GeneratedColumn<int>(
+    'synced',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    remoteId,
+    shopId,
+    buyerPhone,
+    buyerName,
+    productId,
+    itemsJson,
+    status,
+    deliveryAddress,
+    deliveryCommune,
+    latitude,
+    longitude,
+    locationMode,
+    note,
+    synced,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'deliveries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<Delivery> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('remote_id')) {
+      context.handle(
+        _remoteIdMeta,
+        remoteId.isAcceptableOrUnknown(data['remote_id']!, _remoteIdMeta),
+      );
+    }
+    if (data.containsKey('shop_id')) {
+      context.handle(
+        _shopIdMeta,
+        shopId.isAcceptableOrUnknown(data['shop_id']!, _shopIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_shopIdMeta);
+    }
+    if (data.containsKey('buyer_phone')) {
+      context.handle(
+        _buyerPhoneMeta,
+        buyerPhone.isAcceptableOrUnknown(data['buyer_phone']!, _buyerPhoneMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_buyerPhoneMeta);
+    }
+    if (data.containsKey('buyer_name')) {
+      context.handle(
+        _buyerNameMeta,
+        buyerName.isAcceptableOrUnknown(data['buyer_name']!, _buyerNameMeta),
+      );
+    }
+    if (data.containsKey('product_id')) {
+      context.handle(
+        _productIdMeta,
+        productId.isAcceptableOrUnknown(data['product_id']!, _productIdMeta),
+      );
+    }
+    if (data.containsKey('items_json')) {
+      context.handle(
+        _itemsJsonMeta,
+        itemsJson.isAcceptableOrUnknown(data['items_json']!, _itemsJsonMeta),
+      );
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('delivery_address')) {
+      context.handle(
+        _deliveryAddressMeta,
+        deliveryAddress.isAcceptableOrUnknown(
+          data['delivery_address']!,
+          _deliveryAddressMeta,
+        ),
+      );
+    }
+    if (data.containsKey('delivery_commune')) {
+      context.handle(
+        _deliveryCommuneMeta,
+        deliveryCommune.isAcceptableOrUnknown(
+          data['delivery_commune']!,
+          _deliveryCommuneMeta,
+        ),
+      );
+    }
+    if (data.containsKey('latitude')) {
+      context.handle(
+        _latitudeMeta,
+        latitude.isAcceptableOrUnknown(data['latitude']!, _latitudeMeta),
+      );
+    }
+    if (data.containsKey('longitude')) {
+      context.handle(
+        _longitudeMeta,
+        longitude.isAcceptableOrUnknown(data['longitude']!, _longitudeMeta),
+      );
+    }
+    if (data.containsKey('location_mode')) {
+      context.handle(
+        _locationModeMeta,
+        locationMode.isAcceptableOrUnknown(
+          data['location_mode']!,
+          _locationModeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('note')) {
+      context.handle(
+        _noteMeta,
+        note.isAcceptableOrUnknown(data['note']!, _noteMeta),
+      );
+    }
+    if (data.containsKey('synced')) {
+      context.handle(
+        _syncedMeta,
+        synced.isAcceptableOrUnknown(data['synced']!, _syncedMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Delivery map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Delivery(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      remoteId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}remote_id'],
+      ),
+      shopId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}shop_id'],
+      )!,
+      buyerPhone: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}buyer_phone'],
+      )!,
+      buyerName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}buyer_name'],
+      ),
+      productId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}product_id'],
+      ),
+      itemsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}items_json'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      deliveryAddress: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}delivery_address'],
+      ),
+      deliveryCommune: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}delivery_commune'],
+      ),
+      latitude: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}latitude'],
+      ),
+      longitude: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}longitude'],
+      ),
+      locationMode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}location_mode'],
+      )!,
+      note: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}note'],
+      ),
+      synced: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}synced'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $DeliveriesTable createAlias(String alias) {
+    return $DeliveriesTable(attachedDatabase, alias);
+  }
+}
+
+class Delivery extends DataClass implements Insertable<Delivery> {
+  final int id;
+  final String? remoteId;
+  final int shopId;
+  final String buyerPhone;
+  final String? buyerName;
+  final int? productId;
+  final String itemsJson;
+  final String status;
+  final String? deliveryAddress;
+  final String? deliveryCommune;
+  final double? latitude;
+  final double? longitude;
+
+  /// gps | manual | commune
+  final String locationMode;
+  final String? note;
+  final int synced;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const Delivery({
+    required this.id,
+    this.remoteId,
+    required this.shopId,
+    required this.buyerPhone,
+    this.buyerName,
+    this.productId,
+    required this.itemsJson,
+    required this.status,
+    this.deliveryAddress,
+    this.deliveryCommune,
+    this.latitude,
+    this.longitude,
+    required this.locationMode,
+    this.note,
+    required this.synced,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    if (!nullToAbsent || remoteId != null) {
+      map['remote_id'] = Variable<String>(remoteId);
+    }
+    map['shop_id'] = Variable<int>(shopId);
+    map['buyer_phone'] = Variable<String>(buyerPhone);
+    if (!nullToAbsent || buyerName != null) {
+      map['buyer_name'] = Variable<String>(buyerName);
+    }
+    if (!nullToAbsent || productId != null) {
+      map['product_id'] = Variable<int>(productId);
+    }
+    map['items_json'] = Variable<String>(itemsJson);
+    map['status'] = Variable<String>(status);
+    if (!nullToAbsent || deliveryAddress != null) {
+      map['delivery_address'] = Variable<String>(deliveryAddress);
+    }
+    if (!nullToAbsent || deliveryCommune != null) {
+      map['delivery_commune'] = Variable<String>(deliveryCommune);
+    }
+    if (!nullToAbsent || latitude != null) {
+      map['latitude'] = Variable<double>(latitude);
+    }
+    if (!nullToAbsent || longitude != null) {
+      map['longitude'] = Variable<double>(longitude);
+    }
+    map['location_mode'] = Variable<String>(locationMode);
+    if (!nullToAbsent || note != null) {
+      map['note'] = Variable<String>(note);
+    }
+    map['synced'] = Variable<int>(synced);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  DeliveriesCompanion toCompanion(bool nullToAbsent) {
+    return DeliveriesCompanion(
+      id: Value(id),
+      remoteId: remoteId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remoteId),
+      shopId: Value(shopId),
+      buyerPhone: Value(buyerPhone),
+      buyerName: buyerName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(buyerName),
+      productId: productId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(productId),
+      itemsJson: Value(itemsJson),
+      status: Value(status),
+      deliveryAddress: deliveryAddress == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deliveryAddress),
+      deliveryCommune: deliveryCommune == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deliveryCommune),
+      latitude: latitude == null && nullToAbsent
+          ? const Value.absent()
+          : Value(latitude),
+      longitude: longitude == null && nullToAbsent
+          ? const Value.absent()
+          : Value(longitude),
+      locationMode: Value(locationMode),
+      note: note == null && nullToAbsent ? const Value.absent() : Value(note),
+      synced: Value(synced),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory Delivery.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Delivery(
+      id: serializer.fromJson<int>(json['id']),
+      remoteId: serializer.fromJson<String?>(json['remoteId']),
+      shopId: serializer.fromJson<int>(json['shopId']),
+      buyerPhone: serializer.fromJson<String>(json['buyerPhone']),
+      buyerName: serializer.fromJson<String?>(json['buyerName']),
+      productId: serializer.fromJson<int?>(json['productId']),
+      itemsJson: serializer.fromJson<String>(json['itemsJson']),
+      status: serializer.fromJson<String>(json['status']),
+      deliveryAddress: serializer.fromJson<String?>(json['deliveryAddress']),
+      deliveryCommune: serializer.fromJson<String?>(json['deliveryCommune']),
+      latitude: serializer.fromJson<double?>(json['latitude']),
+      longitude: serializer.fromJson<double?>(json['longitude']),
+      locationMode: serializer.fromJson<String>(json['locationMode']),
+      note: serializer.fromJson<String?>(json['note']),
+      synced: serializer.fromJson<int>(json['synced']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'remoteId': serializer.toJson<String?>(remoteId),
+      'shopId': serializer.toJson<int>(shopId),
+      'buyerPhone': serializer.toJson<String>(buyerPhone),
+      'buyerName': serializer.toJson<String?>(buyerName),
+      'productId': serializer.toJson<int?>(productId),
+      'itemsJson': serializer.toJson<String>(itemsJson),
+      'status': serializer.toJson<String>(status),
+      'deliveryAddress': serializer.toJson<String?>(deliveryAddress),
+      'deliveryCommune': serializer.toJson<String?>(deliveryCommune),
+      'latitude': serializer.toJson<double?>(latitude),
+      'longitude': serializer.toJson<double?>(longitude),
+      'locationMode': serializer.toJson<String>(locationMode),
+      'note': serializer.toJson<String?>(note),
+      'synced': serializer.toJson<int>(synced),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  Delivery copyWith({
+    int? id,
+    Value<String?> remoteId = const Value.absent(),
+    int? shopId,
+    String? buyerPhone,
+    Value<String?> buyerName = const Value.absent(),
+    Value<int?> productId = const Value.absent(),
+    String? itemsJson,
+    String? status,
+    Value<String?> deliveryAddress = const Value.absent(),
+    Value<String?> deliveryCommune = const Value.absent(),
+    Value<double?> latitude = const Value.absent(),
+    Value<double?> longitude = const Value.absent(),
+    String? locationMode,
+    Value<String?> note = const Value.absent(),
+    int? synced,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => Delivery(
+    id: id ?? this.id,
+    remoteId: remoteId.present ? remoteId.value : this.remoteId,
+    shopId: shopId ?? this.shopId,
+    buyerPhone: buyerPhone ?? this.buyerPhone,
+    buyerName: buyerName.present ? buyerName.value : this.buyerName,
+    productId: productId.present ? productId.value : this.productId,
+    itemsJson: itemsJson ?? this.itemsJson,
+    status: status ?? this.status,
+    deliveryAddress: deliveryAddress.present
+        ? deliveryAddress.value
+        : this.deliveryAddress,
+    deliveryCommune: deliveryCommune.present
+        ? deliveryCommune.value
+        : this.deliveryCommune,
+    latitude: latitude.present ? latitude.value : this.latitude,
+    longitude: longitude.present ? longitude.value : this.longitude,
+    locationMode: locationMode ?? this.locationMode,
+    note: note.present ? note.value : this.note,
+    synced: synced ?? this.synced,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  Delivery copyWithCompanion(DeliveriesCompanion data) {
+    return Delivery(
+      id: data.id.present ? data.id.value : this.id,
+      remoteId: data.remoteId.present ? data.remoteId.value : this.remoteId,
+      shopId: data.shopId.present ? data.shopId.value : this.shopId,
+      buyerPhone: data.buyerPhone.present
+          ? data.buyerPhone.value
+          : this.buyerPhone,
+      buyerName: data.buyerName.present ? data.buyerName.value : this.buyerName,
+      productId: data.productId.present ? data.productId.value : this.productId,
+      itemsJson: data.itemsJson.present ? data.itemsJson.value : this.itemsJson,
+      status: data.status.present ? data.status.value : this.status,
+      deliveryAddress: data.deliveryAddress.present
+          ? data.deliveryAddress.value
+          : this.deliveryAddress,
+      deliveryCommune: data.deliveryCommune.present
+          ? data.deliveryCommune.value
+          : this.deliveryCommune,
+      latitude: data.latitude.present ? data.latitude.value : this.latitude,
+      longitude: data.longitude.present ? data.longitude.value : this.longitude,
+      locationMode: data.locationMode.present
+          ? data.locationMode.value
+          : this.locationMode,
+      note: data.note.present ? data.note.value : this.note,
+      synced: data.synced.present ? data.synced.value : this.synced,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Delivery(')
+          ..write('id: $id, ')
+          ..write('remoteId: $remoteId, ')
+          ..write('shopId: $shopId, ')
+          ..write('buyerPhone: $buyerPhone, ')
+          ..write('buyerName: $buyerName, ')
+          ..write('productId: $productId, ')
+          ..write('itemsJson: $itemsJson, ')
+          ..write('status: $status, ')
+          ..write('deliveryAddress: $deliveryAddress, ')
+          ..write('deliveryCommune: $deliveryCommune, ')
+          ..write('latitude: $latitude, ')
+          ..write('longitude: $longitude, ')
+          ..write('locationMode: $locationMode, ')
+          ..write('note: $note, ')
+          ..write('synced: $synced, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    remoteId,
+    shopId,
+    buyerPhone,
+    buyerName,
+    productId,
+    itemsJson,
+    status,
+    deliveryAddress,
+    deliveryCommune,
+    latitude,
+    longitude,
+    locationMode,
+    note,
+    synced,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Delivery &&
+          other.id == this.id &&
+          other.remoteId == this.remoteId &&
+          other.shopId == this.shopId &&
+          other.buyerPhone == this.buyerPhone &&
+          other.buyerName == this.buyerName &&
+          other.productId == this.productId &&
+          other.itemsJson == this.itemsJson &&
+          other.status == this.status &&
+          other.deliveryAddress == this.deliveryAddress &&
+          other.deliveryCommune == this.deliveryCommune &&
+          other.latitude == this.latitude &&
+          other.longitude == this.longitude &&
+          other.locationMode == this.locationMode &&
+          other.note == this.note &&
+          other.synced == this.synced &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class DeliveriesCompanion extends UpdateCompanion<Delivery> {
+  final Value<int> id;
+  final Value<String?> remoteId;
+  final Value<int> shopId;
+  final Value<String> buyerPhone;
+  final Value<String?> buyerName;
+  final Value<int?> productId;
+  final Value<String> itemsJson;
+  final Value<String> status;
+  final Value<String?> deliveryAddress;
+  final Value<String?> deliveryCommune;
+  final Value<double?> latitude;
+  final Value<double?> longitude;
+  final Value<String> locationMode;
+  final Value<String?> note;
+  final Value<int> synced;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  const DeliveriesCompanion({
+    this.id = const Value.absent(),
+    this.remoteId = const Value.absent(),
+    this.shopId = const Value.absent(),
+    this.buyerPhone = const Value.absent(),
+    this.buyerName = const Value.absent(),
+    this.productId = const Value.absent(),
+    this.itemsJson = const Value.absent(),
+    this.status = const Value.absent(),
+    this.deliveryAddress = const Value.absent(),
+    this.deliveryCommune = const Value.absent(),
+    this.latitude = const Value.absent(),
+    this.longitude = const Value.absent(),
+    this.locationMode = const Value.absent(),
+    this.note = const Value.absent(),
+    this.synced = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  DeliveriesCompanion.insert({
+    this.id = const Value.absent(),
+    this.remoteId = const Value.absent(),
+    required int shopId,
+    required String buyerPhone,
+    this.buyerName = const Value.absent(),
+    this.productId = const Value.absent(),
+    this.itemsJson = const Value.absent(),
+    this.status = const Value.absent(),
+    this.deliveryAddress = const Value.absent(),
+    this.deliveryCommune = const Value.absent(),
+    this.latitude = const Value.absent(),
+    this.longitude = const Value.absent(),
+    this.locationMode = const Value.absent(),
+    this.note = const Value.absent(),
+    this.synced = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  }) : shopId = Value(shopId),
+       buyerPhone = Value(buyerPhone);
+  static Insertable<Delivery> custom({
+    Expression<int>? id,
+    Expression<String>? remoteId,
+    Expression<int>? shopId,
+    Expression<String>? buyerPhone,
+    Expression<String>? buyerName,
+    Expression<int>? productId,
+    Expression<String>? itemsJson,
+    Expression<String>? status,
+    Expression<String>? deliveryAddress,
+    Expression<String>? deliveryCommune,
+    Expression<double>? latitude,
+    Expression<double>? longitude,
+    Expression<String>? locationMode,
+    Expression<String>? note,
+    Expression<int>? synced,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (remoteId != null) 'remote_id': remoteId,
+      if (shopId != null) 'shop_id': shopId,
+      if (buyerPhone != null) 'buyer_phone': buyerPhone,
+      if (buyerName != null) 'buyer_name': buyerName,
+      if (productId != null) 'product_id': productId,
+      if (itemsJson != null) 'items_json': itemsJson,
+      if (status != null) 'status': status,
+      if (deliveryAddress != null) 'delivery_address': deliveryAddress,
+      if (deliveryCommune != null) 'delivery_commune': deliveryCommune,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (locationMode != null) 'location_mode': locationMode,
+      if (note != null) 'note': note,
+      if (synced != null) 'synced': synced,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  DeliveriesCompanion copyWith({
+    Value<int>? id,
+    Value<String?>? remoteId,
+    Value<int>? shopId,
+    Value<String>? buyerPhone,
+    Value<String?>? buyerName,
+    Value<int?>? productId,
+    Value<String>? itemsJson,
+    Value<String>? status,
+    Value<String?>? deliveryAddress,
+    Value<String?>? deliveryCommune,
+    Value<double?>? latitude,
+    Value<double?>? longitude,
+    Value<String>? locationMode,
+    Value<String?>? note,
+    Value<int>? synced,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+  }) {
+    return DeliveriesCompanion(
+      id: id ?? this.id,
+      remoteId: remoteId ?? this.remoteId,
+      shopId: shopId ?? this.shopId,
+      buyerPhone: buyerPhone ?? this.buyerPhone,
+      buyerName: buyerName ?? this.buyerName,
+      productId: productId ?? this.productId,
+      itemsJson: itemsJson ?? this.itemsJson,
+      status: status ?? this.status,
+      deliveryAddress: deliveryAddress ?? this.deliveryAddress,
+      deliveryCommune: deliveryCommune ?? this.deliveryCommune,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      locationMode: locationMode ?? this.locationMode,
+      note: note ?? this.note,
+      synced: synced ?? this.synced,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (remoteId.present) {
+      map['remote_id'] = Variable<String>(remoteId.value);
+    }
+    if (shopId.present) {
+      map['shop_id'] = Variable<int>(shopId.value);
+    }
+    if (buyerPhone.present) {
+      map['buyer_phone'] = Variable<String>(buyerPhone.value);
+    }
+    if (buyerName.present) {
+      map['buyer_name'] = Variable<String>(buyerName.value);
+    }
+    if (productId.present) {
+      map['product_id'] = Variable<int>(productId.value);
+    }
+    if (itemsJson.present) {
+      map['items_json'] = Variable<String>(itemsJson.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (deliveryAddress.present) {
+      map['delivery_address'] = Variable<String>(deliveryAddress.value);
+    }
+    if (deliveryCommune.present) {
+      map['delivery_commune'] = Variable<String>(deliveryCommune.value);
+    }
+    if (latitude.present) {
+      map['latitude'] = Variable<double>(latitude.value);
+    }
+    if (longitude.present) {
+      map['longitude'] = Variable<double>(longitude.value);
+    }
+    if (locationMode.present) {
+      map['location_mode'] = Variable<String>(locationMode.value);
+    }
+    if (note.present) {
+      map['note'] = Variable<String>(note.value);
+    }
+    if (synced.present) {
+      map['synced'] = Variable<int>(synced.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DeliveriesCompanion(')
+          ..write('id: $id, ')
+          ..write('remoteId: $remoteId, ')
+          ..write('shopId: $shopId, ')
+          ..write('buyerPhone: $buyerPhone, ')
+          ..write('buyerName: $buyerName, ')
+          ..write('productId: $productId, ')
+          ..write('itemsJson: $itemsJson, ')
+          ..write('status: $status, ')
+          ..write('deliveryAddress: $deliveryAddress, ')
+          ..write('deliveryCommune: $deliveryCommune, ')
+          ..write('latitude: $latitude, ')
+          ..write('longitude: $longitude, ')
+          ..write('locationMode: $locationMode, ')
+          ..write('note: $note, ')
+          ..write('synced: $synced, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $ChatMessagesTable extends ChatMessages
     with TableInfo<$ChatMessagesTable, ChatMessage> {
   @override
@@ -10306,6 +11311,613 @@ class ChatMessagesCompanion extends UpdateCompanion<ChatMessage> {
   }
 }
 
+class $ProductUpdatesTable extends ProductUpdates
+    with TableInfo<$ProductUpdatesTable, ProductUpdate> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ProductUpdatesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _remoteIdMeta = const VerificationMeta(
+    'remoteId',
+  );
+  @override
+  late final GeneratedColumn<String> remoteId = GeneratedColumn<String>(
+    'remote_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _productIdMeta = const VerificationMeta(
+    'productId',
+  );
+  @override
+  late final GeneratedColumn<int> productId = GeneratedColumn<int>(
+    'product_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES products (id)',
+    ),
+  );
+  static const VerificationMeta _shopIdMeta = const VerificationMeta('shopId');
+  @override
+  late final GeneratedColumn<int> shopId = GeneratedColumn<int>(
+    'shop_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES shops (id)',
+    ),
+  );
+  static const VerificationMeta _updateTypeMeta = const VerificationMeta(
+    'updateType',
+  );
+  @override
+  late final GeneratedColumn<String> updateType = GeneratedColumn<String>(
+    'update_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _messageMeta = const VerificationMeta(
+    'message',
+  );
+  @override
+  late final GeneratedColumn<String> message = GeneratedColumn<String>(
+    'message',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _productNameMeta = const VerificationMeta(
+    'productName',
+  );
+  @override
+  late final GeneratedColumn<String> productName = GeneratedColumn<String>(
+    'product_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _shopNameMeta = const VerificationMeta(
+    'shopName',
+  );
+  @override
+  late final GeneratedColumn<String> shopName = GeneratedColumn<String>(
+    'shop_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _syncedMeta = const VerificationMeta('synced');
+  @override
+  late final GeneratedColumn<int> synced = GeneratedColumn<int>(
+    'synced',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    remoteId,
+    productId,
+    shopId,
+    updateType,
+    message,
+    productName,
+    shopName,
+    synced,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'product_updates';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ProductUpdate> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('remote_id')) {
+      context.handle(
+        _remoteIdMeta,
+        remoteId.isAcceptableOrUnknown(data['remote_id']!, _remoteIdMeta),
+      );
+    }
+    if (data.containsKey('product_id')) {
+      context.handle(
+        _productIdMeta,
+        productId.isAcceptableOrUnknown(data['product_id']!, _productIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_productIdMeta);
+    }
+    if (data.containsKey('shop_id')) {
+      context.handle(
+        _shopIdMeta,
+        shopId.isAcceptableOrUnknown(data['shop_id']!, _shopIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_shopIdMeta);
+    }
+    if (data.containsKey('update_type')) {
+      context.handle(
+        _updateTypeMeta,
+        updateType.isAcceptableOrUnknown(data['update_type']!, _updateTypeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updateTypeMeta);
+    }
+    if (data.containsKey('message')) {
+      context.handle(
+        _messageMeta,
+        message.isAcceptableOrUnknown(data['message']!, _messageMeta),
+      );
+    }
+    if (data.containsKey('product_name')) {
+      context.handle(
+        _productNameMeta,
+        productName.isAcceptableOrUnknown(
+          data['product_name']!,
+          _productNameMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_productNameMeta);
+    }
+    if (data.containsKey('shop_name')) {
+      context.handle(
+        _shopNameMeta,
+        shopName.isAcceptableOrUnknown(data['shop_name']!, _shopNameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_shopNameMeta);
+    }
+    if (data.containsKey('synced')) {
+      context.handle(
+        _syncedMeta,
+        synced.isAcceptableOrUnknown(data['synced']!, _syncedMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ProductUpdate map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ProductUpdate(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      remoteId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}remote_id'],
+      ),
+      productId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}product_id'],
+      )!,
+      shopId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}shop_id'],
+      )!,
+      updateType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}update_type'],
+      )!,
+      message: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}message'],
+      ),
+      productName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}product_name'],
+      )!,
+      shopName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}shop_name'],
+      )!,
+      synced: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}synced'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ProductUpdatesTable createAlias(String alias) {
+    return $ProductUpdatesTable(attachedDatabase, alias);
+  }
+}
+
+class ProductUpdate extends DataClass implements Insertable<ProductUpdate> {
+  final int id;
+  final String? remoteId;
+  final int productId;
+  final int shopId;
+
+  /// arrivage | restock | price | photos | note
+  final String updateType;
+  final String? message;
+  final String productName;
+  final String shopName;
+  final int synced;
+  final DateTime createdAt;
+  const ProductUpdate({
+    required this.id,
+    this.remoteId,
+    required this.productId,
+    required this.shopId,
+    required this.updateType,
+    this.message,
+    required this.productName,
+    required this.shopName,
+    required this.synced,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    if (!nullToAbsent || remoteId != null) {
+      map['remote_id'] = Variable<String>(remoteId);
+    }
+    map['product_id'] = Variable<int>(productId);
+    map['shop_id'] = Variable<int>(shopId);
+    map['update_type'] = Variable<String>(updateType);
+    if (!nullToAbsent || message != null) {
+      map['message'] = Variable<String>(message);
+    }
+    map['product_name'] = Variable<String>(productName);
+    map['shop_name'] = Variable<String>(shopName);
+    map['synced'] = Variable<int>(synced);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  ProductUpdatesCompanion toCompanion(bool nullToAbsent) {
+    return ProductUpdatesCompanion(
+      id: Value(id),
+      remoteId: remoteId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remoteId),
+      productId: Value(productId),
+      shopId: Value(shopId),
+      updateType: Value(updateType),
+      message: message == null && nullToAbsent
+          ? const Value.absent()
+          : Value(message),
+      productName: Value(productName),
+      shopName: Value(shopName),
+      synced: Value(synced),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory ProductUpdate.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ProductUpdate(
+      id: serializer.fromJson<int>(json['id']),
+      remoteId: serializer.fromJson<String?>(json['remoteId']),
+      productId: serializer.fromJson<int>(json['productId']),
+      shopId: serializer.fromJson<int>(json['shopId']),
+      updateType: serializer.fromJson<String>(json['updateType']),
+      message: serializer.fromJson<String?>(json['message']),
+      productName: serializer.fromJson<String>(json['productName']),
+      shopName: serializer.fromJson<String>(json['shopName']),
+      synced: serializer.fromJson<int>(json['synced']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'remoteId': serializer.toJson<String?>(remoteId),
+      'productId': serializer.toJson<int>(productId),
+      'shopId': serializer.toJson<int>(shopId),
+      'updateType': serializer.toJson<String>(updateType),
+      'message': serializer.toJson<String?>(message),
+      'productName': serializer.toJson<String>(productName),
+      'shopName': serializer.toJson<String>(shopName),
+      'synced': serializer.toJson<int>(synced),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  ProductUpdate copyWith({
+    int? id,
+    Value<String?> remoteId = const Value.absent(),
+    int? productId,
+    int? shopId,
+    String? updateType,
+    Value<String?> message = const Value.absent(),
+    String? productName,
+    String? shopName,
+    int? synced,
+    DateTime? createdAt,
+  }) => ProductUpdate(
+    id: id ?? this.id,
+    remoteId: remoteId.present ? remoteId.value : this.remoteId,
+    productId: productId ?? this.productId,
+    shopId: shopId ?? this.shopId,
+    updateType: updateType ?? this.updateType,
+    message: message.present ? message.value : this.message,
+    productName: productName ?? this.productName,
+    shopName: shopName ?? this.shopName,
+    synced: synced ?? this.synced,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  ProductUpdate copyWithCompanion(ProductUpdatesCompanion data) {
+    return ProductUpdate(
+      id: data.id.present ? data.id.value : this.id,
+      remoteId: data.remoteId.present ? data.remoteId.value : this.remoteId,
+      productId: data.productId.present ? data.productId.value : this.productId,
+      shopId: data.shopId.present ? data.shopId.value : this.shopId,
+      updateType: data.updateType.present
+          ? data.updateType.value
+          : this.updateType,
+      message: data.message.present ? data.message.value : this.message,
+      productName: data.productName.present
+          ? data.productName.value
+          : this.productName,
+      shopName: data.shopName.present ? data.shopName.value : this.shopName,
+      synced: data.synced.present ? data.synced.value : this.synced,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProductUpdate(')
+          ..write('id: $id, ')
+          ..write('remoteId: $remoteId, ')
+          ..write('productId: $productId, ')
+          ..write('shopId: $shopId, ')
+          ..write('updateType: $updateType, ')
+          ..write('message: $message, ')
+          ..write('productName: $productName, ')
+          ..write('shopName: $shopName, ')
+          ..write('synced: $synced, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    remoteId,
+    productId,
+    shopId,
+    updateType,
+    message,
+    productName,
+    shopName,
+    synced,
+    createdAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ProductUpdate &&
+          other.id == this.id &&
+          other.remoteId == this.remoteId &&
+          other.productId == this.productId &&
+          other.shopId == this.shopId &&
+          other.updateType == this.updateType &&
+          other.message == this.message &&
+          other.productName == this.productName &&
+          other.shopName == this.shopName &&
+          other.synced == this.synced &&
+          other.createdAt == this.createdAt);
+}
+
+class ProductUpdatesCompanion extends UpdateCompanion<ProductUpdate> {
+  final Value<int> id;
+  final Value<String?> remoteId;
+  final Value<int> productId;
+  final Value<int> shopId;
+  final Value<String> updateType;
+  final Value<String?> message;
+  final Value<String> productName;
+  final Value<String> shopName;
+  final Value<int> synced;
+  final Value<DateTime> createdAt;
+  const ProductUpdatesCompanion({
+    this.id = const Value.absent(),
+    this.remoteId = const Value.absent(),
+    this.productId = const Value.absent(),
+    this.shopId = const Value.absent(),
+    this.updateType = const Value.absent(),
+    this.message = const Value.absent(),
+    this.productName = const Value.absent(),
+    this.shopName = const Value.absent(),
+    this.synced = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  ProductUpdatesCompanion.insert({
+    this.id = const Value.absent(),
+    this.remoteId = const Value.absent(),
+    required int productId,
+    required int shopId,
+    required String updateType,
+    this.message = const Value.absent(),
+    required String productName,
+    required String shopName,
+    this.synced = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  }) : productId = Value(productId),
+       shopId = Value(shopId),
+       updateType = Value(updateType),
+       productName = Value(productName),
+       shopName = Value(shopName);
+  static Insertable<ProductUpdate> custom({
+    Expression<int>? id,
+    Expression<String>? remoteId,
+    Expression<int>? productId,
+    Expression<int>? shopId,
+    Expression<String>? updateType,
+    Expression<String>? message,
+    Expression<String>? productName,
+    Expression<String>? shopName,
+    Expression<int>? synced,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (remoteId != null) 'remote_id': remoteId,
+      if (productId != null) 'product_id': productId,
+      if (shopId != null) 'shop_id': shopId,
+      if (updateType != null) 'update_type': updateType,
+      if (message != null) 'message': message,
+      if (productName != null) 'product_name': productName,
+      if (shopName != null) 'shop_name': shopName,
+      if (synced != null) 'synced': synced,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  ProductUpdatesCompanion copyWith({
+    Value<int>? id,
+    Value<String?>? remoteId,
+    Value<int>? productId,
+    Value<int>? shopId,
+    Value<String>? updateType,
+    Value<String?>? message,
+    Value<String>? productName,
+    Value<String>? shopName,
+    Value<int>? synced,
+    Value<DateTime>? createdAt,
+  }) {
+    return ProductUpdatesCompanion(
+      id: id ?? this.id,
+      remoteId: remoteId ?? this.remoteId,
+      productId: productId ?? this.productId,
+      shopId: shopId ?? this.shopId,
+      updateType: updateType ?? this.updateType,
+      message: message ?? this.message,
+      productName: productName ?? this.productName,
+      shopName: shopName ?? this.shopName,
+      synced: synced ?? this.synced,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (remoteId.present) {
+      map['remote_id'] = Variable<String>(remoteId.value);
+    }
+    if (productId.present) {
+      map['product_id'] = Variable<int>(productId.value);
+    }
+    if (shopId.present) {
+      map['shop_id'] = Variable<int>(shopId.value);
+    }
+    if (updateType.present) {
+      map['update_type'] = Variable<String>(updateType.value);
+    }
+    if (message.present) {
+      map['message'] = Variable<String>(message.value);
+    }
+    if (productName.present) {
+      map['product_name'] = Variable<String>(productName.value);
+    }
+    if (shopName.present) {
+      map['shop_name'] = Variable<String>(shopName.value);
+    }
+    if (synced.present) {
+      map['synced'] = Variable<int>(synced.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProductUpdatesCompanion(')
+          ..write('id: $id, ')
+          ..write('remoteId: $remoteId, ')
+          ..write('productId: $productId, ')
+          ..write('shopId: $shopId, ')
+          ..write('updateType: $updateType, ')
+          ..write('message: $message, ')
+          ..write('productName: $productName, ')
+          ..write('shopName: $shopName, ')
+          ..write('synced: $synced, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$UzaDatabase extends GeneratedDatabase {
   _$UzaDatabase(QueryExecutor e) : super(e);
   $UzaDatabaseManager get managers => $UzaDatabaseManager(this);
@@ -10329,7 +11941,9 @@ abstract class _$UzaDatabase extends GeneratedDatabase {
   late final $ProductLikesTable productLikes = $ProductLikesTable(this);
   late final $ShopFollowsTable shopFollows = $ShopFollowsTable(this);
   late final $OrdersTable orders = $OrdersTable(this);
+  late final $DeliveriesTable deliveries = $DeliveriesTable(this);
   late final $ChatMessagesTable chatMessages = $ChatMessagesTable(this);
+  late final $ProductUpdatesTable productUpdates = $ProductUpdatesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -10353,7 +11967,9 @@ abstract class _$UzaDatabase extends GeneratedDatabase {
     productLikes,
     shopFollows,
     orders,
+    deliveries,
     chatMessages,
+    productUpdates,
   ];
 }
 
@@ -10388,6 +12004,7 @@ typedef $$ShopsTableCreateCompanionBuilder =
       Value<DateTime?> verifiedAt,
       Value<double?> latitude,
       Value<double?> longitude,
+      Value<DateTime?> lastActiveAt,
     });
 typedef $$ShopsTableUpdateCompanionBuilder =
     ShopsCompanion Function({
@@ -10420,6 +12037,7 @@ typedef $$ShopsTableUpdateCompanionBuilder =
       Value<DateTime?> verifiedAt,
       Value<double?> latitude,
       Value<double?> longitude,
+      Value<DateTime?> lastActiveAt,
     });
 
 final class $$ShopsTableReferences
@@ -10537,6 +12155,24 @@ final class $$ShopsTableReferences
     );
   }
 
+  static MultiTypedResultKey<$DeliveriesTable, List<Delivery>>
+  _deliveriesRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
+    db.deliveries,
+    aliasName: $_aliasNameGenerator(db.shops.id, db.deliveries.shopId),
+  );
+
+  $$DeliveriesTableProcessedTableManager get deliveriesRefs {
+    final manager = $$DeliveriesTableTableManager(
+      $_db,
+      $_db.deliveries,
+    ).filter((f) => f.shopId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_deliveriesRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
   static MultiTypedResultKey<$ChatMessagesTable, List<ChatMessage>>
   _chatMessagesRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
     db.chatMessages,
@@ -10550,6 +12186,24 @@ final class $$ShopsTableReferences
     ).filter((f) => f.shopId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_chatMessagesRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$ProductUpdatesTable, List<ProductUpdate>>
+  _productUpdatesRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
+    db.productUpdates,
+    aliasName: $_aliasNameGenerator(db.shops.id, db.productUpdates.shopId),
+  );
+
+  $$ProductUpdatesTableProcessedTableManager get productUpdatesRefs {
+    final manager = $$ProductUpdatesTableTableManager(
+      $_db,
+      $_db.productUpdates,
+    ).filter((f) => f.shopId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_productUpdatesRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -10710,6 +12364,11 @@ class $$ShopsTableFilterComposer extends Composer<_$UzaDatabase, $ShopsTable> {
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<DateTime> get lastActiveAt => $composableBuilder(
+    column: $table.lastActiveAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
   Expression<bool> productsRefs(
     Expression<bool> Function($$ProductsTableFilterComposer f) f,
   ) {
@@ -10860,6 +12519,31 @@ class $$ShopsTableFilterComposer extends Composer<_$UzaDatabase, $ShopsTable> {
     return f(composer);
   }
 
+  Expression<bool> deliveriesRefs(
+    Expression<bool> Function($$DeliveriesTableFilterComposer f) f,
+  ) {
+    final $$DeliveriesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.deliveries,
+      getReferencedColumn: (t) => t.shopId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$DeliveriesTableFilterComposer(
+            $db: $db,
+            $table: $db.deliveries,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
   Expression<bool> chatMessagesRefs(
     Expression<bool> Function($$ChatMessagesTableFilterComposer f) f,
   ) {
@@ -10876,6 +12560,31 @@ class $$ShopsTableFilterComposer extends Composer<_$UzaDatabase, $ShopsTable> {
           }) => $$ChatMessagesTableFilterComposer(
             $db: $db,
             $table: $db.chatMessages,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> productUpdatesRefs(
+    Expression<bool> Function($$ProductUpdatesTableFilterComposer f) f,
+  ) {
+    final $$ProductUpdatesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.productUpdates,
+      getReferencedColumn: (t) => t.shopId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductUpdatesTableFilterComposer(
+            $db: $db,
+            $table: $db.productUpdates,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -11039,6 +12748,11 @@ class $$ShopsTableOrderingComposer
     column: $table.longitude,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<DateTime> get lastActiveAt => $composableBuilder(
+    column: $table.lastActiveAt,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ShopsTableAnnotationComposer
@@ -11156,6 +12870,11 @@ class $$ShopsTableAnnotationComposer
 
   GeneratedColumn<double> get longitude =>
       $composableBuilder(column: $table.longitude, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastActiveAt => $composableBuilder(
+    column: $table.lastActiveAt,
+    builder: (column) => column,
+  );
 
   Expression<T> productsRefs<T extends Object>(
     Expression<T> Function($$ProductsTableAnnotationComposer a) f,
@@ -11307,6 +13026,31 @@ class $$ShopsTableAnnotationComposer
     return f(composer);
   }
 
+  Expression<T> deliveriesRefs<T extends Object>(
+    Expression<T> Function($$DeliveriesTableAnnotationComposer a) f,
+  ) {
+    final $$DeliveriesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.deliveries,
+      getReferencedColumn: (t) => t.shopId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$DeliveriesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.deliveries,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
   Expression<T> chatMessagesRefs<T extends Object>(
     Expression<T> Function($$ChatMessagesTableAnnotationComposer a) f,
   ) {
@@ -11323,6 +13067,31 @@ class $$ShopsTableAnnotationComposer
           }) => $$ChatMessagesTableAnnotationComposer(
             $db: $db,
             $table: $db.chatMessages,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<T> productUpdatesRefs<T extends Object>(
+    Expression<T> Function($$ProductUpdatesTableAnnotationComposer a) f,
+  ) {
+    final $$ProductUpdatesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.productUpdates,
+      getReferencedColumn: (t) => t.shopId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductUpdatesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.productUpdates,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -11353,7 +13122,9 @@ class $$ShopsTableTableManager
             bool followedShopsRefs,
             bool shopFollowsRefs,
             bool ordersRefs,
+            bool deliveriesRefs,
             bool chatMessagesRefs,
+            bool productUpdatesRefs,
           })
         > {
   $$ShopsTableTableManager(_$UzaDatabase db, $ShopsTable table)
@@ -11398,6 +13169,7 @@ class $$ShopsTableTableManager
                 Value<DateTime?> verifiedAt = const Value.absent(),
                 Value<double?> latitude = const Value.absent(),
                 Value<double?> longitude = const Value.absent(),
+                Value<DateTime?> lastActiveAt = const Value.absent(),
               }) => ShopsCompanion(
                 id: id,
                 remoteId: remoteId,
@@ -11428,6 +13200,7 @@ class $$ShopsTableTableManager
                 verifiedAt: verifiedAt,
                 latitude: latitude,
                 longitude: longitude,
+                lastActiveAt: lastActiveAt,
               ),
           createCompanionCallback:
               ({
@@ -11460,6 +13233,7 @@ class $$ShopsTableTableManager
                 Value<DateTime?> verifiedAt = const Value.absent(),
                 Value<double?> latitude = const Value.absent(),
                 Value<double?> longitude = const Value.absent(),
+                Value<DateTime?> lastActiveAt = const Value.absent(),
               }) => ShopsCompanion.insert(
                 id: id,
                 remoteId: remoteId,
@@ -11490,6 +13264,7 @@ class $$ShopsTableTableManager
                 verifiedAt: verifiedAt,
                 latitude: latitude,
                 longitude: longitude,
+                lastActiveAt: lastActiveAt,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -11505,7 +13280,9 @@ class $$ShopsTableTableManager
                 followedShopsRefs = false,
                 shopFollowsRefs = false,
                 ordersRefs = false,
+                deliveriesRefs = false,
                 chatMessagesRefs = false,
+                productUpdatesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -11516,7 +13293,9 @@ class $$ShopsTableTableManager
                     if (followedShopsRefs) db.followedShops,
                     if (shopFollowsRefs) db.shopFollows,
                     if (ordersRefs) db.orders,
+                    if (deliveriesRefs) db.deliveries,
                     if (chatMessagesRefs) db.chatMessages,
+                    if (productUpdatesRefs) db.productUpdates,
                   ],
                   addJoins: null,
                   getPrefetchedDataCallback: (items) async {
@@ -11627,6 +13406,23 @@ class $$ShopsTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (deliveriesRefs)
+                        await $_getPrefetchedData<Shop, $ShopsTable, Delivery>(
+                          currentTable: table,
+                          referencedTable: $$ShopsTableReferences
+                              ._deliveriesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ShopsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).deliveriesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.shopId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                       if (chatMessagesRefs)
                         await $_getPrefetchedData<
                           Shop,
@@ -11642,6 +13438,27 @@ class $$ShopsTableTableManager
                                 table,
                                 p0,
                               ).chatMessagesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.shopId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (productUpdatesRefs)
+                        await $_getPrefetchedData<
+                          Shop,
+                          $ShopsTable,
+                          ProductUpdate
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ShopsTableReferences
+                              ._productUpdatesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ShopsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).productUpdatesRefs,
                           referencedItemsForCurrentItem:
                               (item, referencedItems) => referencedItems.where(
                                 (e) => e.shopId == item.id,
@@ -11675,7 +13492,9 @@ typedef $$ShopsTableProcessedTableManager =
         bool followedShopsRefs,
         bool shopFollowsRefs,
         bool ordersRefs,
+        bool deliveriesRefs,
         bool chatMessagesRefs,
+        bool productUpdatesRefs,
       })
     >;
 typedef $$CategoriesTableCreateCompanionBuilder =
@@ -12229,6 +14048,24 @@ final class $$ProductsTableReferences
     );
   }
 
+  static MultiTypedResultKey<$DeliveriesTable, List<Delivery>>
+  _deliveriesRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
+    db.deliveries,
+    aliasName: $_aliasNameGenerator(db.products.id, db.deliveries.productId),
+  );
+
+  $$DeliveriesTableProcessedTableManager get deliveriesRefs {
+    final manager = $$DeliveriesTableTableManager(
+      $_db,
+      $_db.deliveries,
+    ).filter((f) => f.productId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_deliveriesRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
   static MultiTypedResultKey<$ChatMessagesTable, List<ChatMessage>>
   _chatMessagesRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
     db.chatMessages,
@@ -12242,6 +14079,27 @@ final class $$ProductsTableReferences
     ).filter((f) => f.productId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_chatMessagesRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$ProductUpdatesTable, List<ProductUpdate>>
+  _productUpdatesRefsTable(_$UzaDatabase db) => MultiTypedResultKey.fromTable(
+    db.productUpdates,
+    aliasName: $_aliasNameGenerator(
+      db.products.id,
+      db.productUpdates.productId,
+    ),
+  );
+
+  $$ProductUpdatesTableProcessedTableManager get productUpdatesRefs {
+    final manager = $$ProductUpdatesTableTableManager(
+      $_db,
+      $_db.productUpdates,
+    ).filter((f) => f.productId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_productUpdatesRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -12548,6 +14406,31 @@ class $$ProductsTableFilterComposer
     return f(composer);
   }
 
+  Expression<bool> deliveriesRefs(
+    Expression<bool> Function($$DeliveriesTableFilterComposer f) f,
+  ) {
+    final $$DeliveriesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.deliveries,
+      getReferencedColumn: (t) => t.productId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$DeliveriesTableFilterComposer(
+            $db: $db,
+            $table: $db.deliveries,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
   Expression<bool> chatMessagesRefs(
     Expression<bool> Function($$ChatMessagesTableFilterComposer f) f,
   ) {
@@ -12564,6 +14447,31 @@ class $$ProductsTableFilterComposer
           }) => $$ChatMessagesTableFilterComposer(
             $db: $db,
             $table: $db.chatMessages,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> productUpdatesRefs(
+    Expression<bool> Function($$ProductUpdatesTableFilterComposer f) f,
+  ) {
+    final $$ProductUpdatesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.productUpdates,
+      getReferencedColumn: (t) => t.productId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductUpdatesTableFilterComposer(
+            $db: $db,
+            $table: $db.productUpdates,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -13020,6 +14928,31 @@ class $$ProductsTableAnnotationComposer
     return f(composer);
   }
 
+  Expression<T> deliveriesRefs<T extends Object>(
+    Expression<T> Function($$DeliveriesTableAnnotationComposer a) f,
+  ) {
+    final $$DeliveriesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.deliveries,
+      getReferencedColumn: (t) => t.productId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$DeliveriesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.deliveries,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
   Expression<T> chatMessagesRefs<T extends Object>(
     Expression<T> Function($$ChatMessagesTableAnnotationComposer a) f,
   ) {
@@ -13036,6 +14969,31 @@ class $$ProductsTableAnnotationComposer
           }) => $$ChatMessagesTableAnnotationComposer(
             $db: $db,
             $table: $db.chatMessages,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<T> productUpdatesRefs<T extends Object>(
+    Expression<T> Function($$ProductUpdatesTableAnnotationComposer a) f,
+  ) {
+    final $$ProductUpdatesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.productUpdates,
+      getReferencedColumn: (t) => t.productId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductUpdatesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.productUpdates,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -13067,7 +15025,9 @@ class $$ProductsTableTableManager
             bool wishlistProductsRefs,
             bool productReviewsRefs,
             bool productLikesRefs,
+            bool deliveriesRefs,
             bool chatMessagesRefs,
+            bool productUpdatesRefs,
           })
         > {
   $$ProductsTableTableManager(_$UzaDatabase db, $ProductsTable table)
@@ -13210,7 +15170,9 @@ class $$ProductsTableTableManager
                 wishlistProductsRefs = false,
                 productReviewsRefs = false,
                 productLikesRefs = false,
+                deliveriesRefs = false,
                 chatMessagesRefs = false,
+                productUpdatesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -13220,7 +15182,9 @@ class $$ProductsTableTableManager
                     if (wishlistProductsRefs) db.wishlistProducts,
                     if (productReviewsRefs) db.productReviews,
                     if (productLikesRefs) db.productLikes,
+                    if (deliveriesRefs) db.deliveries,
                     if (chatMessagesRefs) db.chatMessages,
+                    if (productUpdatesRefs) db.productUpdates,
                   ],
                   addJoins:
                       <
@@ -13374,6 +15338,27 @@ class $$ProductsTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (deliveriesRefs)
+                        await $_getPrefetchedData<
+                          Product,
+                          $ProductsTable,
+                          Delivery
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ProductsTableReferences
+                              ._deliveriesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ProductsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).deliveriesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.productId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                       if (chatMessagesRefs)
                         await $_getPrefetchedData<
                           Product,
@@ -13389,6 +15374,27 @@ class $$ProductsTableTableManager
                                 table,
                                 p0,
                               ).chatMessagesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.productId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (productUpdatesRefs)
+                        await $_getPrefetchedData<
+                          Product,
+                          $ProductsTable,
+                          ProductUpdate
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ProductsTableReferences
+                              ._productUpdatesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ProductsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).productUpdatesRefs,
                           referencedItemsForCurrentItem:
                               (item, referencedItems) => referencedItems.where(
                                 (e) => e.productId == item.id,
@@ -13423,7 +15429,9 @@ typedef $$ProductsTableProcessedTableManager =
         bool wishlistProductsRefs,
         bool productReviewsRefs,
         bool productLikesRefs,
+        bool deliveriesRefs,
         bool chatMessagesRefs,
+        bool productUpdatesRefs,
       })
     >;
 typedef $$StoriesTableCreateCompanionBuilder =
@@ -18131,6 +20139,642 @@ typedef $$OrdersTableProcessedTableManager =
       Order,
       PrefetchHooks Function({bool shopId})
     >;
+typedef $$DeliveriesTableCreateCompanionBuilder =
+    DeliveriesCompanion Function({
+      Value<int> id,
+      Value<String?> remoteId,
+      required int shopId,
+      required String buyerPhone,
+      Value<String?> buyerName,
+      Value<int?> productId,
+      Value<String> itemsJson,
+      Value<String> status,
+      Value<String?> deliveryAddress,
+      Value<String?> deliveryCommune,
+      Value<double?> latitude,
+      Value<double?> longitude,
+      Value<String> locationMode,
+      Value<String?> note,
+      Value<int> synced,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+    });
+typedef $$DeliveriesTableUpdateCompanionBuilder =
+    DeliveriesCompanion Function({
+      Value<int> id,
+      Value<String?> remoteId,
+      Value<int> shopId,
+      Value<String> buyerPhone,
+      Value<String?> buyerName,
+      Value<int?> productId,
+      Value<String> itemsJson,
+      Value<String> status,
+      Value<String?> deliveryAddress,
+      Value<String?> deliveryCommune,
+      Value<double?> latitude,
+      Value<double?> longitude,
+      Value<String> locationMode,
+      Value<String?> note,
+      Value<int> synced,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+    });
+
+final class $$DeliveriesTableReferences
+    extends BaseReferences<_$UzaDatabase, $DeliveriesTable, Delivery> {
+  $$DeliveriesTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $ShopsTable _shopIdTable(_$UzaDatabase db) => db.shops.createAlias(
+    $_aliasNameGenerator(db.deliveries.shopId, db.shops.id),
+  );
+
+  $$ShopsTableProcessedTableManager get shopId {
+    final $_column = $_itemColumn<int>('shop_id')!;
+
+    final manager = $$ShopsTableTableManager(
+      $_db,
+      $_db.shops,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_shopIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $ProductsTable _productIdTable(_$UzaDatabase db) =>
+      db.products.createAlias(
+        $_aliasNameGenerator(db.deliveries.productId, db.products.id),
+      );
+
+  $$ProductsTableProcessedTableManager? get productId {
+    final $_column = $_itemColumn<int>('product_id');
+    if ($_column == null) return null;
+    final manager = $$ProductsTableTableManager(
+      $_db,
+      $_db.products,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_productIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$DeliveriesTableFilterComposer
+    extends Composer<_$UzaDatabase, $DeliveriesTable> {
+  $$DeliveriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get remoteId => $composableBuilder(
+    column: $table.remoteId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get buyerPhone => $composableBuilder(
+    column: $table.buyerPhone,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get buyerName => $composableBuilder(
+    column: $table.buyerName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get itemsJson => $composableBuilder(
+    column: $table.itemsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deliveryAddress => $composableBuilder(
+    column: $table.deliveryAddress,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deliveryCommune => $composableBuilder(
+    column: $table.deliveryCommune,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get latitude => $composableBuilder(
+    column: $table.latitude,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get longitude => $composableBuilder(
+    column: $table.longitude,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get locationMode => $composableBuilder(
+    column: $table.locationMode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get note => $composableBuilder(
+    column: $table.note,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get synced => $composableBuilder(
+    column: $table.synced,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$ShopsTableFilterComposer get shopId {
+    final $$ShopsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableFilterComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ProductsTableFilterComposer get productId {
+    final $$ProductsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableFilterComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$DeliveriesTableOrderingComposer
+    extends Composer<_$UzaDatabase, $DeliveriesTable> {
+  $$DeliveriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get remoteId => $composableBuilder(
+    column: $table.remoteId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get buyerPhone => $composableBuilder(
+    column: $table.buyerPhone,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get buyerName => $composableBuilder(
+    column: $table.buyerName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get itemsJson => $composableBuilder(
+    column: $table.itemsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deliveryAddress => $composableBuilder(
+    column: $table.deliveryAddress,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deliveryCommune => $composableBuilder(
+    column: $table.deliveryCommune,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get latitude => $composableBuilder(
+    column: $table.latitude,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get longitude => $composableBuilder(
+    column: $table.longitude,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get locationMode => $composableBuilder(
+    column: $table.locationMode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get note => $composableBuilder(
+    column: $table.note,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get synced => $composableBuilder(
+    column: $table.synced,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$ShopsTableOrderingComposer get shopId {
+    final $$ShopsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableOrderingComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ProductsTableOrderingComposer get productId {
+    final $$ProductsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableOrderingComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$DeliveriesTableAnnotationComposer
+    extends Composer<_$UzaDatabase, $DeliveriesTable> {
+  $$DeliveriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get remoteId =>
+      $composableBuilder(column: $table.remoteId, builder: (column) => column);
+
+  GeneratedColumn<String> get buyerPhone => $composableBuilder(
+    column: $table.buyerPhone,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get buyerName =>
+      $composableBuilder(column: $table.buyerName, builder: (column) => column);
+
+  GeneratedColumn<String> get itemsJson =>
+      $composableBuilder(column: $table.itemsJson, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get deliveryAddress => $composableBuilder(
+    column: $table.deliveryAddress,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deliveryCommune => $composableBuilder(
+    column: $table.deliveryCommune,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get latitude =>
+      $composableBuilder(column: $table.latitude, builder: (column) => column);
+
+  GeneratedColumn<double> get longitude =>
+      $composableBuilder(column: $table.longitude, builder: (column) => column);
+
+  GeneratedColumn<String> get locationMode => $composableBuilder(
+    column: $table.locationMode,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get note =>
+      $composableBuilder(column: $table.note, builder: (column) => column);
+
+  GeneratedColumn<int> get synced =>
+      $composableBuilder(column: $table.synced, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$ShopsTableAnnotationComposer get shopId {
+    final $$ShopsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ProductsTableAnnotationComposer get productId {
+    final $$ProductsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$DeliveriesTableTableManager
+    extends
+        RootTableManager<
+          _$UzaDatabase,
+          $DeliveriesTable,
+          Delivery,
+          $$DeliveriesTableFilterComposer,
+          $$DeliveriesTableOrderingComposer,
+          $$DeliveriesTableAnnotationComposer,
+          $$DeliveriesTableCreateCompanionBuilder,
+          $$DeliveriesTableUpdateCompanionBuilder,
+          (Delivery, $$DeliveriesTableReferences),
+          Delivery,
+          PrefetchHooks Function({bool shopId, bool productId})
+        > {
+  $$DeliveriesTableTableManager(_$UzaDatabase db, $DeliveriesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DeliveriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DeliveriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DeliveriesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String?> remoteId = const Value.absent(),
+                Value<int> shopId = const Value.absent(),
+                Value<String> buyerPhone = const Value.absent(),
+                Value<String?> buyerName = const Value.absent(),
+                Value<int?> productId = const Value.absent(),
+                Value<String> itemsJson = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String?> deliveryAddress = const Value.absent(),
+                Value<String?> deliveryCommune = const Value.absent(),
+                Value<double?> latitude = const Value.absent(),
+                Value<double?> longitude = const Value.absent(),
+                Value<String> locationMode = const Value.absent(),
+                Value<String?> note = const Value.absent(),
+                Value<int> synced = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+              }) => DeliveriesCompanion(
+                id: id,
+                remoteId: remoteId,
+                shopId: shopId,
+                buyerPhone: buyerPhone,
+                buyerName: buyerName,
+                productId: productId,
+                itemsJson: itemsJson,
+                status: status,
+                deliveryAddress: deliveryAddress,
+                deliveryCommune: deliveryCommune,
+                latitude: latitude,
+                longitude: longitude,
+                locationMode: locationMode,
+                note: note,
+                synced: synced,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String?> remoteId = const Value.absent(),
+                required int shopId,
+                required String buyerPhone,
+                Value<String?> buyerName = const Value.absent(),
+                Value<int?> productId = const Value.absent(),
+                Value<String> itemsJson = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String?> deliveryAddress = const Value.absent(),
+                Value<String?> deliveryCommune = const Value.absent(),
+                Value<double?> latitude = const Value.absent(),
+                Value<double?> longitude = const Value.absent(),
+                Value<String> locationMode = const Value.absent(),
+                Value<String?> note = const Value.absent(),
+                Value<int> synced = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+              }) => DeliveriesCompanion.insert(
+                id: id,
+                remoteId: remoteId,
+                shopId: shopId,
+                buyerPhone: buyerPhone,
+                buyerName: buyerName,
+                productId: productId,
+                itemsJson: itemsJson,
+                status: status,
+                deliveryAddress: deliveryAddress,
+                deliveryCommune: deliveryCommune,
+                latitude: latitude,
+                longitude: longitude,
+                locationMode: locationMode,
+                note: note,
+                synced: synced,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$DeliveriesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({shopId = false, productId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (shopId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.shopId,
+                                referencedTable: $$DeliveriesTableReferences
+                                    ._shopIdTable(db),
+                                referencedColumn: $$DeliveriesTableReferences
+                                    ._shopIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+                    if (productId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.productId,
+                                referencedTable: $$DeliveriesTableReferences
+                                    ._productIdTable(db),
+                                referencedColumn: $$DeliveriesTableReferences
+                                    ._productIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$DeliveriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$UzaDatabase,
+      $DeliveriesTable,
+      Delivery,
+      $$DeliveriesTableFilterComposer,
+      $$DeliveriesTableOrderingComposer,
+      $$DeliveriesTableAnnotationComposer,
+      $$DeliveriesTableCreateCompanionBuilder,
+      $$DeliveriesTableUpdateCompanionBuilder,
+      (Delivery, $$DeliveriesTableReferences),
+      Delivery,
+      PrefetchHooks Function({bool shopId, bool productId})
+    >;
 typedef $$ChatMessagesTableCreateCompanionBuilder =
     ChatMessagesCompanion Function({
       Value<int> id,
@@ -18592,6 +21236,513 @@ typedef $$ChatMessagesTableProcessedTableManager =
       ChatMessage,
       PrefetchHooks Function({bool shopId, bool productId})
     >;
+typedef $$ProductUpdatesTableCreateCompanionBuilder =
+    ProductUpdatesCompanion Function({
+      Value<int> id,
+      Value<String?> remoteId,
+      required int productId,
+      required int shopId,
+      required String updateType,
+      Value<String?> message,
+      required String productName,
+      required String shopName,
+      Value<int> synced,
+      Value<DateTime> createdAt,
+    });
+typedef $$ProductUpdatesTableUpdateCompanionBuilder =
+    ProductUpdatesCompanion Function({
+      Value<int> id,
+      Value<String?> remoteId,
+      Value<int> productId,
+      Value<int> shopId,
+      Value<String> updateType,
+      Value<String?> message,
+      Value<String> productName,
+      Value<String> shopName,
+      Value<int> synced,
+      Value<DateTime> createdAt,
+    });
+
+final class $$ProductUpdatesTableReferences
+    extends BaseReferences<_$UzaDatabase, $ProductUpdatesTable, ProductUpdate> {
+  $$ProductUpdatesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $ProductsTable _productIdTable(_$UzaDatabase db) =>
+      db.products.createAlias(
+        $_aliasNameGenerator(db.productUpdates.productId, db.products.id),
+      );
+
+  $$ProductsTableProcessedTableManager get productId {
+    final $_column = $_itemColumn<int>('product_id')!;
+
+    final manager = $$ProductsTableTableManager(
+      $_db,
+      $_db.products,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_productIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $ShopsTable _shopIdTable(_$UzaDatabase db) => db.shops.createAlias(
+    $_aliasNameGenerator(db.productUpdates.shopId, db.shops.id),
+  );
+
+  $$ShopsTableProcessedTableManager get shopId {
+    final $_column = $_itemColumn<int>('shop_id')!;
+
+    final manager = $$ShopsTableTableManager(
+      $_db,
+      $_db.shops,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_shopIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$ProductUpdatesTableFilterComposer
+    extends Composer<_$UzaDatabase, $ProductUpdatesTable> {
+  $$ProductUpdatesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get remoteId => $composableBuilder(
+    column: $table.remoteId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updateType => $composableBuilder(
+    column: $table.updateType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get message => $composableBuilder(
+    column: $table.message,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get productName => $composableBuilder(
+    column: $table.productName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get shopName => $composableBuilder(
+    column: $table.shopName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get synced => $composableBuilder(
+    column: $table.synced,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$ProductsTableFilterComposer get productId {
+    final $$ProductsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableFilterComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ShopsTableFilterComposer get shopId {
+    final $$ShopsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableFilterComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ProductUpdatesTableOrderingComposer
+    extends Composer<_$UzaDatabase, $ProductUpdatesTable> {
+  $$ProductUpdatesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get remoteId => $composableBuilder(
+    column: $table.remoteId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updateType => $composableBuilder(
+    column: $table.updateType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get message => $composableBuilder(
+    column: $table.message,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get productName => $composableBuilder(
+    column: $table.productName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get shopName => $composableBuilder(
+    column: $table.shopName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get synced => $composableBuilder(
+    column: $table.synced,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$ProductsTableOrderingComposer get productId {
+    final $$ProductsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableOrderingComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ShopsTableOrderingComposer get shopId {
+    final $$ShopsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableOrderingComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ProductUpdatesTableAnnotationComposer
+    extends Composer<_$UzaDatabase, $ProductUpdatesTable> {
+  $$ProductUpdatesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get remoteId =>
+      $composableBuilder(column: $table.remoteId, builder: (column) => column);
+
+  GeneratedColumn<String> get updateType => $composableBuilder(
+    column: $table.updateType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get message =>
+      $composableBuilder(column: $table.message, builder: (column) => column);
+
+  GeneratedColumn<String> get productName => $composableBuilder(
+    column: $table.productName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get shopName =>
+      $composableBuilder(column: $table.shopName, builder: (column) => column);
+
+  GeneratedColumn<int> get synced =>
+      $composableBuilder(column: $table.synced, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$ProductsTableAnnotationComposer get productId {
+    final $$ProductsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.productId,
+      referencedTable: $db.products,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProductsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.products,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ShopsTableAnnotationComposer get shopId {
+    final $$ShopsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.shopId,
+      referencedTable: $db.shops,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShopsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.shops,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ProductUpdatesTableTableManager
+    extends
+        RootTableManager<
+          _$UzaDatabase,
+          $ProductUpdatesTable,
+          ProductUpdate,
+          $$ProductUpdatesTableFilterComposer,
+          $$ProductUpdatesTableOrderingComposer,
+          $$ProductUpdatesTableAnnotationComposer,
+          $$ProductUpdatesTableCreateCompanionBuilder,
+          $$ProductUpdatesTableUpdateCompanionBuilder,
+          (ProductUpdate, $$ProductUpdatesTableReferences),
+          ProductUpdate,
+          PrefetchHooks Function({bool productId, bool shopId})
+        > {
+  $$ProductUpdatesTableTableManager(
+    _$UzaDatabase db,
+    $ProductUpdatesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ProductUpdatesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ProductUpdatesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ProductUpdatesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String?> remoteId = const Value.absent(),
+                Value<int> productId = const Value.absent(),
+                Value<int> shopId = const Value.absent(),
+                Value<String> updateType = const Value.absent(),
+                Value<String?> message = const Value.absent(),
+                Value<String> productName = const Value.absent(),
+                Value<String> shopName = const Value.absent(),
+                Value<int> synced = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => ProductUpdatesCompanion(
+                id: id,
+                remoteId: remoteId,
+                productId: productId,
+                shopId: shopId,
+                updateType: updateType,
+                message: message,
+                productName: productName,
+                shopName: shopName,
+                synced: synced,
+                createdAt: createdAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String?> remoteId = const Value.absent(),
+                required int productId,
+                required int shopId,
+                required String updateType,
+                Value<String?> message = const Value.absent(),
+                required String productName,
+                required String shopName,
+                Value<int> synced = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => ProductUpdatesCompanion.insert(
+                id: id,
+                remoteId: remoteId,
+                productId: productId,
+                shopId: shopId,
+                updateType: updateType,
+                message: message,
+                productName: productName,
+                shopName: shopName,
+                synced: synced,
+                createdAt: createdAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$ProductUpdatesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({productId = false, shopId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (productId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.productId,
+                                referencedTable: $$ProductUpdatesTableReferences
+                                    ._productIdTable(db),
+                                referencedColumn:
+                                    $$ProductUpdatesTableReferences
+                                        ._productIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
+                    if (shopId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.shopId,
+                                referencedTable: $$ProductUpdatesTableReferences
+                                    ._shopIdTable(db),
+                                referencedColumn:
+                                    $$ProductUpdatesTableReferences
+                                        ._shopIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$ProductUpdatesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$UzaDatabase,
+      $ProductUpdatesTable,
+      ProductUpdate,
+      $$ProductUpdatesTableFilterComposer,
+      $$ProductUpdatesTableOrderingComposer,
+      $$ProductUpdatesTableAnnotationComposer,
+      $$ProductUpdatesTableCreateCompanionBuilder,
+      $$ProductUpdatesTableUpdateCompanionBuilder,
+      (ProductUpdate, $$ProductUpdatesTableReferences),
+      ProductUpdate,
+      PrefetchHooks Function({bool productId, bool shopId})
+    >;
 
 class $UzaDatabaseManager {
   final _$UzaDatabase _db;
@@ -18632,6 +21783,10 @@ class $UzaDatabaseManager {
       $$ShopFollowsTableTableManager(_db, _db.shopFollows);
   $$OrdersTableTableManager get orders =>
       $$OrdersTableTableManager(_db, _db.orders);
+  $$DeliveriesTableTableManager get deliveries =>
+      $$DeliveriesTableTableManager(_db, _db.deliveries);
   $$ChatMessagesTableTableManager get chatMessages =>
       $$ChatMessagesTableTableManager(_db, _db.chatMessages);
+  $$ProductUpdatesTableTableManager get productUpdates =>
+      $$ProductUpdatesTableTableManager(_db, _db.productUpdates);
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
 
 /// Predefined report reasons for the DRC marketplace.
 const _reportReasons = [
@@ -76,8 +77,8 @@ class _ReportDialogState extends State<ReportDialog> {
         final scaffoldMessenger = ScaffoldMessenger.of(context);
         navigator.pop();
         scaffoldMessenger.showSnackBar(
-          const SnackBar(
-            content: Text('Signalement envoyé. Merci pour votre aide.'),
+          SnackBar(
+            content: Text(tr(context, 'report_sent')),
             backgroundColor: Color(0xFF019C94),
             duration: Duration(seconds: 3),
           ),
@@ -86,8 +87,8 @@ class _ReportDialogState extends State<ReportDialog> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erreur lors de l\'envoi du signalement.'),
+          SnackBar(
+            content: Text(tr(context, 'report_error')),
             backgroundColor: Colors.red,
           ),
         );
@@ -102,7 +103,7 @@ class _ReportDialogState extends State<ReportDialog> {
     final theme = Theme.of(context);
 
     return AlertDialog(
-      title: const Text('Signaler ce produit'),
+      title: Text(tr(context, 'report_product')),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -117,7 +118,7 @@ class _ReportDialogState extends State<ReportDialog> {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 16),
-            Text('Raison du signalement', style: theme.textTheme.labelMedium),
+            Text(tr(context, 'report_reason'), style: theme.textTheme.labelMedium),
             const SizedBox(height: 8),
             RadioGroup<String>(
               groupValue: _selectedReason,
@@ -157,7 +158,7 @@ class _ReportDialogState extends State<ReportDialog> {
       actions: [
         TextButton(
           onPressed: _submitting ? null : () => Navigator.of(context).pop(),
-          child: const Text('Annuler'),
+          child: Text(tr(context, 'cancel')),
         ),
         FilledButton(
           onPressed: _selectedReason == null || _submitting ? null : _submit,
@@ -173,7 +174,7 @@ class _ReportDialogState extends State<ReportDialog> {
                     color: Colors.white,
                   ),
                 )
-              : const Text('Envoyer'),
+              : Text(tr(context, 'send')),
         ),
       ],
     );

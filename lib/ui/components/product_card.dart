@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
-import '../../data/local/uza_database.dart';
-import '../../data/repositories/shop_repository.dart';
-import '../../data/repositories/product_repository.dart';
-import '../../core/utils/image_utils.dart';
+import '../../core/l10n/tr.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/utils/image_utils.dart';
+import '../../core/utils/product_price_utils.dart';
 import '../../core/utils/product_promo_utils.dart';
+import '../../data/local/uza_database.dart';
+import '../../data/repositories/product_repository.dart';
+import 'condition_badge.dart';
+import 'uza_badge.dart';
 
 class ProductCard extends StatefulWidget {
   final Product product;
@@ -35,8 +38,10 @@ class _ProductCardState extends State<ProductCard> {
 
   @override
   Widget build(BuildContext context) {
-    final shopRepo = context.read<ShopRepository>();
     final productRepo = context.read<ProductRepository>();
+    final scheme = Theme.of(context).colorScheme;
+    final onSurface = UzaColors.onSurface(context);
+    final onSurfaceSecondary = UzaColors.onSurfaceSecondary(context);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -50,8 +55,8 @@ class _ProductCardState extends State<ProductCard> {
           duration: const Duration(milliseconds: 200),
           margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            color: UzaColors.surfaceOf(context),
+            borderRadius: BorderRadius.circular(UzaColors.radiusSm),
             boxShadow: [
               BoxShadow(
                 color: _isHovered
@@ -64,7 +69,7 @@ class _ProductCardState extends State<ProductCard> {
           ),
           child: InkWell(
             onTap: widget.onTap,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(UzaColors.radiusSm),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -72,7 +77,7 @@ class _ProductCardState extends State<ProductCard> {
                   children: [
                     ClipRRect(
                       borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(12),
+                        top: Radius.circular(UzaColors.radiusSm),
                       ),
                       child: Hero(
                         tag: 'product_card_${widget.product.id}',
@@ -87,63 +92,83 @@ class _ProductCardState extends State<ProductCard> {
                         ),
                       ),
                     ),
-                    // Top Badges
                     if (widget.product.isArrival)
                       Positioned(
-                        top: 12,
-                        left: 12,
-                        child: _buildBadge('NOUVEAU', UzaColors.secondary),
+                        top: 8,
+                        left: 8,
+                        child: UzaBadge(
+                          label: tr(context, 'badge_new'),
+                          color: UzaColors.secondary,
+                        ),
                       ),
                     if (ProductPromoUtils.isFlashProduct(widget.product))
                       Positioned(
-                        top: 12,
-                        left: widget.product.isArrival ? 90 : 12,
-                        child: _buildBadge('PROMO', Colors.red,
-                            icon: Icons.local_offer),
+                        top: 8,
+                        left: widget.product.isArrival ? 78 : 8,
+                        child: UzaBadge(
+                          label: tr(context, 'badge_promo'),
+                          color: Colors.red,
+                          icon: Icons.local_offer,
+                        ),
                       ),
                     if (widget.product.viewsCount > 50)
                       Positioned(
-                        top: 12,
-                        right: 44,
-                        child: _buildBadge(
-                          'TRÈS DEMANDÉ',
-                          Colors.orange,
+                        top: 8,
+                        right: 48,
+                        child: UzaBadge(
+                          label: tr(context, 'badge_high_demand'),
+                          color: Colors.orange,
                           icon: FontAwesomeIcons.fire,
                         ),
                       ),
-                    // Top Right: Favorite Heart (always visible, subtle)
                     Positioned(
-                      top: 10,
-                      right: 10,
+                      top: 6,
+                      right: 6,
                       child: StreamBuilder<bool>(
-                        stream: productRepo.watchIsInWishlist(
-                          widget.product.id,
-                        ),
+                        stream: productRepo.watchIsInWishlist(widget.product.id),
                         builder: (context, snapshot) {
                           final isSaved = snapshot.data ?? false;
-                          return GestureDetector(
-                            onTap: () =>
-                                productRepo.toggleWishlist(widget.product.id),
-                            child: Container(
-                              width: 26,
-                              height: 26,
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.35),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                isSaved
-                                    ? Icons.favorite
-                                    : Icons.favorite_border,
-                                size: 13,
-                                color: isSaved ? Colors.red : Colors.white,
+                          return Semantics(
+                            label: tr(context, 'wishlist'),
+                            button: true,
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => productRepo.toggleWishlist(
+                                  widget.product.id,
+                                ),
+                                customBorder: const CircleBorder(),
+                                child: SizedBox(
+                                  width: 44,
+                                  height: 44,
+                                  child: Center(
+                                    child: Container(
+                                      width: 28,
+                                      height: 28,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        isSaved
+                                            ? Icons.favorite
+                                            : Icons.favorite_border,
+                                        size: 14,
+                                        color: isSaved
+                                            ? Colors.red
+                                            : Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           );
                         },
                       ),
                     ),
-                    // Bottom Left: Views Badge (subtle)
                     Positioned(
                       bottom: 8,
                       left: 8,
@@ -162,14 +187,14 @@ class _ProductCardState extends State<ProductCard> {
                             const Icon(
                               Icons.visibility,
                               color: Colors.white,
-                              size: 10,
+                              size: 11,
                             ),
                             const SizedBox(width: 3),
                             Text(
                               '${widget.product.viewsCount}',
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 9,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -179,31 +204,43 @@ class _ProductCardState extends State<ProductCard> {
                     ),
                   ],
                 ),
-                // Info Section
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.product.name.toUpperCase(),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 8.5,
-                          letterSpacing: 0.2,
+                        widget.product.name,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: onSurface,
+                          height: 1.2,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      const SizedBox(height: 4),
+                      Text(
+                        ProductPriceUtils.displayLabel(widget.product),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: ProductPriceUtils.hasVisiblePrice(
+                            widget.product,
+                          )
+                              ? scheme.primary
+                              : onSurfaceSecondary,
+                        ),
+                      ),
                       if (widget.condition != null &&
                           widget.condition != 'new') ...[
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 4),
                         ConditionBadge(condition: widget.condition),
                       ],
-                      const SizedBox(height: 2),
-                      // Shop Name (subtle, no logo)
+                      const SizedBox(height: 4),
                       FutureBuilder<Shop?>(
-                        future: shopRepo.getShopById(widget.product.shopId),
+                        future: productRepo.resolveShopForProduct(widget.product),
                         builder: (context, snapshot) {
                           final shop = snapshot.data;
                           if (shop == null || shop.name.isEmpty) {
@@ -219,8 +256,8 @@ class _ProductCardState extends State<ProductCard> {
                                     child: Text(
                                       shop.name,
                                       style: TextStyle(
-                                        color: Colors.grey[500],
-                                        fontSize: 7.5,
+                                        color: onSurfaceSecondary,
+                                        fontSize: 11,
                                         fontWeight: FontWeight.w500,
                                       ),
                                       maxLines: 1,
@@ -233,15 +270,15 @@ class _ProductCardState extends State<ProductCard> {
                                       children: [
                                         Icon(
                                           Icons.location_on,
-                                          size: 10,
-                                          color: UzaColors.primary,
+                                          size: 12,
+                                          color: scheme.primary,
                                         ),
                                         const SizedBox(width: 2),
                                         Text(
                                           '~${_formatDistance(widget.distanceKm!)}',
                                           style: TextStyle(
-                                            color: UzaColors.primary,
-                                            fontSize: 8,
+                                            color: scheme.primary,
+                                            fontSize: 11,
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
@@ -253,8 +290,10 @@ class _ProductCardState extends State<ProductCard> {
                                 Text(
                                   address,
                                   style: TextStyle(
-                                    color: Colors.grey[400],
-                                    fontSize: 7,
+                                    color: onSurfaceSecondary.withValues(
+                                      alpha: 0.75,
+                                    ),
+                                    fontSize: 10,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -282,40 +321,5 @@ class _ProductCardState extends State<ProductCard> {
       return '${km.toStringAsFixed(1)} km';
     }
     return '${km.round()} km';
-  }
-
-  Widget _buildBadge(String label, Color color, {IconData? icon}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, color: Colors.white, size: 12),
-            const SizedBox(width: 6),
-          ],
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

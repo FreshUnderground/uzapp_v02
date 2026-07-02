@@ -9,17 +9,26 @@ import '../components/search_delegate.dart';
 import '../components/search_filters.dart';
 import '../components/staggered_list.dart';
 import '../components/custom_refresh_indicator.dart';
-import '../../core/res/uza_colors.dart';
+import '../../core/l10n/tr.dart';
+import '../components/home_discovery_sections.dart';
+import '../components/animated_bottom_nav.dart';
+import '../components/uza_search_bar.dart';
+import '../components/responsive_layout.dart';
+import '../components/uza_secondary_app_bar.dart';
+import '../../core/router/app_nav_utils.dart';
 import 'product_detail_screen.dart';
 import 'product_scanner_screen.dart';
+import '../../core/res/uza_colors.dart';
 
 class SearchScreen extends StatefulWidget {
   final bool showAppBar;
+  final bool showBottomNav;
   final int? initialCategoryId;
   final String? initialCategoryName;
   const SearchScreen({
     super.key,
     this.showAppBar = false,
+    this.showBottomNav = true,
     this.initialCategoryId,
     this.initialCategoryName,
   });
@@ -88,11 +97,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!serviceEnabled) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Activez la localisation pour utiliser cette fonction.',
-              ),
-            ),
+            SnackBar(content: Text(tr(context, 'location_enable'))),
           );
         }
         setState(() {
@@ -109,9 +114,7 @@ class _SearchScreenState extends State<SearchScreen> {
           permission == LocationPermission.deniedForever) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Permission de localisation refusee.'),
-            ),
+            SnackBar(content: Text(tr(context, 'location_denied'))),
           );
         }
         setState(() {
@@ -134,7 +137,7 @@ class _SearchScreenState extends State<SearchScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erreur de localisation.')),
+          SnackBar(content: Text(tr(context, 'location_error'))),
         );
         setState(() {
           _locationLoading = false;
@@ -156,6 +159,14 @@ class _SearchScreenState extends State<SearchScreen> {
       case SortBy.relevance:
         return 'relevance';
     }
+  }
+
+  int _searchGridColumns(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (ResponsiveLayout.isDesktop(context)) {
+      return width >= 1400 ? 5 : 4;
+    }
+    return 2;
   }
 
   @override
@@ -182,42 +193,14 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: InkWell(
+                      child: UzaSearchBar(
                         onTap: () async {
                           showSearch(
                             context: context,
                             delegate: ProductSearchDelegate(productRepo),
                           );
                         },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.grey[300]!,
-                              width: 0.5,
-                            ),
-                          ),
-                          child: const Row(
-                            children: [
-                              Icon(
-                                Icons.search,
-                                color: UzaColors.textSecondary,
-                              ),
-                              SizedBox(width: 12),
-                              Text(
-                                'Rechercher...',
-                                style: TextStyle(
-                                  color: UzaColors.textSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        variant: UzaSearchBarVariant.hero,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -254,6 +237,11 @@ class _SearchScreenState extends State<SearchScreen> {
                   ],
                 ),
               ),
+            ),
+
+            // ─── Tes vendeurs & zone (masqué par défaut) ─────────
+            const SliverToBoxAdapter(
+              child: HomeDiscoverySections(),
             ),
 
             // ─── Category Chips (scrollable) ─────────────────────
@@ -385,7 +373,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                 _filterState = const SearchFilterState();
                                 _refreshKey++;
                               }),
-                              child: const Text('Reinitialiser'),
+                              child: Text(tr(context, 'reset_filters')),
                             ),
                         ],
                       ),
@@ -440,13 +428,21 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
     );
 
-    if (widget.showAppBar) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('RECHERCHE')),
+    return UzaBackScope(
+      child: Scaffold(
+        extendBody: true,
+        appBar: widget.showAppBar
+            ? UzaSecondaryAppBar(title: tr(context, 'search_title'))
+            : null,
         body: content,
-      );
-    }
-    return content;
+        bottomNavigationBar: widget.showBottomNav
+            ? AnimatedBottomNav(
+                currentIndex: 0,
+                onTap: (index) => AppNavUtils.navigateToTab(context, index),
+              )
+            : null,
+      ),
+    );
   }
 
   // ─── Category Chips ──────────────────────────────────────────────
@@ -465,7 +461,7 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
         selectedColor: UzaColors.primary,
         labelStyle: TextStyle(
-          color: isSelected ? Colors.white : UzaColors.textPrimary,
+          color: isSelected ? Colors.white : UzaColors.onSurface(context),
           fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
           fontSize: 12,
         ),
@@ -676,7 +672,7 @@ class _SearchScreenState extends State<SearchScreen> {
               const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: _requestLocation,
-                child: const Text('Autoriser la localisation'),
+                child: Text(tr(context, 'allow_location')),
               ),
             ],
           ),
@@ -732,7 +728,6 @@ class _SearchScreenState extends State<SearchScreen> {
 
           final products = results.map((r) => r.$1).toList();
           final distances = {for (final r in results) r.$1.id: r.$2};
-          final screenWidth = MediaQuery.of(context).size.width;
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -778,12 +773,9 @@ class _SearchScreenState extends State<SearchScreen> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: screenWidth > 1200
-                        ? 5
-                        : screenWidth > 800
-                        ? 3
-                        : 2,
-                    childAspectRatio: screenWidth > 700 ? 0.75 : 0.86,
+                    crossAxisCount: _searchGridColumns(context),
+                    childAspectRatio:
+                        ResponsiveLayout.isDesktop(context) ? 0.72 : 0.76,
                     crossAxisSpacing: 16,
                     mainAxisSpacing: 16,
                   ),

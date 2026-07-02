@@ -8,7 +8,8 @@ import '../../core/l10n/tr.dart';
 import '../../core/utils/image_utils.dart';
 
 import 'edit_product_screen.dart';
-import 'seller_dashboard_screen.dart';
+import 'update_product_screen.dart';
+import 'shop_stats_screen.dart';
 
 import '../components/async_content.dart';
 import '../components/custom_refresh_indicator.dart';
@@ -16,9 +17,29 @@ import '../components/empty_state.dart';
 import '../components/responsive_layout.dart';
 import '../components/skeletons.dart';
 
-class ManageProductsScreen extends StatelessWidget {
+class ManageProductsScreen extends StatefulWidget {
   final int shopId;
   const ManageProductsScreen({super.key, required this.shopId});
+
+  @override
+  State<ManageProductsScreen> createState() => _ManageProductsScreenState();
+}
+
+class _ManageProductsScreenState extends State<ManageProductsScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,15 +47,30 @@ class ManageProductsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mes Produits'),
+        title: Text(tr(context, 'my_products')),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: [
+            Tab(
+              height: 48,
+              icon: const Icon(Icons.format_list_bulleted, size: 20),
+              text: tr(context, 'products_view_list'),
+            ),
+            Tab(
+              height: 48,
+              icon: const Icon(Icons.view_carousel_outlined, size: 20),
+              text: tr(context, 'gallery'),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.bar_chart_rounded),
-            tooltip: 'Tableau de bord',
+            tooltip: tr(context, 'show_stats'),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => SellerDashboardScreen(shopId: shopId),
+                builder: (_) => ShopStatsScreen(shopId: widget.shopId),
               ),
             ),
           ),
@@ -45,18 +81,37 @@ class ManageProductsScreen extends StatelessWidget {
           await context.read<SyncService>().syncNow();
         },
         child: StreamBuilder<List<Product>>(
-          stream: productRepo.watchProductsByShop(shopId),
+          stream: productRepo.watchProductsByShop(widget.shopId),
           builder: (context, snapshot) {
             return AsyncContent<List<Product>>(
               snapshot: snapshot,
-              loading: ListView.builder(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                itemCount: 4,
-                itemBuilder: (_, __) => const Padding(
-                  padding: EdgeInsets.only(bottom: 16),
-                  child: ProductCardSkeleton(),
-                ),
+              loading: TabBarView(
+                controller: _tabController,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: 4,
+                    itemBuilder: (_, _) => const Padding(
+                      padding: EdgeInsets.only(bottom: 16),
+                      child: ProductCardSkeleton(),
+                    ),
+                  ),
+                  ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: 3,
+                    itemBuilder: (_, _) => const Padding(
+                      padding: EdgeInsets.only(right: 16),
+                      child: SizedBox(
+                        width: 260,
+                        child: ProductCardSkeleton(),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               isEmpty: (products) => products.isEmpty,
               empty: () => ListView(
@@ -76,31 +131,13 @@ class ManageProductsScreen extends StatelessWidget {
                 ],
               ),
               builder: (products) {
-                return ResponsiveLayout(
-                  mobile: ListView.separated(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
-                    itemCount: products.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 16),
-                    itemBuilder: (context, index) {
-                      return _ProductManagementCard(product: products[index]);
-                    },
-                  ),
-                  desktop: GridView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(32),
-                    gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 450,
-                      mainAxisExtent: 140,
-                      crossAxisSpacing: 24,
-                      mainAxisSpacing: 24,
-                    ),
-                    itemCount: products.length,
-                    itemBuilder: (context, index) {
-                      return _ProductManagementCard(product: products[index]);
-                    },
-                  ),
+                return TabBarView(
+                  controller: _tabController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    _VerticalProductsList(products: products),
+                    _HorizontalProductsList(products: products),
+                  ],
                 );
               },
             );
@@ -110,10 +147,257 @@ class ManageProductsScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton(
         onPressed: () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => EditProductScreen(shopId: shopId)),
+          MaterialPageRoute(
+            builder: (_) => EditProductScreen(shopId: widget.shopId),
+          ),
         ),
         backgroundColor: UzaColors.primary,
         child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class _VerticalProductsList extends StatelessWidget {
+  final List<Product> products;
+
+  const _VerticalProductsList({required this.products});
+
+  @override
+  Widget build(BuildContext context) {
+    return ResponsiveLayout(
+      mobile: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        itemCount: products.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 16),
+        itemBuilder: (context, index) {
+          return _ProductManagementCard(product: products[index]);
+        },
+      ),
+      desktop: GridView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(32),
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 450,
+          mainAxisExtent: 140,
+          crossAxisSpacing: 24,
+          mainAxisSpacing: 24,
+        ),
+        itemCount: products.length,
+        itemBuilder: (context, index) {
+          return _ProductManagementCard(product: products[index]);
+        },
+      ),
+    );
+  }
+}
+
+class _HorizontalProductsList extends StatelessWidget {
+  final List<Product> products;
+
+  const _HorizontalProductsList({required this.products});
+
+  @override
+  Widget build(BuildContext context) {
+    final cardWidth = (MediaQuery.of(context).size.width * 0.72).clamp(240.0, 320.0);
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+      itemCount: products.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 14),
+      itemBuilder: (context, index) {
+        return SizedBox(
+          width: cardWidth,
+          child: _ProductHorizontalCard(product: products[index]),
+        );
+      },
+    );
+  }
+}
+
+class _ProductHorizontalCard extends StatelessWidget {
+  final Product product;
+
+  const _ProductHorizontalCard({required this.product});
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: product.isSold ? 0.55 : 1.0,
+      child: Card(
+        elevation: 0,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.grey[200]!),
+        ),
+        child: InkWell(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => EditProductScreen(
+                shopId: product.shopId,
+                product: product,
+              ),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ImageUtils.buildCachedFirstProductImage(
+                      product.imageUrls,
+                      fit: BoxFit.cover,
+                    ),
+                    if (product.isSold)
+                      Container(
+                        color: Colors.black38,
+                        alignment: Alignment.center,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'VENDU',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${product.price} \$',
+                      style: const TextStyle(
+                        color: UzaColors.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _ProductMetricsRow(productId: product.id),
+                    const SizedBox(height: 6),
+                    _StockBadge(product: product),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            product.isSold ? Icons.refresh : Icons.check_circle,
+                            color: product.isSold ? Colors.orange : Colors.green,
+                            size: 22,
+                          ),
+                          tooltip: product.isSold
+                              ? 'Remettre en vente'
+                              : 'Marquer vendu',
+                          onPressed: () {
+                            final repo = context.read<ProductRepository>();
+                            if (product.isSold) {
+                              repo.markProductAsAvailable(product.id);
+                            } else {
+                              repo.markProductAsSold(product.id);
+                            }
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.update_rounded, size: 22),
+                          color: const Color(0xFF0984E3),
+                          tooltip: 'Mettre à jour le produit',
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => UpdateProductScreen(
+                                shopId: product.shopId,
+                                product: product,
+                              ),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 22),
+                          tooltip: 'Modifier',
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => EditProductScreen(
+                                shopId: product.shopId,
+                                product: product,
+                              ),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                            size: 22,
+                          ),
+                          onPressed: () => _confirmDelete(context),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'delete_confirm_title')),
+        content: Text(tr(context, 'delete_product_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr(context, 'cancel')),
+          ),
+          TextButton(
+            onPressed: () async {
+              final repo = context.read<ProductRepository>();
+              final syncService = context.read<SyncService>();
+              Navigator.pop(context);
+              await repo.deleteProductWithSync(product.id);
+              await syncService.forcePush();
+            },
+            child: Text(tr(context, 'delete'), style: TextStyle(color: Colors.red)),
+          ),
+        ],
       ),
     );
   }
@@ -257,12 +541,12 @@ class _ProductManagementCard extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Supprimer ?'),
-        content: const Text('Voulez-vous vraiment supprimer ce produit ?'),
+        title: Text(tr(context, 'delete_confirm_title')),
+        content: Text(tr(context, 'delete_product_confirm')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
+            child: Text(tr(context, 'cancel')),
           ),
           TextButton(
             onPressed: () async {
@@ -272,7 +556,7 @@ class _ProductManagementCard extends StatelessWidget {
               await repo.deleteProductWithSync(product.id);
               await syncService.forcePush();
             },
-            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+            child: Text(tr(context, 'delete'), style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -320,14 +604,14 @@ class _ProductMetricsRowState extends State<_ProductMetricsRow> {
         Icon(
           Icons.visibility_outlined,
           size: 12,
-          color: UzaColors.textSecondary,
+          color: UzaColors.onSurfaceSecondary(context),
         ),
         const SizedBox(width: 2),
         Text(
           '$views',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
-            color: UzaColors.textSecondary,
+            color: UzaColors.onSurfaceSecondary(context),
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -335,14 +619,14 @@ class _ProductMetricsRowState extends State<_ProductMetricsRow> {
         Icon(
           Icons.phone_android_rounded,
           size: 12,
-          color: UzaColors.textSecondary,
+          color: UzaColors.onSurfaceSecondary(context),
         ),
         const SizedBox(width: 2),
         Text(
           '$contacts',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
-            color: UzaColors.textSecondary,
+            color: UzaColors.onSurfaceSecondary(context),
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -388,7 +672,7 @@ class _StockBadge extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Mettre à jour le stock'),
+        title: Text(tr(context, 'update_stock')),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
@@ -397,7 +681,7 @@ class _StockBadge extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
+            child: Text(tr(context, 'cancel')),
           ),
           ElevatedButton(
             onPressed: () {
@@ -408,7 +692,7 @@ class _StockBadge extends StatelessWidget {
               );
               Navigator.pop(context);
             },
-            child: const Text('Enregistrer'),
+            child: Text(tr(context, 'register')),
           ),
         ],
       ),

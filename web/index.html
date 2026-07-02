@@ -17,10 +17,7 @@
   <meta name="keywords" content="commerce, local, boutiques, produits, uzaapp, achat, vente">
   <meta name="theme-color" content="#FE3E00">
 
-  <!-- Force no cache for always getting latest version -->
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
+  <!-- Cache: rely on service worker + APP_VERSION bump instead of no-store (slow SW boot). -->
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
@@ -59,7 +56,7 @@
 
   <!-- Version Control & Force Update System -->
   <script>
-    const APP_VERSION = "2.0.3";
+    const APP_VERSION = "2.0.9";
     const STORAGE_VERSION_KEY = "uzaapp_version";
 
     // Check for old version
@@ -215,23 +212,6 @@
     });
   </script>
 
-  <!-- iOS PWA Installation Popup -->
-  <div id="iosInstallPopup" class="ios-popup" style="display:none;">
-    <div class="popup-content">
-      <h2>Installer Uzaapp</h2>
-      <div class="step">
-        <div class="icon">⬆️</div>
-        <p>1. Cliquez sur le bouton <b>Partager</b> dans Safari</p>
-      </div>
-      <div class="arrow">↓</div>
-      <div class="step">
-        <div class="icon">➕</div>
-        <p>2. Cliquez sur <b>Ajouter à l'écran d'accueil</b></p>
-      </div>
-      <button onclick="closePopup()">Continuer</button>
-    </div>
-  </div>
-
   <script>
     window.addEventListener('load', function() {
       if (typeof initSqlJs !== 'undefined') {
@@ -287,32 +267,6 @@
       console.log('PWA: App is already installed and running in standalone mode');
     }
 
-    // iOS Installation Popup Logic
-    function isIos() {
-      return /iphone|ipad|ipod/i.test(navigator.userAgent);
-    }
-
-    function isInStandaloneMode() {
-      return ('standalone' in window.navigator) && window.navigator.standalone;
-    }
-
-    // Show iOS install popup only on iPhone Safari
-    if (isIos() && !isInStandaloneMode()) {
-      setTimeout(() => {
-        document.getElementById('iosInstallPopup').style.display = 'flex';
-      }, 2000);
-    }
-
-    function closePopup() {
-      document.getElementById('iosInstallPopup').style.display = 'none';
-      // Optionally save to localStorage to not show again
-      localStorage.setItem('iosPopupDismissed', 'true');
-    }
-
-    // Check if user previously dismissed the popup
-    if (localStorage.getItem('iosPopupDismissed') === 'true') {
-      document.getElementById('iosInstallPopup').style.display = 'none';
-    }
   </script>
   <style>
     body {
@@ -339,85 +293,6 @@
     }
     @keyframes spin {
       to { transform: rotate(360deg); }
-    }
-
-    /* iOS Installation Popup Styles */
-    .ios-popup {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.7);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      z-index: 99999;
-      animation: fadeIn 0.4s ease;
-    }
-
-    .popup-content {
-      width: 90%;
-      max-width: 350px;
-      background: white;
-      border-radius: 20px;
-      padding: 25px;
-      text-align: center;
-      font-family: Arial, sans-serif;
-      animation: slideUp 0.4s ease;
-    }
-
-    .popup-content h2 {
-      margin-bottom: 20px;
-      color: #333;
-    }
-
-    .step {
-      margin: 20px 0;
-    }
-
-    .icon {
-      font-size: 40px;
-      animation: bounce 1.5s infinite;
-    }
-
-    .arrow {
-      font-size: 30px;
-      color: #FE3E00;
-    }
-
-    .popup-content button {
-      margin-top: 20px;
-      padding: 12px 20px;
-      border: none;
-      border-radius: 10px;
-      background: #FE3E00;
-      color: white;
-      cursor: pointer;
-      font-size: 16px;
-      font-weight: bold;
-    }
-
-    .popup-content button:hover {
-      background: #e03600;
-    }
-
-    @keyframes bounce {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-8px); }
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    @keyframes slideUp {
-      from {
-        transform: translateY(50px);
-        opacity: 0;
-      }
-      to {
-        transform: translateY(0);
-        opacity: 1;
-      }
     }
 
     .install-button {

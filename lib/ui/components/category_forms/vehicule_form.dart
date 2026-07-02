@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/l10n/tr.dart';
 import 'package:flutter/services.dart';
 import '../../../core/res/uza_colors.dart';
 
@@ -219,7 +220,7 @@ class VehiculeFormState extends State<VehiculeForm> {
               ),
             ),
             CheckboxListTile(
-              title: const Text('Avec chauffeur'),
+              title: Text(tr(context, 'with_driver')),
               value: _withDriver,
               onChanged: (v) => setState(() => _withDriver = v ?? false),
               activeColor: UzaColors.primary,

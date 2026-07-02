@@ -18,17 +18,33 @@ import '../utils/image_utils.dart';
 /// Pending image bytes saved locally until network upload completes.
 class ProductUploadService {
   static const _kPendingMetaKey = 'pending_upload_paths';
+  static const _kInlineBytesPrefix = 'inline_base64:';
 
   /// Persist bytes to temp files; returns map slotIndex -> file path.
   static Future<Map<int, String>> persistPendingImages(
     List<({int slot, Uint8List bytes})> pending,
   ) async {
-    final dir = await getTemporaryDirectory();
-    final uploadDir = Directory('${dir.path}/uza_pending_uploads');
+    final paths = <int, String>{};
+    if (kIsWeb) {
+      // Web does not expose a writable temp directory through path_provider.
+      for (final item in pending) {
+        paths[item.slot] = '$_kInlineBytesPrefix${base64Encode(item.bytes)}';
+      }
+      return paths;
+    }
+
+    Directory uploadDir;
+    try {
+      final dir = await getTemporaryDirectory();
+      uploadDir = Directory('${dir.path}/uza_pending_uploads');
+    } catch (_) {
+      // Fallback for environments where path_provider is not registered yet.
+      uploadDir = Directory('${Directory.systemTemp.path}/uza_pending_uploads');
+    }
+
     if (!await uploadDir.exists()) {
       await uploadDir.create(recursive: true);
     }
-    final paths = <int, String>{};
     for (final item in pending) {
       final file = File(
         '${uploadDir.path}/slot_${item.slot}_${DateTime.now().millisecondsSinceEpoch}.jpg',
@@ -82,10 +98,17 @@ class ProductUploadService {
     final finalUrls = List<String>.from(images);
 
     for (final entry in pending.entries) {
-      final file = File(entry.value);
-      if (!await file.exists()) continue;
       try {
-        final bytes = await file.readAsBytes();
+        Uint8List bytes;
+        File? file;
+        if (entry.value.startsWith(_kInlineBytesPrefix)) {
+          final encoded = entry.value.substring(_kInlineBytesPrefix.length);
+          bytes = base64Decode(encoded);
+        } else {
+          file = File(entry.value);
+          if (!await file.exists()) continue;
+          bytes = await file.readAsBytes();
+        }
         final prepared = await ImagePrepareUtils.prepareForUpload(
           bytes,
           prefix: 'prod_${entry.key}',
@@ -101,7 +124,11 @@ class ProductUploadService {
           finalUrls.add('');
         }
         finalUrls[entry.key] = url;
-        await file.delete().catchError((_) => file);
+        if (file != null) {
+          try {
+            await file.delete();
+          } catch (_) {}
+        }
       } catch (e) {
         debugPrint('Pending upload slot ${entry.key} failed: $e');
       }
@@ -130,7 +157,7 @@ class ProductUploadService {
       ),
     );
 
-    final shop = await shopRepo.getShopById(product.shopId);
+    final shop = await shopRepo.resolveShopForStoredId(product.shopId);
     final remoteShopId = int.tryParse(shop?.remoteId ?? '') ?? product.shopId;
     final remoteProductId = int.tryParse(product.remoteId ?? '');
 

@@ -18,7 +18,9 @@ import 'core/services/connectivity_service.dart';
 import 'core/services/contact_service.dart';
 import 'core/services/whatsapp_status_service.dart';
 import 'core/services/whatsapp_status_scheduler.dart';
+import 'core/services/product_update_service.dart';
 import 'core/services/notification_service.dart';
+import 'data/repositories/product_update_repository.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/services/web_notification_service.dart';
 import 'core/services/settings_service.dart';
@@ -27,15 +29,18 @@ import 'core/services/fcm_service.dart';
 import 'core/theme/uza_theme.dart';
 import 'core/l10n/app_translations.dart';
 import 'core/l10n/tr.dart';
+import 'core/utils/test_data_cleanup.dart';
 import 'data/local/uza_database.dart';
 import 'data/repositories/auth_repository.dart';
 import 'data/repositories/cart_repository.dart';
 import 'data/repositories/message_repository.dart';
 import 'data/repositories/order_repository.dart';
+import 'data/repositories/delivery_repository.dart';
 import 'data/repositories/product_repository.dart';
 import 'data/repositories/shop_repository.dart';
 import 'data/repositories/story_repository.dart';
 import 'data/repositories/cash_repository.dart';
+import 'data/repositories/ya_cope_repository.dart';
 import 'data/repositories/review_repository.dart';
 import 'core/services/platform_analytics_service.dart';
 import 'core/services/product_alerts_service.dart';
@@ -43,17 +48,17 @@ import 'core/services/referral_service.dart';
 import 'data/services/sync_service.dart';
 import 'ui/components/async_content.dart';
 import 'ui/components/error_boundary.dart';
-import 'ui/screens/home_screen.dart';
 import 'ui/screens/product_detail_screen.dart';
 import 'ui/screens/shop_profile_screen.dart';
 import 'ui/screens/story_view_screen.dart';
 import 'ui/screens/whatsapp_status_screen.dart';
+import 'ui/screens/seller_deliveries_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await DeepLinkService.captureLaunchUri();
   if (kIsWeb) {
     usePathUrlStrategy();
-    unawaited(DeepLinkService.captureReferralFromUri(Uri.base));
   }
 
   // Set up global error handler
@@ -66,19 +71,15 @@ void main() async {
   // Allow fetching fonts from the internet if AssetManifest.json is missing on web
   GoogleFonts.config.allowRuntimeFetching = true;
 
-  // Init plugin + channels early; OS permission dialog runs after first frame.
+  // Notifications bootstrap runs after first frame — must not block runApp().
   if (!kIsWeb) {
-    try {
-      await PushNotificationService.ensureReady(requestPermission: false);
-    } catch (e) {
-      debugPrint('PushNotificationService bootstrap error: $e');
-    }
+    unawaited(
+      PushNotificationService.ensureReady(requestPermission: false).catchError(
+        (e) => debugPrint('PushNotificationService bootstrap error: $e'),
+      ),
+    );
   } else {
-    try {
-      await WebNotificationService.requestPermission();
-    } catch (e) {
-      debugPrint('WebNotificationService permission error: $e');
-    }
+    // Defer web notification permission — avoids races during Flutter bootstrap.
   }
 
   // Initialize background tasks (Workmanager) - non-blocking
@@ -153,6 +154,17 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
     final scheduler = _waStatusScheduler;
     if (scheduler == null) return;
     try {
+      final services = _services;
+      if (services != null) {
+        final phone = services.authService.user?.phoneNumber;
+        await scheduler.registerShopOwner(phone);
+        if (phone != null && phone.isNotEmpty) {
+          final userShop = await services.shopRepository.getUserShop(phone);
+          if (userShop != null) {
+            await scheduler.registerShop(userShop.id);
+          }
+        }
+      }
       await scheduler.prepareIfDue();
       await scheduler.syncWebReminder();
     } catch (e) {
@@ -170,25 +182,33 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
 
   Future<void> _initializeServices() async {
     try {
-      // Track last app open time - non-critical, can fail silently
+      final database = UzaDatabase();
+
+      // Ensure migrations finish before parallel DB access (SettingsService, sync).
       try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(
-          'last_app_open',
-          DateTime.now().toIso8601String(),
-        );
+        await database.customSelect('SELECT 1').getSingle();
       } catch (e) {
-        debugPrint('SharedPreferences error: $e');
+        debugPrint('Database warmup error: $e');
+        rethrow;
       }
 
-      // Initialize database
-      final database = UzaDatabase();
+      try {
+        final purged = await TestDataCleanup.purgeLocal(database);
+        if (purged > 0) {
+          debugPrint('TestDataCleanup startup: removed $purged local test records');
+        }
+      } catch (e) {
+        debugPrint('TestDataCleanup startup error: $e');
+      }
 
       const String baseUrl = 'https://uzaapp.com/api';
 
-      await applyPendingReferralToDb(database);
+      try {
+        await applyPendingReferralToDb(database);
+      } catch (e) {
+        debugPrint('applyPendingReferralToDb error: $e');
+      }
 
-      // Set up providers
       if (!mounted) return;
 
       final notificationService = NotificationService();
@@ -200,26 +220,30 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
         apiService,
         notificationService: notificationService,
       );
+      final shopRepository = ShopRepository(database, syncService: syncService);
       final storyRepository = StoryRepository(
         database,
         syncService: syncService,
+        shopRepository: shopRepository,
       );
       syncService.storyRepository = storyRepository;
       final authRepository = AuthRepository(database);
       final authService = AuthService(authRepository);
-      final shopRepository = ShopRepository(database, syncService: syncService);
       final productRepository = ProductRepository(
         database,
         syncService: syncService,
+        shopRepository: shopRepository,
       );
       final cartRepository = CartRepository(database);
       final orderRepository = OrderRepository(database);
+      final deliveryRepository = DeliveryRepository(database);
       syncService.productRepository = productRepository;
       syncService.shopRepository = shopRepository;
       syncService.orderRepository = orderRepository;
+      syncService.deliveryRepository = deliveryRepository;
       syncService.productAlertsService = ProductAlertsService();
       final messageRepository = MessageRepository(database);
-      final contactService = ContactService(database);
+      final contactService = ContactService(database, syncService: syncService);
       final whatsAppStatusService = WhatsAppStatusService(database);
       final waStatusScheduler = WhatsAppStatusScheduler(
         database,
@@ -230,11 +254,19 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
       final cashRepository = CashRepository(apiService);
       final fcmService = FcmService(apiService);
 
-      // Connect cross-references
       authService.syncService = syncService;
       authService.shopRepository = shopRepository;
 
-      // Store in context for child widgets
+      final productUpdateRepository = ProductUpdateRepository(database);
+      final productUpdateService = ProductUpdateService(
+        db: database,
+        productRepository: productRepository,
+        updateRepository: productUpdateRepository,
+        shopRepository: shopRepository,
+        apiService: apiService,
+        notificationService: notificationService,
+      );
+
       _services = _UzaServices(
         database: database,
         notificationService: notificationService,
@@ -248,60 +280,145 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
         productRepository: productRepository,
         cartRepository: cartRepository,
         orderRepository: orderRepository,
+        deliveryRepository: deliveryRepository,
         messageRepository: messageRepository,
         contactService: contactService,
         whatsAppStatusService: whatsAppStatusService,
         settingsService: settingsService,
         cashRepository: cashRepository,
         fcmService: fcmService,
+        productUpdateRepository: productUpdateRepository,
+        productUpdateService: productUpdateService,
       );
 
-      if (!kIsWeb) {
-        fcmService.registerToken(userPhone: authService.user?.phoneNumber);
-      }
+      // Sync, connectivity, notifications — after the first frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _services == null) return;
+        unawaited(_runDeferredStartupTasks(_services!));
+      });
+    } catch (e, stack) {
+      debugPrint('Service initialization error: $e');
+      debugPrint('Stack trace: $stack');
+      rethrow;
+    }
+  }
 
-      // Start sync AFTER a short delay to prioritize UI rendering
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (!mounted) return;
+  /// Non-blocking startup: sync, connectivity, notifications, media prefetch.
+  Future<void> _runDeferredStartupTasks(_UzaServices services) async {
+    try {
+      await _runDeferredStartupTasksImpl(services);
+    } catch (e, stack) {
+      debugPrint('Deferred startup error: $e');
+      debugPrint('Stack trace: $stack');
+    }
+  }
 
-      // Public catalog sync — no AuthService.user required
-      await syncService.checkFirstSync();
-      unawaited(syncService.warmMediaCache());
-      await connectivityService.initialize();
-      syncService.bindConnectivity(connectivityService);
-      syncService.startAutoSync();
-      unawaited(syncService.syncNow());
+  Future<void> _runDeferredStartupTasksImpl(_UzaServices services) async {
+    if (kIsWeb) {
       unawaited(
-        syncService.repairShopsWithoutRemoteId().then((_) {
-          if (!syncService.isSyncing) {
-            return syncService.syncNow();
-          }
+        WebNotificationService.requestPermission().catchError((e) {
+          debugPrint('WebNotificationService permission error: $e');
+          return false;
         }),
       );
+    }
 
-      // Attach deep-link handler (plugin already bootstrapped in main()).
-      try {
-        PushNotificationService.attachDeepLinkHandler(notificationService);
-        PushNotificationService.attachNotificationsGate(
-          () => settingsService.notificationsEnabled,
+    final database = services.database;
+    final syncService = services.syncService;
+    final connectivityService = services.connectivityService;
+    final notificationService = services.notificationService;
+    final settingsService = services.settingsService;
+    final authService = services.authService;
+    final shopRepository = services.shopRepository;
+    final productRepository = services.productRepository;
+    final storyRepository = services.storyRepository;
+    final waStatusScheduler = _waStatusScheduler;
+    final fcmService = services.fcmService;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'last_app_open',
+        DateTime.now().toIso8601String(),
+      );
+    } catch (e) {
+      debugPrint('SharedPreferences error: $e');
+    }
+
+    if (!kIsWeb) {
+      final phone = authService.user?.phoneNumber;
+      if (phone != null && phone.isNotEmpty) {
+        await shopRepository.reconnectShopsForUser(phone);
+        final shop = await shopRepository.watchUserShop(phone).first;
+        final remoteShopId = shop?.remoteId != null
+            ? int.tryParse(shop!.remoteId!)
+            : null;
+        await fcmService.registerToken(
+          userPhone: phone,
+          shopId: remoteShopId,
         );
-        notificationService.setEnabled(settingsService.notificationsEnabled);
-        settingsService.addListener(() {
-          notificationService.setEnabled(settingsService.notificationsEnabled);
-        });
-        await DailyEngagementScheduler.planOnAppOpen(database);
-        unawaited(SystemPushNotifier.notifyRandomAfterAppOpen(database));
-        _listenForNotificationDeepLinks(
-          notificationService,
-          shopRepository,
-          productRepository,
-          storyRepository,
-        );
-      } catch (e) {
-        debugPrint('Error initializing notifications: $e');
+      } else {
+        await fcmService.registerToken(userPhone: phone);
       }
+    }
 
-      // Daily WhatsApp status auto-prep (24h30)
+    // Kick off sync after a quick local DB check (still non-blocking for UI).
+    await syncService.checkFirstSync();
+    unawaited(
+      syncService.syncNow().catchError((e) {
+        debugPrint('Deferred syncNow error: $e');
+      }),
+    );
+    unawaited(
+      syncService.repairShopsWithoutRemoteId().then((_) async {
+        if (!syncService.isSyncing) {
+          await syncService.syncNow();
+        }
+      }).catchError((e) {
+        debugPrint('Deferred repair/sync error: $e');
+      }),
+    );
+
+    unawaited(
+      connectivityService.initialize().then(
+        (_) {
+          syncService.bindConnectivity(connectivityService);
+          syncService.startAutoSync();
+        },
+        onError: (e) => debugPrint('Connectivity init error: $e'),
+      ),
+    );
+
+    try {
+      PushNotificationService.attachDeepLinkHandler(notificationService);
+      PushNotificationService.attachNotificationsGate(
+        () => settingsService.notificationsEnabled,
+      );
+      notificationService.setEnabled(settingsService.notificationsEnabled);
+      settingsService.addListener(() {
+        notificationService.setEnabled(settingsService.notificationsEnabled);
+      });
+      _listenForNotificationDeepLinks(
+        notificationService,
+        shopRepository,
+        productRepository,
+        storyRepository,
+      );
+      unawaited(
+        DailyEngagementScheduler.planOnAppOpen(database).catchError(
+          (e) => debugPrint('DailyEngagementScheduler error: $e'),
+        ),
+      );
+      unawaited(
+        SystemPushNotifier.notifyRandomAfterAppOpen(database).catchError(
+          (e) => debugPrint('SystemPushNotifier error: $e'),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error initializing notifications: $e');
+    }
+
+    if (waStatusScheduler != null) {
       try {
         await waStatusScheduler.registerShopOwner(authService.user?.phoneNumber);
         final userShop = await shopRepository.getUserShop(
@@ -315,11 +432,12 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
       } catch (e) {
         debugPrint('WaStatus scheduler init error: $e');
       }
-    } catch (e, stack) {
-      debugPrint('Service initialization error: $e');
-      debugPrint('Stack trace: $stack');
-      rethrow;
     }
+
+    // Prefetch media only after the UI has had time to render.
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+    unawaited(syncService.warmMediaCache());
   }
 
   _UzaServices? _services;
@@ -354,6 +472,10 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
         case 'whatsapp_status':
           _navigateToWhatsAppStatus(navigator, shopRepo, id);
           break;
+        case 'delivery':
+          final shopId = link['shop_id'] as int? ?? id;
+          _navigateToDeliveries(navigator, shopRepo, shopId);
+          break;
       }
     });
   }
@@ -372,6 +494,25 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
             body: Center(child: Text(tr(context, 'shop_not_found'))),
           ),
           builder: (shop) => WhatsAppStatusScreen(shop: shop),
+        ),
+      ),
+    );
+  }
+
+  void _navigateToDeliveries(
+    NavigatorState navigator,
+    ShopRepository repo,
+    int shopIdOrRemote,
+  ) {
+    navigator.push(
+      MaterialPageRoute(
+        builder: (_) => FutureRouteContent<Shop>(
+          load: () => repo.resolveShopById(shopIdOrRemote),
+          isNotFound: (shop) => shop == null,
+          notFound: Scaffold(
+            body: Center(child: Text(tr(context, 'shop_not_found'))),
+          ),
+          builder: (shop) => SellerDeliveriesScreen(shopId: shop.id),
         ),
       ),
     );
@@ -493,6 +634,9 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       title: 'Uzaapp',
       theme: UzaTheme.lightTheme,
+      locale: const Locale('fr'),
+      localizationsDelegates: AppTranslations.localizationsDelegates,
+      supportedLocales: AppTranslations.materialLocales,
       home: Scaffold(
         body: ErrorFallback(
           message: AppTranslations.translate('init_error_hint', 'fr'),
@@ -507,8 +651,11 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       title: 'Uzaapp',
       theme: UzaTheme.lightTheme,
+      locale: const Locale('fr'),
+      localizationsDelegates: AppTranslations.localizationsDelegates,
+      supportedLocales: AppTranslations.materialLocales,
       home: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: UzaColors.surfaceOf(context),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -586,6 +733,7 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
         Provider<AuthRepository>.value(value: _services!.authRepository),
         Provider<CartRepository>.value(value: _services!.cartRepository),
         Provider<OrderRepository>.value(value: _services!.orderRepository),
+        Provider<DeliveryRepository>.value(value: _services!.deliveryRepository),
         Provider<MessageRepository>.value(value: _services!.messageRepository),
         ChangeNotifierProvider<ConnectivityService>.value(
           value: _services!.connectivityService,
@@ -610,6 +758,9 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
           create: (context) => _services!.settingsService,
         ),
         Provider<CashRepository>.value(value: _services!.cashRepository),
+        ProxyProvider<ApiService, YaCopeRepository>(
+          update: (_, api, __) => YaCopeRepository(api),
+        ),
         Provider<ReviewRepository>(
           create: (_) => ReviewRepository(_services!.database),
         ),
@@ -619,22 +770,35 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
         Provider<ReferralService>(
           create: (_) => ReferralService(),
         ),
+        Provider<ProductUpdateRepository>.value(
+          value: _services!.productUpdateRepository,
+        ),
+        Provider<ProductUpdateService>.value(
+          value: _services!.productUpdateService,
+        ),
       ],
       child: ErrorBoundary(
         child: Consumer<SettingsService>(
           builder: (context, settings, child) {
             _services!.syncService.liteMode = settings.isLiteMode;
             _router ??= AppRouter.create(_rootNavigatorKey);
+            AppRouter.ensureWebLocation(_router!);
             _deepLinkService ??= DeepLinkService(_router!)..init();
             return MaterialApp.router(
               debugShowCheckedModeBanner: false,
               title: 'Uzaapp',
               theme: UzaTheme.lightTheme,
               darkTheme: UzaTheme.darkTheme,
-              themeMode: settings.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-              locale: Locale(settings.language),
+              themeMode: settings.themeMode,
+              locale: settings.locale,
+              localizationsDelegates: AppTranslations.localizationsDelegates,
+              supportedLocales: AppTranslations.materialLocales,
               routerConfig: _router!,
-              builder: (context, child) => child ?? const HomeScreen(),
+              builder: (context, child) =>
+                  child ??
+                  const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  ),
             );
           },
         ),
@@ -657,12 +821,15 @@ class _UzaServices {
   final ProductRepository productRepository;
   final CartRepository cartRepository;
   final OrderRepository orderRepository;
+  final DeliveryRepository deliveryRepository;
   final MessageRepository messageRepository;
   final ContactService contactService;
   final WhatsAppStatusService whatsAppStatusService;
   final SettingsService settingsService;
   final CashRepository cashRepository;
   final FcmService fcmService;
+  final ProductUpdateRepository productUpdateRepository;
+  final ProductUpdateService productUpdateService;
 
   _UzaServices({
     required this.database,
@@ -677,11 +844,14 @@ class _UzaServices {
     required this.productRepository,
     required this.cartRepository,
     required this.orderRepository,
+    required this.deliveryRepository,
     required this.messageRepository,
     required this.contactService,
     required this.whatsAppStatusService,
     required this.settingsService,
     required this.cashRepository,
     required this.fcmService,
+    required this.productUpdateRepository,
+    required this.productUpdateService,
   });
 }

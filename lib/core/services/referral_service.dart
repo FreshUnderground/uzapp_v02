@@ -67,7 +67,10 @@ Future<String?> consumePendingReferralCode() async {
 Future<void> applyPendingReferralToDb(UzaDatabase db) async {
   final code = await consumePendingReferralCode();
   if (code == null) return;
-  await (db.update(db.appPreferences)..where((t) => t.id.equals(1))).write(
-    AppPreferencesCompanion(pendingReferralCode: Value(code)),
+  await db.into(db.appPreferences).insertOnConflictUpdate(
+    AppPreferencesCompanion(
+      id: const Value(1),
+      pendingReferralCode: Value(code),
+    ),
   );
 }

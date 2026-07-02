@@ -65,7 +65,7 @@ class NearbyProductsSection extends StatelessWidget {
                     Text(
                       '${tr(context, 'nearby_at')} $userCommune',
                       style: TextStyle(
-                        color: UzaColors.textSecondary,
+                        color: UzaColors.onSurfaceSecondary(context),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -139,14 +139,14 @@ class NearbyProductsSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          const Text(
-            'Définis ta zone',
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+          Text(
+            tr(context, 'define_your_zone'),
+            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
           ),
           const SizedBox(height: 4),
           Text(
-            'Trouve les produits disponibles près de chez toi',
-            style: TextStyle(color: UzaColors.textSecondary, fontSize: 13),
+            tr(context, 'find_products_nearby'),
+            style: TextStyle(color: UzaColors.onSurfaceSecondary(context), fontSize: 13),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
@@ -190,7 +190,7 @@ class NearbyProductsSection extends StatelessWidget {
             Expanded(
               child: Text(
                 '${tr(context, 'no_products_nearby')} $userCommune ${tr(context, 'for_now')}',
-                style: TextStyle(color: UzaColors.textSecondary, fontSize: 13),
+                style: TextStyle(color: UzaColors.onSurfaceSecondary(context), fontSize: 13),
               ),
             ),
           ],
@@ -358,9 +358,9 @@ class _CommunePickerSheetState extends State<CommunePickerSheet> {
               children: [
                 const Icon(Icons.location_on, color: UzaColors.primary),
                 const SizedBox(width: 8),
-                const Text(
-                  'Ta commune',
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+                Text(
+                  tr(context, 'your_commune'),
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
                 ),
                 const Spacer(),
                 TapAnimator(
@@ -401,7 +401,7 @@ class _CommunePickerSheetState extends State<CommunePickerSheet> {
                       style: TextStyle(
                         color: isSelected
                             ? Colors.white
-                            : UzaColors.textSecondary,
+                            : UzaColors.onSurfaceSecondary(context),
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
                       ),
@@ -420,7 +420,7 @@ class _CommunePickerSheetState extends State<CommunePickerSheet> {
                 decoration: InputDecoration(
                   hintText: tr(context, 'search_commune'),
                   prefixIcon: const Icon(Icons.search, size: 20),
-                  prefixIconColor: UzaColors.textSecondary,
+                  prefixIconColor: UzaColors.onSurfaceSecondary(context),
                   filled: true,
                   fillColor: Colors.grey[50],
                   border: OutlineInputBorder(
@@ -489,7 +489,7 @@ class _CommunePickerSheetState extends State<CommunePickerSheet> {
                               fontSize: 14,
                               color: isSelected
                                   ? UzaColors.primary
-                                  : UzaColors.textPrimary,
+                                  : UzaColors.onSurface(context),
                             ),
                           ),
                         ],
@@ -505,7 +505,7 @@ class _CommunePickerSheetState extends State<CommunePickerSheet> {
                 child: Text(
                   tr(context, 'choose_city_first'),
                   style: TextStyle(
-                    color: UzaColors.textSecondary,
+                    color: UzaColors.onSurfaceSecondary(context),
                     fontSize: 14,
                   ),
                 ),

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/tr.dart';
+import '../components/uza_secondary_app_bar.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../core/services/contact_service.dart';
 import 'package:provider/provider.dart';
@@ -8,10 +10,9 @@ class HelpScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Aide & Support'),
-      ),
+    return UzaBackScope(
+      child: Scaffold(
+      appBar: UzaSecondaryAppBar(title: tr(context, 'help_support')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -42,11 +43,12 @@ class HelpScreen extends StatelessWidget {
           const SizedBox(height: 40),
           const Center(
             child: Text(
-              'Version 2.0.4 (Build 5)',
+              'Version 2.0.9 (Build 10)',
               style: TextStyle(color: Colors.grey, fontSize: 12),
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -78,7 +80,7 @@ class HelpScreen extends StatelessWidget {
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text('Démarrer la discussion'),
+                child: Text(tr(context, 'start_discussion')),
               ),
             ],
           ),

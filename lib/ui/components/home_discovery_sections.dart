@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/res/uza_colors.dart';
 import '../../core/services/settings_service.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/product_repository.dart';
@@ -11,15 +12,18 @@ import '../screens/shop_profile_screen.dart';
 import 'followed_sellers_section.dart';
 import 'nearby_products_section.dart';
 
-/// Home sections: followed sellers + nearby products (commune-based).
+/// Followed sellers + nearby products (commune-based), collapsible in search.
 class HomeDiscoverySections extends StatefulWidget {
-  const HomeDiscoverySections({super.key});
+  final bool initiallyExpanded;
+
+  const HomeDiscoverySections({super.key, this.initiallyExpanded = false});
 
   @override
   State<HomeDiscoverySections> createState() => _HomeDiscoverySectionsState();
 }
 
 class _HomeDiscoverySectionsState extends State<HomeDiscoverySections> {
+  late bool _expanded;
   List<Product> _nearbyProducts = [];
   Map<int, bool> _newByShop = {};
   bool _loadingNearby = false;
@@ -27,6 +31,7 @@ class _HomeDiscoverySectionsState extends State<HomeDiscoverySections> {
   @override
   void initState() {
     super.initState();
+    _expanded = widget.initiallyExpanded;
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadNearby());
   }
 
@@ -103,30 +108,72 @@ class _HomeDiscoverySectionsState extends State<HomeDiscoverySections> {
         }
 
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            FollowedSellersSection(
-              followedShops: followed,
-              hasNewProducts: _newByShop,
-              onShopTap: _openShop,
-            ),
-            if (_loadingNearby && _nearbyProducts.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(
-                  child: SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
+            InkWell(
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: UzaColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.people_outline_rounded,
+                        color: UzaColors.primary,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Tes vendeurs & près de toi',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      _expanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      color: UzaColors.onSurfaceSecondary(context),
+                    ),
+                  ],
                 ),
-              )
-            else
-              NearbyProductsSection(
-                userCommune: settings.userCommune,
-                nearbyProducts: _nearbyProducts,
-                onChangeCommune: _pickCommune,
-                onProductTap: _openProduct,
               ),
+            ),
+            if (_expanded) ...[
+              FollowedSellersSection(
+                followedShops: followed,
+                hasNewProducts: _newByShop,
+                onShopTap: _openShop,
+              ),
+              if (_loadingNearby && _nearbyProducts.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              else
+                NearbyProductsSection(
+                  userCommune: settings.userCommune,
+                  nearbyProducts: _nearbyProducts,
+                  onChangeCommune: _pickCommune,
+                  onProductTap: _openProduct,
+                ),
+            ],
           ],
         );
       },

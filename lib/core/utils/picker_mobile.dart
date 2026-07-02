@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'image_prepare_utils.dart';
 import 'picker_types.dart';
 
 Future<Uint8List?> pickImage(
@@ -17,34 +16,29 @@ Future<Uint8List?> pickImage(
 
   final pickedFile = await picker.pickImage(
     source: imageSource,
-    imageQuality: 85,
+    imageQuality: 82,
+    maxWidth: 1440,
+    maxHeight: 1440,
   );
 
   if (pickedFile == null) return null;
 
-  final rawBytes = await pickedFile.readAsBytes();
-  final prepared = await ImagePrepareUtils.prepareForUpload(
-    rawBytes,
-    sourceName: pickedFile.name,
-    sourcePath: pickedFile.path,
-  );
-  return prepared.bytes;
+  return pickedFile.readAsBytes();
 }
 
 Future<List<Uint8List>> pickMultipleImages(BuildContext context) async {
   final picker = ImagePicker();
-  final pickedFiles = await picker.pickMultiImage(imageQuality: 85);
+  final pickedFiles = await picker.pickMultiImage(
+    imageQuality: 82,
+    maxWidth: 1440,
+    maxHeight: 1440,
+  );
   if (pickedFiles.isEmpty) return const [];
 
   final results = <Uint8List>[];
   for (final file in pickedFiles) {
     final rawBytes = await file.readAsBytes();
-    final prepared = await ImagePrepareUtils.prepareForUpload(
-      rawBytes,
-      sourceName: file.name,
-      sourcePath: file.path,
-    );
-    results.add(prepared.bytes);
+    results.add(rawBytes);
   }
   return results;
 }

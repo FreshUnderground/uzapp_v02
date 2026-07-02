@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/l10n/tr.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/res/uza_colors.dart';
 import '../../components/tap_animator.dart';
 import '../../../data/repositories/shop_repository.dart';
 import '../shop_dashboard_screen.dart';
-import '../home_screen.dart';
 
 class StepIndicator extends StatelessWidget {
   final int currentStep;
@@ -223,19 +224,13 @@ class _VerificationScreenState extends State<VerificationScreen>
         } else {
           // No shop, navigate to home
           debugPrint('OTP Login: User has no shop, navigating to home');
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
-            (route) => false,
-          );
+          context.go('/');
         }
       } catch (e) {
         debugPrint('Error checking for shop after OTP: $e');
         // Fallback to home
         if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-          (route) => false,
-        );
+        context.go('/');
       }
     } catch (e) {
       if (mounted) {
@@ -267,14 +262,22 @@ class _VerificationScreenState extends State<VerificationScreen>
         if (mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('Code renvoyé')));
+          ).showSnackBar(SnackBar(content: Text(tr(context, 'code_resent'))));
         }
       },
       onFailed: (e) {
         if (mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text('Erreur: ${e.message}')));
+          ).showSnackBar(
+            SnackBar(
+              content: Text(
+                trf(context, 'error_with_message', {
+                  'message': e.message ?? '',
+                }),
+              ),
+            ),
+          );
         }
       },
     );
@@ -316,7 +319,7 @@ class _VerificationScreenState extends State<VerificationScreen>
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        foregroundColor: UzaColors.textPrimary,
+        foregroundColor: UzaColors.onSurface(context),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
@@ -336,7 +339,7 @@ class _VerificationScreenState extends State<VerificationScreen>
                   "Vérifie ton téléphone",
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: UzaColors.textPrimary,
+                    color: UzaColors.onSurface(context),
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -344,7 +347,7 @@ class _VerificationScreenState extends State<VerificationScreen>
                 Text(
                   "Code envoyé au ${_formatPhone(widget.phoneNumber)}",
                   style: TextStyle(
-                    color: UzaColors.textSecondary,
+                    color: UzaColors.onSurfaceSecondary(context),
                     fontSize: 15,
                     height: 1.4,
                   ),

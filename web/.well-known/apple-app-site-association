@@ -4,7 +4,7 @@
     "details": [
       {
         "appID": "TEAMID.com.uzaapp.market",
-        "paths": ["/product/*", "/shop/*", "/product/*", "/shop/*"]
+        "paths": ["/product/*", "/shop/*", "/ya-cope/*"]
       }
     ]
   }

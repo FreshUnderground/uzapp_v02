@@ -11,6 +11,7 @@ import 'notification_service.dart';
 /// Server push delivery uses FCM when FCM_SERVER_KEY is configured.
 class PushNotificationService {
   static const String kArrivagesChannelId = 'uzaapp_arrivages';
+  static const String kDeliveriesChannelId = 'uzaapp_deliveries_v1';
   /// v2 channel — Android locks importance at first creation; new id upgrades delivery.
   static const String kWaStatusChannelId = 'uzaapp_wa_status_v2';
 
@@ -96,12 +97,20 @@ class PushNotificationService {
       importance: Importance.max,
     );
 
+    const deliveriesChannel = AndroidNotificationChannel(
+      kDeliveriesChannelId,
+      'Livraisons',
+      description: 'Nouvelles demandes de livraison pour votre boutique',
+      importance: Importance.max,
+    );
+
     final androidPlugin = plugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >();
     await androidPlugin?.createNotificationChannel(arrivagesChannel);
     await androidPlugin?.createNotificationChannel(waStatusChannel);
+    await androidPlugin?.createNotificationChannel(deliveriesChannel);
 
     if (requestPermission) {
       await requestOsPermissions();
@@ -233,9 +242,15 @@ class PushNotificationService {
 
     final androidDetails = AndroidNotificationDetails(
       channelId,
-      channelId == kWaStatusChannelId ? 'Statuts WhatsApp' : 'Nouveaux arrivages',
+      channelId == kWaStatusChannelId
+          ? 'Statuts WhatsApp'
+          : channelId == kDeliveriesChannelId
+          ? 'Livraisons'
+          : 'Nouveaux arrivages',
       channelDescription: channelId == kWaStatusChannelId
           ? 'Statuts WhatsApp et génération d\'images'
+          : channelId == kDeliveriesChannelId
+          ? 'Demandes de livraison clients'
           : 'Produits, arrivages et annonces UzaApp',
       importance: Importance.max,
       priority: Priority.high,

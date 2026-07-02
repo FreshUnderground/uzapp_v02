@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/media_lib.php';
 authenticate();
 
 header('Content-Type: application/json');
@@ -25,16 +26,12 @@ function story_collect_media_urls(PDO $db, $storyId) {
     return $urls;
 }
 
-function story_delete_media_files(array $urls) {
-    $baseDir = dirname(__DIR__);
-    foreach ($urls as $url) {
-        if (!is_string($url) || $url === '') continue;
-        if (!preg_match('#/uploads/(.+)$#', $url, $matches)) continue;
-        $path = $baseDir . '/uploads/' . $matches[1];
-        if (is_file($path)) @unlink($path);
-        $thumbPath = preg_replace('#^(.*)/([^/]+)$#', '$1/thumbnails/$2', $path);
-        if (is_string($thumbPath) && is_file($thumbPath)) @unlink($thumbPath);
+function story_delete_media_files(array $urls, $excludeStoryId = null) {
+    global $db;
+    if (!isset($db)) {
+        $db = DB::getInstance();
     }
+    uza_safe_unlink_uploads($db, $urls, $excludeStoryId);
 }
 
 try {
@@ -69,7 +66,7 @@ try {
         $storyStmt = $db->prepare("DELETE FROM stories WHERE id = ?");
         $storyStmt->execute([$id]);
 
-        story_delete_media_files($mediaUrls);
+        story_delete_media_files($mediaUrls, (int) $id);
         
         error_log("Stories DELETE success: id=$id");
         echo json_encode(['success' => true, 'action' => 'DELETE', 'id' => $id]);

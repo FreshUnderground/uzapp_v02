@@ -26,6 +26,7 @@ class AuthRepository {
             name: Value(profile.name),
             avatarUrl: Value(profile.avatarUrl),
             passwordHash: Value(profile.passwordHash),
+            isPhoneVerified: Value(profile.isPhoneVerified),
             role: Value(profile.role),
           ),
         );

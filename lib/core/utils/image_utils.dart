@@ -51,6 +51,47 @@ class ImageUtils {
     _failedImageUrls.remove(url);
   }
 
+  /// True when bytes look like JPEG/PNG/GIF/WebP (not HTML error pages).
+  static bool looksLikeImageBytes(Uint8List bytes) {
+    if (bytes.length < 4) return false;
+    if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return true;
+    if (bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      return true;
+    }
+    if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) return true;
+    if (bytes.length >= 12 &&
+        bytes[0] == 0x52 &&
+        bytes[1] == 0x49 &&
+        bytes[2] == 0x46 &&
+        bytes[3] == 0x46 &&
+        bytes[8] == 0x57 &&
+        bytes[9] == 0x45 &&
+        bytes[10] == 0x42 &&
+        bytes[11] == 0x50) {
+      return true;
+    }
+    return false;
+  }
+
+  static bool isImageDecodeError(Object? error) {
+    final message = error?.toString().toLowerCase() ?? '';
+    return message.contains('encodingerror') ||
+        message.contains('cannot be decoded');
+  }
+
+  /// Drop cached HTML/error payloads so a retry can fetch a real image.
+  static Future<void> evictCorruptedCache(String url) async {
+    try {
+      await UzaImageCache.instance.removeFile(url);
+    } catch (e) {
+      debugPrint('Image cache evict on decode error failed for $url: $e');
+    }
+  }
+
   /// True when the product has at least one resolvable, non-failed image URL.
   static bool hasDisplayableImage(String? imageUrls) {
     if (isEmptyMediaValue(imageUrls)) return false;
@@ -251,10 +292,28 @@ class ImageUtils {
   }
 
   /// Route external/legacy storage URLs through the server proxy when needed.
+  static String? _uploadRelativePath(String url) {
+    final match = RegExp(
+      r'uzaapp\.com/uploads/(.+)$',
+      caseSensitive: false,
+    ).firstMatch(url);
+    final relative = match?.group(1);
+    if (relative == null || relative.isEmpty) return null;
+    return relative;
+  }
+
+  static String _serveUploadUrl(String relativePath) {
+    return 'https://uzaapp.com/api/serve_upload.php?path='
+        '${Uri.encodeComponent(relativePath)}';
+  }
+
+  /// Route external/legacy storage URLs through the server proxy when needed.
   static String _getProxiedUrl(String url) {
     if (url.isEmpty) return url;
 
-    if (url.contains('proxy.php')) return url;
+    if (url.contains('proxy.php') || url.contains('serve_upload.php')) {
+      return url;
+    }
 
     if (url.contains('uzaapp.com') &&
         !url.contains('firebasestorage.googleapis.com')) {
@@ -266,6 +325,14 @@ class ImageUtils {
       return '$_proxyBaseUrl${Uri.encodeComponent(url)}';
     }
     return url;
+  }
+
+  /// Fallback when direct /uploads/ URL returns SPA HTML instead of an image.
+  static String? serveUploadFallbackUrl(String resolvedUrl) {
+    if (resolvedUrl.contains('serve_upload.php')) return null;
+    final uploadRel = _uploadRelativePath(resolvedUrl);
+    if (uploadRel == null) return null;
+    return _serveUploadUrl(uploadRel);
   }
 
   static ImageProvider? getImageProvider(String? encryptedSource) {
@@ -301,15 +368,29 @@ class ImageUtils {
 
     try {
       final file = await UzaImageCache.instance.getSingleFile(resolved);
-      return await file.readAsBytes();
+      final cachedBytes = await file.readAsBytes();
+      if (looksLikeImageBytes(cachedBytes)) {
+        return cachedBytes;
+      }
+      debugPrint('ImageUtils: evicting non-image cache payload for $resolved');
+      await evictCorruptedCache(resolved);
     } catch (e) {
       debugPrint('ImageUtils: cache miss for $resolved: $e');
     }
 
     try {
-      final response = await http.get(Uri.parse(resolved));
+      final response = await http.get(
+        Uri.parse(resolved),
+        headers: const {'User-Agent': 'UzaApp/1.0'},
+      );
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
-        return response.bodyBytes;
+        if (looksLikeImageBytes(response.bodyBytes)) {
+          return response.bodyBytes;
+        }
+        debugPrint(
+          'ImageUtils: server returned non-image body for $resolved '
+          '(content-type=${response.headers['content-type']})',
+        );
       }
     } catch (e) {
       debugPrint('ImageUtils: HTTP download failed: $e');
@@ -453,24 +534,24 @@ class ImageUtils {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          buildCachedImage(
-            source,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
+          Positioned.fill(
+            child: buildCachedImage(
+              source,
+              fit: BoxFit.cover,
+            ),
           ),
           BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
             child: Container(color: Colors.black.withValues(alpha: 0.45)),
           ),
-          buildCachedImage(
-            source,
-            fit: BoxFit.contain,
-            width: double.infinity,
-            height: double.infinity,
-            onImageLoaded: onImageLoaded,
-            placeholder: loading,
-            errorWidget: error,
+          Positioned.fill(
+            child: buildCachedImage(
+              source,
+              fit: BoxFit.contain,
+              onImageLoaded: onImageLoaded,
+              placeholder: loading,
+              errorWidget: error,
+            ),
           ),
         ],
       ),
@@ -604,7 +685,9 @@ class ImageUtils {
     Object? error,
   }) {
     final bool isQuotaError = error?.toString().contains('402') ?? false;
-    final bool isNotFoundError = error?.toString().contains('404') ?? false;
+    final bool isDecodeError = isImageDecodeError(error);
+    final bool isNotFoundError =
+        (error?.toString().contains('404') ?? false) || isDecodeError;
     final bool isServerError = error?.toString().contains('5') ?? false;
 
     // Log detailed error for debugging
@@ -683,31 +766,103 @@ class _RetryCachedImage extends StatefulWidget {
 
 class _RetryCachedImageState extends State<_RetryCachedImage> {
   int _retryCount = 0;
+  bool _didNotifyLoaded = false;
+  String? _fallbackUrl;
 
-  void _scheduleRetry() {
-    if (_retryCount < 1) {
-      Future.delayed(const Duration(milliseconds: 350), () {
-        if (mounted) {
-          setState(() => _retryCount++);
-        }
-      });
+  String get _loadUrl => _fallbackUrl ?? widget.imageUrl;
+
+  void _scheduleRetry(Object error, String failedUrl) {
+    if (_retryCount >= 1) return;
+
+    if (ImageUtils.isImageDecodeError(error)) {
+      ImageUtils.evictCorruptedCache(failedUrl);
+      _fallbackUrl ??= ImageUtils.serveUploadFallbackUrl(widget.imageUrl);
     }
+
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) {
+        setState(() {
+          _retryCount++;
+          _didNotifyLoaded = false;
+        });
+      }
+    });
   }
 
   void _notifyLoaded() {
+    if (_didNotifyLoaded) return;
+    _didNotifyLoaded = true;
     ImageUtils.markImageLoadSuccess(widget.imageUrl);
     if (widget.onImageLoaded == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.onImageLoaded?.call();
+      if (mounted) widget.onImageLoaded?.call();
     });
+  }
+
+  Widget _buildWithLoadCallback(int? diskCacheWidth) {
+    final image = Image(
+      key: ValueKey('${_loadUrl}_$_retryCount'),
+      image: CachedNetworkImageProvider(
+        _loadUrl,
+        cacheManager: UzaImageCache.instance,
+        headers: const {'Accept': 'image/*'},
+      ),
+      height: widget.height,
+      width: widget.width,
+      fit: widget.fit,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (frame != null || wasSynchronouslyLoaded) {
+          _notifyLoaded();
+        }
+        if (frame == null && !wasSynchronouslyLoaded) {
+          return widget.placeholder ??
+              ImageUtils.buildPlaceholder(
+                height: widget.height,
+                width: widget.width,
+                borderRadius: widget.borderRadius,
+              );
+        }
+        return child;
+      },
+      errorBuilder: (context, error, stackTrace) {
+        debugPrint(
+          'Image load failed: url=$_loadUrl, error=$error, retry=$_retryCount',
+        );
+        if (_retryCount < 1) {
+          _scheduleRetry(error, _loadUrl);
+          return widget.placeholder ??
+              ImageUtils.buildPlaceholder(
+                height: widget.height,
+                width: widget.width,
+                borderRadius: widget.borderRadius,
+              );
+        }
+        ImageUtils.markImageLoadFailed(widget.imageUrl);
+        return widget.errorWidget ??
+            ImageUtils.buildErrorWidget(
+              height: widget.height,
+              width: widget.width,
+              borderRadius: widget.borderRadius,
+              error: error,
+            );
+      },
+    );
+
+    if (widget.borderRadius != null) {
+      return ClipRRect(borderRadius: widget.borderRadius!, child: image);
+    }
+    return image;
   }
 
   @override
   Widget build(BuildContext context) {
     final diskCacheWidth = widget.memCacheWidth;
+    if (widget.onImageLoaded != null) {
+      return _buildWithLoadCallback(diskCacheWidth);
+    }
     final image = CachedNetworkImage(
-      key: ValueKey('${widget.imageUrl}_$_retryCount'),
-      imageUrl: widget.imageUrl,
+      key: ValueKey('${_loadUrl}_$_retryCount'),
+      imageUrl: _loadUrl,
       cacheManager: UzaImageCache.instance,
       height: widget.height,
       width: widget.width,
@@ -719,17 +874,6 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
       fadeInDuration: const Duration(milliseconds: 120),
       fadeOutDuration: const Duration(milliseconds: 80),
       httpHeaders: const {'Accept': 'image/*'},
-      imageBuilder: widget.onImageLoaded == null
-          ? null
-          : (context, imageProvider) {
-              _notifyLoaded();
-              return Image(
-                image: imageProvider,
-                height: widget.height,
-                width: widget.width,
-                fit: widget.fit,
-              );
-            },
       placeholder: (context, url) {
         if (widget.thumbnailUrl != null && widget.thumbnailUrl!.isNotEmpty) {
           return Container(
@@ -768,12 +912,13 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
           debugPrint(
             '💡 Run fix_firebase_urls.sql to migrate Firebase URLs to server',
           );
-        } else if (error.toString().contains('404')) {
-          debugPrint('⚠️ IMAGE NOT FOUND (404) for $url');
+        } else if (error.toString().contains('404') ||
+            ImageUtils.isImageDecodeError(error)) {
+          debugPrint('⚠️ IMAGE NOT FOUND or undecodable for $url');
         }
 
         if (_retryCount < 1) {
-          _scheduleRetry();
+          _scheduleRetry(error, url);
           return widget.placeholder ??
               ImageUtils.buildPlaceholder(
                 height: widget.height,

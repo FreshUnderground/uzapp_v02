@@ -7,6 +7,7 @@ import '../screens/story_view_screen.dart';
 import '../../core/res/uza_colors.dart';
 import '../../core/utils/image_utils.dart';
 import '../../data/services/sync_service.dart';
+import '../components/responsive_layout.dart';
 import '../components/skeletons.dart';
 
 class StoryFeedScreen extends StatelessWidget {
@@ -42,7 +43,7 @@ class StoryFeedScreen extends StatelessWidget {
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 itemCount: 5,
-                itemBuilder: (_, __) => Skeletons.storyCircle(context),
+                itemBuilder: (_, _) => Skeletons.storyCircle(context),
               );
             }
             return const Center(child: CircularProgressIndicator());
@@ -409,7 +410,7 @@ class _FullStoryFeed extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width > 900;
+    final isDesktop = ResponsiveLayout.isDesktop(context);
 
     return Center(
       child: ConstrainedBox(
@@ -490,10 +491,10 @@ class _FullStoryFeed extends StatelessWidget {
                                                   shop?.logoUrl,
                                                 ) ==
                                                 null
-                                            ? const Icon(
+                                            ? Icon(
                                                 Icons.storefront,
                                                 size: 16,
-                                                color: UzaColors.textSecondary,
+                                                color: UzaColors.onSurfaceSecondary(context),
                                               )
                                             : null,
                                       ),
