@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -31,19 +32,23 @@ class FcmService {
       final uri = Uri.parse(
         '${_api.baseUrl}/fcm.php?api_key=${ApiService.apiKey}',
       );
-      final response = await http.post(
-        uri,
-        headers: {
-          'X-API-Key': ApiService.apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'token': token,
-          'user_phone': userPhone,
-          'shop_id': shopId,
-          'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
-        }),
-      );
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'X-API-Key': ApiService.apiKey,
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'token': token,
+              'user_phone': userPhone,
+              'shop_id': shopId,
+              'platform': defaultTargetPlatform == TargetPlatform.iOS
+                  ? 'ios'
+                  : 'android',
+            }),
+          )
+          .timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         return body is Map && body['success'] == true;

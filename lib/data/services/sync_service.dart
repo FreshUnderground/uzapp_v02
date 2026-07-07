@@ -44,6 +44,17 @@ class SyncService extends ChangeNotifier {
   bool _isFirstSync = true;
   bool get isFirstSync => _isFirstSync;
 
+  /// True when local catalog data is available (offline / slow-network UX).
+  bool _hasLocalCatalog = false;
+  bool get hasLocalCatalog => _hasLocalCatalog;
+
+  bool _bootstrapSyncRequested = false;
+  bool _fullCatalogSyncScheduled = false;
+
+  static const int _previewProductPages = 1;
+  static const int _previewProductsPerPage = 80;
+  static const int _previewShopPages = 3;
+
   /// Only show update notification once per app session.
   bool _hasNotifiedThisSession = false;
 
@@ -81,8 +92,73 @@ class SyncService extends ChangeNotifier {
     try {
       final existing = await (db.select(db.products)..limit(1)).get();
       _isFirstSync = existing.isEmpty;
+      _hasLocalCatalog = existing.isNotEmpty;
+      final prefs = await db.select(db.appPreferences).getSingleOrNull();
+      _lastSyncTime = prefs?.lastSync;
     } catch (_) {
       _isFirstSync = true;
+      _hasLocalCatalog = false;
+    }
+    notifyListeners();
+  }
+
+  /// Single startup sync — idempotent, safe to call from HomeScreen and main().
+  Future<void> requestBootstrapSync() async {
+    if (_bootstrapSyncRequested) return;
+    _bootstrapSyncRequested = true;
+    await _runBootstrapSync();
+  }
+
+  Future<void> _runBootstrapSync() async {
+    try {
+      if (_isFirstSync) {
+        if (!_isSyncing) {
+          await syncCatalogPreview();
+        }
+        if (!_fullCatalogSyncScheduled) {
+          _fullCatalogSyncScheduled = true;
+          unawaited(
+            syncNow().catchError((e) {
+              debugPrint('Full catalog sync after preview error: $e');
+            }),
+          );
+        }
+        return;
+      }
+      await repairShopsWithoutRemoteId();
+      if (!_isSyncing) {
+        await syncNow();
+      }
+    } catch (e) {
+      debugPrint('Bootstrap sync error: $e');
+    }
+  }
+
+  /// Fast first-launch path: categories + shops + first product page only.
+  Future<void> syncCatalogPreview() async {
+    if (_isSyncing) return;
+
+    if (!isOnline) {
+      _syncStatus = SyncStatus.offline;
+      notifyListeners();
+      return;
+    }
+
+    _isSyncing = true;
+    _syncStatus = SyncStatus.syncing;
+    notifyListeners();
+
+    try {
+      debugPrint('Starting catalog preview sync (first launch)...');
+      await pullRemoteUpdates(catalogPreview: true);
+      _syncStatus = SyncStatus.idle;
+    } catch (e) {
+      debugPrint('Catalog preview sync error: $e');
+      _syncStatus = SyncStatus.error;
+    } finally {
+      _isSyncing = false;
+      await _updatePendingCount();
+      notifyListeners();
     }
   }
 
@@ -148,9 +224,18 @@ class SyncService extends ChangeNotifier {
   int _pendingChangesCount = 0;
   int get pendingChangesCount => _pendingChangesCount;
 
-  static const Duration _requestTimeout = Duration(
-    seconds: 30,
-  ); // Increased from 10s to 30s
+  Duration get _requestTimeout {
+    if (liteMode) return const Duration(seconds: 8);
+    if (_connectivity == null) return const Duration(seconds: 12);
+    switch (_connectivity!.type) {
+      case ConnectivityType.wifi:
+        return const Duration(seconds: 20);
+      case ConnectivityType.mobile:
+        return const Duration(seconds: 10);
+      case ConnectivityType.none:
+        return const Duration(seconds: 5);
+    }
+  }
 
   SyncService(
     this.db,
@@ -267,8 +352,10 @@ class SyncService extends ChangeNotifier {
 
     try {
       debugPrint("Starting background sync...");
-      await repairShopsWithoutRemoteId();
-      await repairProductShopLinks();
+      if (!_isFirstSync) {
+        await repairShopsWithoutRemoteId();
+        await repairProductShopLinks();
+      }
       if (productRepository != null && shopRepository != null) {
         await ProductUploadService.processAllPending(
           db: db,
@@ -630,22 +717,29 @@ class SyncService extends ChangeNotifier {
     return pending;
   }
 
-  Future<List<Map<String, dynamic>>> _fetchAllProductsPaginated() async {
+  Future<List<Map<String, dynamic>>> _fetchProductsPaginated({
+    int perPage = 100,
+    int? maxPages,
+  }) async {
     final all = <Map<String, dynamic>>[];
     var page = 1;
     while (true) {
       final result = await api
-          .fetchProductsPaginated(page: page, perPage: 100)
+          .fetchProductsPaginated(page: page, perPage: perPage)
           .timeout(_requestTimeout);
       final data =
           (result['data'] as List?)?.cast<Map<String, dynamic>>() ?? [];
       all.addAll(data);
       final meta = result['meta'] as Map<String, dynamic>?;
+      if (maxPages != null && page >= maxPages) break;
       if (meta?['has_more'] != true || data.isEmpty) break;
       page++;
     }
     return all;
   }
+
+  Future<List<Map<String, dynamic>>> _fetchAllProductsPaginated() =>
+      _fetchProductsPaginated();
 
   /// Fix products whose [shopId] stores a server shop id instead of local id.
   Future<int> repairProductShopLinks() async {
@@ -942,24 +1036,31 @@ class SyncService extends ChangeNotifier {
     debugPrint('Sync: Synced ${remoteShops.length} shops from server');
   }
 
-  Future<List<Map<String, dynamic>>> _fetchAllShopsPaginated() async {
+  Future<List<Map<String, dynamic>>> _fetchShopsPaginated({
+    int perPage = 100,
+    int? maxPages,
+  }) async {
     final all = <Map<String, dynamic>>[];
     var page = 1;
     while (true) {
       final result = await api
-          .fetchShopsPaginated(page: page, perPage: 100)
+          .fetchShopsPaginated(page: page, perPage: perPage)
           .timeout(_requestTimeout);
       final data =
           (result['data'] as List?)?.cast<Map<String, dynamic>>() ?? [];
       all.addAll(data);
       final meta = result['meta'] as Map<String, dynamic>?;
+      if (maxPages != null && page >= maxPages) break;
       if (meta?['has_more'] != true || data.isEmpty) break;
       page++;
     }
     return all;
   }
 
-  Future<void> pullRemoteUpdates() async {
+  Future<List<Map<String, dynamic>>> _fetchAllShopsPaginated() =>
+      _fetchShopsPaginated();
+
+  Future<void> pullRemoteUpdates({bool catalogPreview = false}) async {
     try {
       final prefs = await db.select(db.appPreferences).getSingleOrNull();
 
@@ -995,12 +1096,16 @@ class SyncService extends ChangeNotifier {
         debugPrint('PULL ERROR (categories): $e');
       }
 
-      // Shops: ALWAYS full paginated fetch so products can resolve shop_id
-      // even when the parent shop was created before the incremental window.
+      // Shops: full fetch, or limited pages on first-launch preview.
       try {
-        remoteShops = await _fetchAllShopsPaginated();
+        remoteShops = catalogPreview && fullSync
+            ? await _fetchShopsPaginated(maxPages: _previewShopPages)
+            : await _fetchAllShopsPaginated();
         shopsPullOk = true;
-        debugPrint('PULL: shops (full paginated) → ${remoteShops.length}');
+        debugPrint(
+          'PULL: shops (${catalogPreview ? "preview" : "full paginated"}) '
+          '→ ${remoteShops.length}',
+        );
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: shops (phase 1)');
         try {
@@ -1020,7 +1125,12 @@ class SyncService extends ChangeNotifier {
 
       try {
         if (fullSync) {
-          remoteProducts = await _fetchAllProductsPaginated();
+          remoteProducts = catalogPreview
+              ? await _fetchProductsPaginated(
+                  maxPages: _previewProductPages,
+                  perPage: _previewProductsPerPage,
+                )
+              : await _fetchAllProductsPaginated();
         } else {
           remoteProducts = await api
               .fetchProducts(updatedSince: updatedSince)
@@ -1352,9 +1462,12 @@ class SyncService extends ChangeNotifier {
           }
         }
 
-        // Update first-sync flag now that products exist
+        // Update catalog flags once products are available locally.
         if (remoteProducts.isNotEmpty) {
-          _isFirstSync = false;
+          _hasLocalCatalog = true;
+          if (!catalogPreview) {
+            _isFirstSync = false;
+          }
         }
 
         // Small delay to let the DB transaction fully settle before the UI
@@ -1363,6 +1476,14 @@ class SyncService extends ChangeNotifier {
 
         // Notify UI immediately — categories & products are ready
         notifyListeners();
+
+        if (catalogPreview) {
+          debugPrint(
+            'PULL: catalog preview done (${remoteProducts.length} products) '
+            '— full sync continues in background',
+          );
+          return;
+        }
       }
 
       // ── PHASE 2: stories ───────────────────────────────────────────────
@@ -1678,6 +1799,7 @@ class SyncService extends ChangeNotifier {
       await (db.update(db.appPreferences)..where((t) => t.id.equals(1))).write(
         AppPreferencesCompanion(lastSync: Value(DateTime.now())),
       );
+      _isFirstSync = false;
 
       // Only notify once per session and only for significant changes
       if (notificationService != null &&

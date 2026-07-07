@@ -166,7 +166,7 @@ class UzaAppBar extends StatelessWidget implements PreferredSizeWidget {
 
     return PreferredSize(
       preferredSize: preferredSize,
-      child: ClipRRect(
+      child: ClipRect(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Material(

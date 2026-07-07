@@ -82,6 +82,13 @@ class AppTranslations {
       'report_sent': 'Signalement envoyé. Merci pour votre aide.',
       'offline': 'Hors ligne',
       'sync_error': 'Synchronisation échouée',
+      'syncing_cached_data': 'Mise à jour en arrière-plan…',
+      'first_launch_syncing': 'Première synchronisation…',
+      'first_launch_loading': 'Chargement du catalogue…',
+      'first_launch_slow_hint':
+          'La première ouverture peut prendre un moment. Les suivantes seront plus rapides.',
+      'first_launch_offline':
+          'Connectez-vous à Internet pour la première utilisation',
       'load_error': 'Erreur de chargement',
       'init_error': 'Erreur au démarrage',
       'init_error_hint': 'L\'application n\'a pas pu démarrer. Vérifiez votre connexion.',
@@ -859,6 +866,12 @@ class AppTranslations {
       'report_sent': 'Report sent. Thank you for your help.',
       'offline': 'Offline',
       'sync_error': 'Sync failed',
+      'syncing_cached_data': 'Updating in background…',
+      'first_launch_syncing': 'First sync in progress…',
+      'first_launch_loading': 'Loading catalog…',
+      'first_launch_slow_hint':
+          'First launch may take a moment. Next opens will be faster.',
+      'first_launch_offline': 'Connect to the Internet for first-time setup',
       'load_error': 'Loading error',
       'init_error': 'Startup error',
       'init_error_hint': 'The app could not start. Check your connection.',
@@ -1649,6 +1662,13 @@ class AppTranslations {
       'report_sent': 'Signalement etindami. Merci !',
       'offline': 'Ligne te',
       'sync_error': 'Synchronisation elongi te',
+      'syncing_cached_data': 'Mise à jour na sima…',
+      'first_launch_syncing': 'Synchronisation ya liboso…',
+      'first_launch_loading': 'Catalogue ezali kokota…',
+      'first_launch_slow_hint':
+          'Ouverture ya liboso ekoki kozwa ntango. Ba suivantes ekozala noki.',
+      'first_launch_offline':
+          'Bongisa na Internet mpo na liboso ya kosalela',
       'load_error': 'Libunga ya kobomba',
       'init_error': 'Libunga na ebandeli',
       'init_error_hint': 'Application ebandi te. Talá connexion na yo.',
@@ -2439,6 +2459,13 @@ class AppTranslations {
       'report_sent': 'Ripoti imetumwa. Asante kwa msaada wako.',
       'offline': 'Nje ya mtandao',
       'sync_error': 'Usawazishaji umeshindwa',
+      'syncing_cached_data': 'Inasasisha nyuma…',
+      'first_launch_syncing': 'Usawazishaji wa kwanza…',
+      'first_launch_loading': 'Inapakia katalogi…',
+      'first_launch_slow_hint':
+          'Ufunguzi wa kwanza unaweza kuchukua muda. Ufuatao utakuwa wa haraka.',
+      'first_launch_offline':
+          'Unganisha kwenye Intaneti kwa matumizi ya kwanza',
       'load_error': 'Hitilafu ya kupakia',
       'init_error': 'Hitilafu ya kuanzisha',
       'init_error_hint': 'Programu haikuweza kuanza. Angalia muunganisho.',

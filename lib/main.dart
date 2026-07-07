@@ -56,7 +56,14 @@ import 'ui/screens/seller_deliveries_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await DeepLinkService.captureLaunchUri();
+  try {
+    await DeepLinkService.captureLaunchUri().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () => debugPrint('DeepLinkService.captureLaunchUri timeout'),
+    );
+  } catch (e) {
+    debugPrint('DeepLinkService.captureLaunchUri error: $e');
+  }
   if (kIsWeb) {
     usePathUrlStrategy();
   }
@@ -192,22 +199,7 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
         rethrow;
       }
 
-      try {
-        final purged = await TestDataCleanup.purgeLocal(database);
-        if (purged > 0) {
-          debugPrint('TestDataCleanup startup: removed $purged local test records');
-        }
-      } catch (e) {
-        debugPrint('TestDataCleanup startup error: $e');
-      }
-
       const String baseUrl = 'https://uzaapp.com/api';
-
-      try {
-        await applyPendingReferralToDb(database);
-      } catch (e) {
-        debugPrint('applyPendingReferralToDb error: $e');
-      }
 
       if (!mounted) return;
 
@@ -256,6 +248,8 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
 
       authService.syncService = syncService;
       authService.shopRepository = shopRepository;
+
+      await syncService.checkFirstSync();
 
       final productUpdateRepository = ProductUpdateRepository(database);
       final productUpdateService = ProductUpdateService(
@@ -335,6 +329,26 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
     final waStatusScheduler = _waStatusScheduler;
     final fcmService = services.fcmService;
 
+    syncService.liteMode = settingsService.isLiteMode;
+
+    unawaited(
+      TestDataCleanup.purgeLocal(database).then((purged) {
+        if (purged > 0) {
+          debugPrint('TestDataCleanup deferred: removed $purged local test records');
+        }
+      }).catchError(
+        (e) {
+          debugPrint('TestDataCleanup deferred error: $e');
+        },
+      ),
+    );
+
+    unawaited(
+      applyPendingReferralToDb(database).catchError(
+        (e) => debugPrint('applyPendingReferralToDb error: $e'),
+      ),
+    );
+
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
@@ -345,40 +359,7 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
       debugPrint('SharedPreferences error: $e');
     }
 
-    if (!kIsWeb) {
-      final phone = authService.user?.phoneNumber;
-      if (phone != null && phone.isNotEmpty) {
-        await shopRepository.reconnectShopsForUser(phone);
-        final shop = await shopRepository.watchUserShop(phone).first;
-        final remoteShopId = shop?.remoteId != null
-            ? int.tryParse(shop!.remoteId!)
-            : null;
-        await fcmService.registerToken(
-          userPhone: phone,
-          shopId: remoteShopId,
-        );
-      } else {
-        await fcmService.registerToken(userPhone: phone);
-      }
-    }
-
-    // Kick off sync after a quick local DB check (still non-blocking for UI).
-    await syncService.checkFirstSync();
-    unawaited(
-      syncService.syncNow().catchError((e) {
-        debugPrint('Deferred syncNow error: $e');
-      }),
-    );
-    unawaited(
-      syncService.repairShopsWithoutRemoteId().then((_) async {
-        if (!syncService.isSyncing) {
-          await syncService.syncNow();
-        }
-      }).catchError((e) {
-        debugPrint('Deferred repair/sync error: $e');
-      }),
-    );
-
+    // Connectivity first so sync uses adaptive timeouts and offline detection.
     unawaited(
       connectivityService.initialize().then(
         (_) {
@@ -387,6 +368,21 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
         },
         onError: (e) => debugPrint('Connectivity init error: $e'),
       ),
+    );
+
+    if (!kIsWeb) {
+      unawaited(_registerFcmTokenDeferred(
+        fcmService: fcmService,
+        authService: authService,
+        shopRepository: shopRepository,
+      ));
+    }
+
+    await syncService.checkFirstSync();
+    unawaited(
+      syncService.requestBootstrapSync().catchError((e) {
+        debugPrint('Deferred bootstrap sync error: $e');
+      }),
     );
 
     try {
@@ -419,25 +415,79 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
     }
 
     if (waStatusScheduler != null) {
-      try {
-        await waStatusScheduler.registerShopOwner(authService.user?.phoneNumber);
-        final userShop = await shopRepository.getUserShop(
-          authService.user?.phoneNumber ?? '',
-        );
-        if (userShop != null) {
-          await waStatusScheduler.registerShop(userShop.id);
-        }
-        unawaited(_runWaStatusScheduler());
-        _startWaStatusPeriodicCheck();
-      } catch (e) {
-        debugPrint('WaStatus scheduler init error: $e');
-      }
+      unawaited(_initWaStatusSchedulerDeferred(
+        waStatusScheduler: waStatusScheduler,
+        authService: authService,
+        shopRepository: shopRepository,
+      ));
     }
 
     // Prefetch media only after the UI has had time to render.
-    await Future.delayed(const Duration(seconds: 3));
-    if (!mounted) return;
-    unawaited(syncService.warmMediaCache());
+    unawaited(
+      Future<void>.delayed(const Duration(seconds: 5)).then((_) async {
+        if (!mounted) return;
+        await syncService.warmMediaCache();
+      }).catchError(
+        (e) {
+          debugPrint('warmMediaCache error: $e');
+        },
+      ),
+    );
+  }
+
+  Future<void> _registerFcmTokenDeferred({
+    required FcmService fcmService,
+    required AuthService authService,
+    required ShopRepository shopRepository,
+  }) async {
+    try {
+      final phone = authService.user?.phoneNumber;
+      if (phone != null && phone.isNotEmpty) {
+        await shopRepository
+            .reconnectShopsForUser(phone)
+            .timeout(const Duration(seconds: 5));
+        final shop = await shopRepository
+            .watchUserShop(phone)
+            .first
+            .timeout(const Duration(seconds: 3));
+        final remoteShopId = shop?.remoteId != null
+            ? int.tryParse(shop!.remoteId!)
+            : null;
+        await fcmService
+            .registerToken(userPhone: phone, shopId: remoteShopId)
+            .timeout(const Duration(seconds: 5));
+      } else {
+        await fcmService
+            .registerToken(userPhone: phone)
+            .timeout(const Duration(seconds: 5));
+      }
+    } catch (e) {
+      debugPrint('FCM deferred registration error: $e');
+    }
+  }
+
+  Future<void> _initWaStatusSchedulerDeferred({
+    required WhatsAppStatusScheduler waStatusScheduler,
+    required AuthService authService,
+    required ShopRepository shopRepository,
+  }) async {
+    try {
+      await waStatusScheduler
+          .registerShopOwner(authService.user?.phoneNumber)
+          .timeout(const Duration(seconds: 3));
+      final userShop = await shopRepository
+          .getUserShop(authService.user?.phoneNumber ?? '')
+          .timeout(const Duration(seconds: 3));
+      if (userShop != null) {
+        await waStatusScheduler
+            .registerShop(userShop.id)
+            .timeout(const Duration(seconds: 3));
+      }
+      unawaited(_runWaStatusScheduler());
+      _startWaStatusPeriodicCheck();
+    } catch (e) {
+      debugPrint('WaStatus scheduler init error: $e');
+    }
   }
 
   _UzaServices? _services;
@@ -794,11 +844,25 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
               localizationsDelegates: AppTranslations.localizationsDelegates,
               supportedLocales: AppTranslations.materialLocales,
               routerConfig: _router!,
-              builder: (context, child) =>
-                  child ??
-                  const Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
-                  ),
+              builder: (context, child) {
+                final media = MediaQuery.of(context);
+                final padding = media.padding;
+                final viewPadding = media.viewPadding;
+                // Some Android devices report zero padding in edge-to-edge mode.
+                final effectivePadding = EdgeInsets.fromLTRB(
+                  padding.left > 0 ? padding.left : viewPadding.left,
+                  padding.top > 0 ? padding.top : viewPadding.top,
+                  padding.right > 0 ? padding.right : viewPadding.right,
+                  padding.bottom > 0 ? padding.bottom : viewPadding.bottom,
+                );
+                return MediaQuery(
+                  data: media.copyWith(padding: effectivePadding),
+                  child: child ??
+                      const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      ),
+                );
+              },
             );
           },
         ),

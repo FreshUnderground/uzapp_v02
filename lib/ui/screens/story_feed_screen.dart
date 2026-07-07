@@ -14,6 +14,7 @@ class StoryFeedScreen extends StatelessWidget {
   final Function(List<Story>, int)? onOpenStory;
   final bool isCompact;
   final VoidCallback? onCreateStory;
+  final bool showAddButton;
   final int? currentUserId;
 
   const StoryFeedScreen({
@@ -21,6 +22,7 @@ class StoryFeedScreen extends StatelessWidget {
     this.onOpenStory,
     this.isCompact = false,
     this.onCreateStory,
+    this.showAddButton = false,
     this.currentUserId,
   });
 
@@ -47,6 +49,16 @@ class StoryFeedScreen extends StatelessWidget {
               );
             }
             return const Center(child: CircularProgressIndicator());
+          }
+          // Authenticated seller: always show the "+" circle even with no stories
+          if (isCompact && showAddButton && onCreateStory != null) {
+            return _CompactStoryFeed(
+              groupedStories: const {},
+              shopIds: const [],
+              onOpenStory: onOpenStory,
+              onCreateStory: onCreateStory,
+              showAddButton: true,
+            );
           }
           return Center(
             child: Column(
@@ -76,6 +88,7 @@ class StoryFeedScreen extends StatelessWidget {
             shopIds: shopIds,
             onOpenStory: onOpenStory,
             onCreateStory: onCreateStory,
+            showAddButton: showAddButton,
           );
         }
 
@@ -95,28 +108,29 @@ class _CompactStoryFeed extends StatelessWidget {
   final List<int> shopIds;
   final Function(List<Story>, int)? onOpenStory;
   final VoidCallback? onCreateStory;
+  final bool showAddButton;
 
   const _CompactStoryFeed({
     required this.groupedStories,
     required this.shopIds,
     this.onOpenStory,
     this.onCreateStory,
+    this.showAddButton = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final addOffset = showAddButton ? 1 : 0;
     return ListView.builder(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      // +1 for the "add story" circle at the beginning
-      itemCount: shopIds.length + 1,
+      itemCount: shopIds.length + addOffset,
       itemBuilder: (context, index) {
-        // First item: "Add story" circle
-        if (index == 0) {
+        if (showAddButton && index == 0) {
           return _AddStoryCircle(onTap: onCreateStory);
         }
 
-        final shopId = shopIds[index - 1];
+        final shopId = shopIds[index - addOffset];
         final stories = groupedStories[shopId]!;
         final previewStory = StoryRepository.previewStoryForGroup(stories);
 

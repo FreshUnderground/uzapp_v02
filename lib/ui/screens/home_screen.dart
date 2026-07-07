@@ -17,6 +17,7 @@ import 'discover_feed_screen.dart';
 import 'arrivages_screen.dart';
 import '../../core/services/auth_service.dart';
 import '../components/arrivage_thumbnail.dart';
+import 'seller_onboarding_screen.dart';
 import 'create_shop_screen.dart';
 import '../components/responsive_layout.dart';
 import 'create_story_screen.dart';
@@ -27,8 +28,8 @@ import '../components/animated_bottom_nav.dart';
 import '../../data/services/sync_service.dart';
 import '../components/skeletons.dart';
 import '../components/custom_refresh_indicator.dart';
-import '../components/sync_status_banner.dart';
 import '../utils/page_transitions.dart';
+import '../utils/seller_gate.dart';
 import '../../core/l10n/tr.dart';
 import '../components/desktop_shell.dart';
 import '../components/uza_search_bar.dart';
@@ -79,9 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       try {
         final sync = context.read<SyncService>();
-        sync.ensureShopsSynced();
-        sync.ensureCategoriesSynced();
-        sync.syncNow();
+        sync.requestBootstrapSync();
       } catch (e) {
         debugPrint('HomeScreen: sync bootstrap failed: $e');
       }
@@ -157,9 +156,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   context,
                   SlideUpRoute(page: const CreateShopScreen()),
                 ),
-                onCreateProduct: () {
+                onCreateProduct: () async {
                   final shop = snapshot.data;
-                  if (shop != null) _showCreateBottomSheet(context, shop);
+                  if (shop != null) {
+                    _openCreateProduct(context, shop);
+                  } else {
+                    final resolved = await resolveSellerShop(context);
+                    if (resolved != null && context.mounted) {
+                      _openCreateProduct(context, resolved);
+                    }
+                  }
                 },
               ),
             );
@@ -203,12 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
         appBar: _buildAppBar(context, isDesktop: false),
         floatingActionButton: _buildDynamicFAB(context),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-        body: Column(
-          children: [
-            const SyncStatusBanner(),
-            Expanded(child: _buildBody(pages)),
-          ],
-        ),
+        body: _buildBody(pages),
         bottomNavigationBar: AnimatedBottomNav(
           currentIndex: _activeIndex,
           onTap: _onItemTapped,
@@ -224,12 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         floatingActionButton: _buildDynamicFAB(context, includeDesktop: true),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-        child: Column(
-          children: [
-            const SyncStatusBanner(),
-            Expanded(child: _buildBody(pages)),
-          ],
-        ),
+        child: _buildBody(pages),
       ),
     );
   }
@@ -299,16 +295,22 @@ class _HomeScreenState extends State<HomeScreen> {
         if (_activeIndex == 0) {
           if (!hasShop) {
             return FloatingActionButton(
-              onPressed: () => Navigator.push(
-                context,
-                SlideUpRoute(page: const CreateShopScreen()),
-              ),
+              onPressed: () async {
+                if (userId == null) {
+                  await SellerOnboardingScreen.open(context);
+                } else {
+                  Navigator.push(
+                    context,
+                    SlideUpRoute(page: const CreateShopScreen()),
+                  );
+                }
+              },
               backgroundColor: UzaColors.secondary,
               child: const Icon(Icons.storefront),
             );
           }
           return FloatingActionButton(
-            onPressed: () => _showCreateBottomSheet(context, snapshot.data!),
+            onPressed: () => _openCreateProduct(context, snapshot.data!),
             backgroundColor: UzaColors.primary,
             child: const Icon(Icons.add),
           );
@@ -319,200 +321,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showCreateBottomSheet(BuildContext context, Shop shop) {
-    final theme = Theme.of(context);
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(28),
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Drag handle
-                Padding(
-                  padding: const EdgeInsets.only(top: 12, bottom: 4),
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                // Header
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
-                  child: Row(
-                    children: [
-                      Text(
-                        tr(context, 'create_title'),
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: UzaColors.onSurface(context),
-                        ),
-                      ),
-                      const Spacer(),
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.close,
-                            size: 20,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    tr(context, 'what_to_create'),
-                    style: TextStyle(color: Colors.grey[500], fontSize: 14),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // Options
-                _CreateOptionTile(
-                  icon: Icons.shopping_bag_outlined,
-                  iconColor: UzaColors.primary,
-                  iconBgColor: UzaColors.primary.withValues(alpha: 0.1),
-                  title: tr(context, 'create_product_action'),
-                  subtitle: tr(context, 'no_products_manage_hint'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      this.context,
-                      SlideUpRoute(page: EditProductScreen(shopId: shop.id)),
-                    );
-                  },
-                ),
-                _CreateOptionTile(
-                  icon: Icons.camera_alt_outlined,
-                  iconColor: UzaColors.secondary,
-                  iconBgColor: UzaColors.secondary.withValues(alpha: 0.1),
-                  title: tr(context, 'create_story_action'),
-                  subtitle: tr(context, 'create_shop_for_stories'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      this.context,
-                      SlideUpRoute(page: CreateStoryScreen(shopId: shop.id)),
-                    );
-                  },
-                ),
-                _CreateOptionTile(
-                  icon: Icons.local_shipping_outlined,
-                  iconColor: const Color(0xFF6C63FF),
-                  iconBgColor: const Color(0xFF6C63FF).withValues(alpha: 0.1),
-                  title: 'Créer un arrivage',
-                  subtitle:
-                      'Annoncez les nouvelles arrivées dans votre boutique',
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      this.context,
-                      SlideUpRoute(
-                        page: CreateStoryScreen(
-                          shopId: shop.id,
-                          isArrivage: true,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 20),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CreateOptionTile extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final Color iconBgColor;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _CreateOptionTile({
-    required this.icon,
-    required this.iconColor,
-    required this.iconBgColor,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: iconBgColor,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, color: iconColor, size: 24),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: UzaColors.onSurface(context),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(Icons.chevron_right, color: Colors.grey[400]),
-              ],
-            ),
-          ),
-        ),
-      ),
+  void _openCreateProduct(BuildContext context, Shop shop) {
+    Navigator.push(
+      context,
+      SlideUpRoute(page: EditProductScreen(shopId: shop.id)),
     );
   }
 }
@@ -690,11 +502,20 @@ class _HomeContentState extends State<_HomeContent> {
     return true;
   }
 
+  Future<void> _openCreateStory({bool isArrivage = false}) async {
+    final shop = await resolveSellerShop(context);
+    if (!mounted || shop == null) return;
+    Navigator.push(
+      context,
+      SlideUpRoute(
+        page: CreateStoryScreen(shopId: shop.id, isArrivage: isArrivage),
+      ),
+    );
+  }
+
   Future<void> _handleRefresh() async {
     try {
       final syncService = context.read<SyncService>();
-      await syncService.ensureShopsSynced();
-      await syncService.ensureCategoriesSynced();
       await syncService.syncNow();
       setState(() => _hasReachedEnd = false);
       _reshuffleTrending();
@@ -777,29 +598,8 @@ class _HomeContentState extends State<_HomeContent> {
                     child: StoryFeedScreen(
                       onOpenStory: widget.onOpenStory,
                       isCompact: true,
-                      onCreateStory: () async {
-                        final authService = context.read<AuthService>();
-                        final shopRepo = context.read<ShopRepository>();
-                        final user = authService.user;
-                        final userId = user?.uid;
-                        final shop = userId != null
-                            ? await shopRepo.watchUserShop(userId).first
-                            : null;
-                        if (!context.mounted) return;
-                        if (shop == null) {
-                          Navigator.push(
-                            context,
-                            SlideUpRoute(page: const CreateShopScreen()),
-                          );
-                        } else {
-                          Navigator.push(
-                            context,
-                            SlideUpRoute(
-                              page: CreateStoryScreen(shopId: shop.id),
-                            ),
-                          );
-                        }
-                      },
+                      showAddButton: true,
+                      onCreateStory: () => _openCreateStory(isArrivage: false),
                     ),
                   ),
                 ),
@@ -825,9 +625,11 @@ class _HomeContentState extends State<_HomeContent> {
                       debugPrint(
                         'Arrivages: ${stories.length} cards, connectionState=${snapshot.connectionState}',
                       );
+
                       if (stories.isEmpty) {
-                        // Show shimmer skeletons while first sync is loading
-                        if (syncService.isSyncing || syncService.isFirstSync) {
+                        if (syncService.isSyncing &&
+                            syncService.isFirstSync &&
+                            !syncService.hasLocalCatalog) {
                           return SizedBox(
                             height: 160,
                             child: ListView.builder(
@@ -839,124 +641,132 @@ class _HomeContentState extends State<_HomeContent> {
                             ),
                           );
                         }
-                        return const SizedBox.shrink();
                       }
+
+                      final itemCount = stories.length + 1;
+
                       return SizedBox(
                         height: 160,
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
                           padding: EdgeInsets.symmetric(horizontal: hPad),
-                          itemCount: stories.length,
+                          itemCount: itemCount,
                           itemBuilder: (context, index) {
-                            final story = stories[index];
-                            return GestureDetector(
-                              key: ValueKey('home_arrivage_${story.id}'),
-                              onTap: () {
-                                final sRepo = context.read<StoryRepository>();
-                                sRepo.logStoryView(story.id);
-                                final index = stories.indexWhere(
-                                  (s) => s.id == story.id,
-                                );
-                                widget.onOpenStory(
-                                  stories,
-                                  index >= 0 ? index : 0,
-                                );
-                              },
-                              child: Container(
-                                width: 120,
-                                margin: const EdgeInsets.only(right: 10),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.08,
-                                      ),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 3),
-                                    ),
-                                  ],
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Stack(
-                                    fit: StackFit.expand,
-                                    children: [
-                                      ArrivageThumbnail(
-                                        story: story,
-                                        fit: BoxFit.contain,
-                                      ),
-                                      Container(
-                                        decoration: BoxDecoration(
-                                          gradient: LinearGradient(
-                                            begin: Alignment.topCenter,
-                                            end: Alignment.bottomCenter,
-                                            colors: [
-                                              Colors.transparent,
-                                              Colors.black.withValues(
-                                                alpha: 0.6,
-                                              ),
-                                            ],
+                            if (index == 0) {
+                              return _AddArrivageCard(
+                                onTap: () => _openCreateStory(isArrivage: true),
+                              );
+                            }
+
+                            final story = stories[index - 1];
+                                return GestureDetector(
+                                  key: ValueKey('home_arrivage_${story.id}'),
+                                  onTap: () {
+                                    final sRepo = context.read<StoryRepository>();
+                                    sRepo.logStoryView(story.id);
+                                    final index = stories.indexWhere(
+                                      (s) => s.id == story.id,
+                                    );
+                                    widget.onOpenStory(
+                                      stories,
+                                      index >= 0 ? index : 0,
+                                    );
+                                  },
+                                  child: Container(
+                                    width: 120,
+                                    margin: const EdgeInsets.only(right: 10),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.08,
                                           ),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 3),
                                         ),
-                                      ),
-                                      Positioned(
-                                        left: 6,
-                                        right: 6,
-                                        bottom: 6,
-                                        child: Row(
-                                          children: [
-                                            Container(
-                                              width: 20,
-                                              height: 20,
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                shape: BoxShape.circle,
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.black
-                                                        .withValues(alpha: 0.2),
-                                                    blurRadius: 4,
+                                      ],
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          ArrivageThumbnail(
+                                            story: story,
+                                            fit: BoxFit.contain,
+                                          ),
+                                          Container(
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                                colors: [
+                                                  Colors.transparent,
+                                                  Colors.black.withValues(
+                                                    alpha: 0.6,
                                                   ),
                                                 ],
                                               ),
-                                              child: const Icon(
-                                                Icons.store,
-                                                size: 12,
-                                                color: UzaColors.secondary,
-                                              ),
                                             ),
-                                            const SizedBox(width: 4),
-                                            Expanded(
-                                              child: FutureBuilder<Shop?>(
-                                                future: context
-                                                    .read<ShopRepository>()
-                                                    .getShopById(story.shopId),
-                                                builder: (context, snapshot) {
-                                                  return Text(
-                                                    snapshot.data?.name ??
-                                                        '...',
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 10,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  );
-                                                },
-                                              ),
+                                          ),
+                                          Positioned(
+                                            left: 6,
+                                            right: 6,
+                                            bottom: 6,
+                                            child: Row(
+                                              children: [
+                                                Container(
+                                                  width: 20,
+                                                  height: 20,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white,
+                                                    shape: BoxShape.circle,
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: Colors.black
+                                                            .withValues(alpha: 0.2),
+                                                        blurRadius: 4,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  child: const Icon(
+                                                    Icons.store,
+                                                    size: 12,
+                                                    color: UzaColors.secondary,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Expanded(
+                                                  child: FutureBuilder<Shop?>(
+                                                    future: context
+                                                        .read<ShopRepository>()
+                                                        .getShopById(story.shopId),
+                                                    builder: (context, snapshot) {
+                                                      return Text(
+                                                        snapshot.data?.name ??
+                                                            '...',
+                                                        style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontSize: 10,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                        maxLines: 1,
+                                                        overflow:
+                                                            TextOverflow.ellipsis,
+                                                      );
+                                                    },
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                          ],
-                                        ),
+                                          ),
+                                        ],
                                       ),
-                                    ],
+                                    ),
                                   ),
-                                ),
-                              ),
-                            );
+                                );
                           },
                         ),
                       );
@@ -976,8 +786,10 @@ class _HomeContentState extends State<_HomeContent> {
                 Builder(
                   builder: (context) {
                     final products = _displayedProducts;
-                    final isLoading =
-                        !_trendingInitialized && _allProducts.isEmpty;
+                    final isLoading = !_trendingInitialized &&
+                        _allProducts.isEmpty &&
+                        syncService.isFirstSync &&
+                        syncService.isSyncing;
 
                     if (isLoading) {
                       return SliverPadding(
@@ -998,7 +810,51 @@ class _HomeContentState extends State<_HomeContent> {
                       );
                     }
                     if (products.isEmpty) {
-                      if (syncService.isSyncing) {
+                      if (syncService.isFirstSync &&
+                          syncService.syncStatus == SyncStatus.offline) {
+                        return SliverToBoxAdapter(
+                          child: SizedBox(
+                            height: 220,
+                            child: Center(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.wifi_off,
+                                      size: 48,
+                                      color: UzaColors.onSurfaceSecondary(
+                                        context,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      tr(context, 'first_launch_offline'),
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: UzaColors.onSurfaceSecondary(
+                                          context,
+                                        ),
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextButton.icon(
+                                      onPressed: () => syncService.syncNow(),
+                                      icon: const Icon(Icons.refresh),
+                                      label: Text(tr(context, 'retry')),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      if (syncService.isSyncing && syncService.isFirstSync) {
                         return SliverToBoxAdapter(
                           child: SizedBox(
                             height: 200,
@@ -1013,7 +869,11 @@ class _HomeContentState extends State<_HomeContent> {
                                   ),
                                   const SizedBox(height: 12),
                                   Text(
-                                    tr(context, 'loading'),
+                                    syncService.syncStatus ==
+                                            SyncStatus.offline
+                                        ? tr(context, 'first_launch_offline')
+                                        : tr(context, 'first_launch_loading'),
+                                    textAlign: TextAlign.center,
                                     style: TextStyle(
                                       color: UzaColors.onSurfaceSecondary(
                                         context,
@@ -1021,6 +881,25 @@ class _HomeContentState extends State<_HomeContent> {
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
+                                  if (syncService.syncStatus !=
+                                      SyncStatus.offline) ...[
+                                    const SizedBox(height: 8),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 24,
+                                      ),
+                                      child: Text(
+                                        tr(context, 'first_launch_slow_hint'),
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: UzaColors.onSurfaceSecondary(
+                                            context,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -1131,6 +1010,60 @@ class _HomeContentState extends State<_HomeContent> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Quick-add arrivage card shown first in the horizontal arrivages row.
+class _AddArrivageCard extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _AddArrivageCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 120,
+        margin: const EdgeInsets.only(right: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.grey.withValues(alpha: 0.35),
+            width: 1.5,
+          ),
+          color: Colors.grey[50],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: const Color(0xFF6C63FF).withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.add,
+                color: Color(0xFF6C63FF),
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Mon arrivage',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }

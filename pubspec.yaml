@@ -2,7 +2,7 @@ name: uzaapp
 description: "Buy & sell locally. Discover products, shops & new arrivals in your area."
 publish_to: 'none'
 
-version: 2.0.9+10
+version: 2.0.10+11
 
 environment:
   sdk: ^3.10.4
