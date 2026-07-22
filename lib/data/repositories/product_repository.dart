@@ -403,6 +403,14 @@ class ProductRepository {
   /// so the removal propagates to the server.
   Future<int> deleteProductWithSync(int id) async {
     final product = await getProductById(id);
+    if (product != null) {
+      unawaited(
+        ImageUtils.evictCachedSources([
+          product.imageUrls,
+          ...ImageUtils.getDecryptedList(product.imageUrls),
+        ]),
+      );
+    }
     final rowsDeleted = await (db.delete(
       db.products,
     )..where((t) => t.id.equals(id))).go();

@@ -1,14 +1,13 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/l10n/tr.dart';
 import 'package:flutter/services.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../../core/utils/post_auth_navigation.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/res/uza_colors.dart';
 import '../../components/tap_animator.dart';
-import '../../../data/repositories/shop_repository.dart';
-import '../shop_dashboard_screen.dart';
 
 class StepIndicator extends StatelessWidget {
   final int currentStep;
@@ -200,38 +199,7 @@ class _VerificationScreenState extends State<VerificationScreen>
     try {
       await authService.signInWithOTP(widget.verificationId, _otpCode);
       if (!mounted) return;
-
-      // Wait for shop reconnection
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (!mounted) return;
-
-      try {
-        // Check if user has a shop
-        final shopRepo = context.read<ShopRepository>();
-        final userId = authService.user?.uid ?? widget.phoneNumber;
-        final userShop = await shopRepo.watchUserShop(userId).first;
-
-        if (!mounted) return;
-
-        if (userShop != null) {
-          // User has a shop, navigate to shop dashboard
-          debugPrint('OTP Login: User has shop, navigating to dashboard');
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const ShopDashboardScreen()),
-            (route) => false,
-          );
-        } else {
-          // No shop, navigate to home
-          debugPrint('OTP Login: User has no shop, navigating to home');
-          context.go('/');
-        }
-      } catch (e) {
-        debugPrint('Error checking for shop after OTP: $e');
-        // Fallback to home
-        if (!mounted) return;
-        context.go('/');
-      }
+      await goToPostAuthDestination(context);
     } catch (e) {
       if (mounted) {
         _shakeController.forward().then((_) => _shakeController.reset());
@@ -285,8 +253,9 @@ class _VerificationScreenState extends State<VerificationScreen>
 
   Future<void> _onSkipOTP() async {
     final authService = context.read<AuthService>();
-    await authService.signInWithoutOTP(widget.phoneNumber);
-    if (mounted) {
+    try {
+      await authService.signInWithoutOTP(widget.phoneNumber);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -309,7 +278,14 @@ class _VerificationScreenState extends State<VerificationScreen>
           duration: const Duration(seconds: 5),
         ),
       );
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      await goToPostAuthDestination(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll('Exception: ', '')),
+        ),
+      );
     }
   }
 
@@ -507,20 +483,20 @@ class _VerificationScreenState extends State<VerificationScreen>
                   ),
                 ),
                 const SizedBox(height: 8),
-                // Skip OTP
-                Center(
-                  child: TextButton(
-                    onPressed: _isVerifying ? null : _onSkipOTP,
-                    child: const Text(
-                      "Passer (non vérifié)",
-                      style: TextStyle(
-                        color: UzaColors.secondary,
-                        fontWeight: FontWeight.w500,
-                        fontSize: 14,
+                if (kDebugMode)
+                  Center(
+                    child: TextButton(
+                      onPressed: _isVerifying ? null : _onSkipOTP,
+                      child: const Text(
+                        "Passer (non vérifié)",
+                        style: TextStyle(
+                          color: UzaColors.secondary,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
                   ),
-                ),
                 const Spacer(),
                 // Change number link
                 Center(

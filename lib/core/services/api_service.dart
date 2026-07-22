@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
-import '../utils/phone_utils.dart';
 
 class ApiService {
   static const String _apiKey =
@@ -68,10 +67,10 @@ class ApiService {
     DateTime? updatedSince,
   }) async {
     try {
-      String url = '$baseUrl/shops.php?api_key=$_apiKey';
+      String url = '$baseUrl/shops.php';
       if (updatedSince != null) {
         url +=
-            '&updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
+            '?updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
       }
       final response = await http.get(Uri.parse(url), headers: _commonHeaders);
       if (response.statusCode == 200) {
@@ -88,15 +87,37 @@ class ApiService {
     return [];
   }
 
+  /// Lightweight lookup: returns the shop owned by [phone], if any.
+  Future<Map<String, dynamic>?> fetchShopByOwner(String phone) async {
+    for (final phoneVariant in _phoneVariations(phone)) {
+      try {
+        final uri = Uri.parse(
+          '$baseUrl/shops.php?owner_id=${Uri.encodeComponent(phoneVariant)}',
+        );
+        final response = await http
+            .get(uri, headers: _commonHeaders)
+            .timeout(const Duration(seconds: 12));
+        if (response.statusCode != 200) continue;
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic> && decoded['id'] != null) {
+          return decoded;
+        }
+      } catch (e) {
+        debugPrint('API ERROR (fetchShopByOwner: $phoneVariant): $e');
+      }
+    }
+    return null;
+  }
+
   // GET /products
   Future<List<Map<String, dynamic>>> fetchProducts({
     DateTime? updatedSince,
   }) async {
     try {
-      String url = '$baseUrl/products.php?api_key=$_apiKey';
+      String url = '$baseUrl/products.php';
       if (updatedSince != null) {
         url +=
-            '&updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
+            '?updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
       }
       debugPrint('API: Fetching products from $url');
       final response = await http.get(Uri.parse(url), headers: _commonHeaders);
@@ -124,7 +145,6 @@ class ApiService {
   }) async {
     try {
       final params = <String, String>{
-        'api_key': _apiKey,
         'limit': '$limit',
       };
       if (updatedSince != null) {
@@ -149,7 +169,7 @@ class ApiService {
     Map<String, dynamic> data,
   ) async {
     try {
-      final uri = Uri.parse('$baseUrl/product_updates.php?api_key=$_apiKey');
+      final uri = Uri.parse('$baseUrl/product_updates.php');
       final response = await http.post(
         uri,
         headers: {..._commonHeaders, 'Content-Type': 'application/json'},
@@ -174,7 +194,7 @@ class ApiService {
     DateTime? updatedSince,
   }) async {
     try {
-      final params = <String, String>{'api_key': _apiKey};
+      final params = <String, String>{};
       if (buyerPhone != null && buyerPhone.isNotEmpty) {
         params['buyer_phone'] = buyerPhone;
       }
@@ -206,7 +226,7 @@ class ApiService {
     DateTime? updatedSince,
   }) async {
     try {
-      final params = <String, String>{'api_key': _apiKey};
+      final params = <String, String>{};
       if (buyerPhone != null && buyerPhone.isNotEmpty) {
         params['buyer_phone'] = buyerPhone;
       }
@@ -237,7 +257,7 @@ class ApiService {
     DateTime? updatedSince,
   }) async {
     try {
-      String url = '$baseUrl/stories.php?api_key=$_apiKey&include_media=1';
+      String url = '$baseUrl/stories.php?include_media=1';
       if (updatedSince != null) {
         url +=
             '&updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
@@ -266,10 +286,10 @@ class ApiService {
     DateTime? updatedSince,
   }) async {
     try {
-      String url = '$baseUrl/categories.php?api_key=$_apiKey';
+      String url = '$baseUrl/categories.php';
       if (updatedSince != null) {
         url +=
-            '&updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
+            '?updated_since=${Uri.encodeComponent(_formatDateForApi(updatedSince))}';
       }
       debugPrint('API: Fetching categories from $url');
       final response = await http.get(Uri.parse(url), headers: _commonHeaders);
@@ -325,7 +345,7 @@ class ApiService {
     int level = 1,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/categories.php?api_key=$_apiKey');
+      final uri = Uri.parse('$baseUrl/categories.php');
       final payload = jsonEncode({
         'action': 'find_or_create',
         'name': name.trim(),
@@ -367,7 +387,7 @@ class ApiService {
   }) async {
     try {
       final uri = Uri.parse(
-        '$baseUrl/products.php?api_key=$_apiKey&page=$page&per_page=$perPage',
+        '$baseUrl/products.php?page=$page&per_page=$perPage',
       );
       final response = await http.get(uri, headers: _commonHeaders);
       if (response.statusCode == 200) {
@@ -393,7 +413,7 @@ class ApiService {
   }) async {
     try {
       final uri = Uri.parse(
-        '$baseUrl/shops.php?api_key=$_apiKey&page=$page&per_page=$perPage',
+        '$baseUrl/shops.php?page=$page&per_page=$perPage',
       );
       final response = await http.get(uri, headers: _commonHeaders);
       if (response.statusCode == 200) {
@@ -465,16 +485,11 @@ class ApiService {
   Future<({bool userExists, bool shopExists})> verifyUserAndShopOnServer(
     String phone,
   ) async {
-    final ownerKeys = PhoneUtils.lookupKeys(phone).toSet();
     final user = await fetchUserByPhone(phone);
     final userExists = user != null && user['error'] == null;
 
-    final shops = await fetchShops();
-    final shopExists = shops.any((shop) {
-      final serverOwner = shop['owner_id']?.toString();
-      if (serverOwner == null || serverOwner.isEmpty) return false;
-      return PhoneUtils.lookupKeys(serverOwner).any(ownerKeys.contains);
-    });
+    final shop = await fetchShopByOwner(phone);
+    final shopExists = shop != null && shop['id'] != null;
 
     debugPrint(
       'VERIFY server registration phone=$phone user=$userExists shop=$shopExists',
@@ -501,8 +516,9 @@ class ApiService {
           }),
         );
 
-        debugPrint('Login response status: ${response.statusCode}');
-        debugPrint('Login response body: ${response.body}');
+        if (kDebugMode) {
+          debugPrint('Login response status: ${response.statusCode}');
+        }
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
@@ -537,7 +553,9 @@ class ApiService {
     Map<String, dynamic> data,
   ) async {
     try {
-      debugPrint('PUSH → $entityType/$action (keys: ${data.keys.toList()})');
+      if (kDebugMode) {
+        debugPrint('PUSH → $entityType/$action (keys: ${data.keys.toList()})');
+      }
 
       late http.Response response;
 
@@ -545,7 +563,7 @@ class ApiService {
       // validation and upsert logic.
       // Route product_likes and shop_follows through stats.php.
       if (entityType == 'shops' || entityType == 'products') {
-        final uri = Uri.parse('$baseUrl/sync.php?api_key=$_apiKey');
+        final uri = Uri.parse('$baseUrl/sync.php');
         final payload = jsonEncode({
           'entityType': entityType,
           'action': action,
@@ -559,7 +577,7 @@ class ApiService {
         );
       } else if (entityType == 'product_likes') {
         // Route product likes to stats.php
-        final uri = Uri.parse('$baseUrl/stats.php?api_key=$_apiKey');
+        final uri = Uri.parse('$baseUrl/stats.php');
         final actionMap = action == 'CREATE' ? 'like' : 'unlike';
         final payload = jsonEncode({'action': actionMap, ...data});
         debugPrint('PUSH → stats.php (like)  uri=$uri');
@@ -570,7 +588,7 @@ class ApiService {
         );
       } else if (entityType == 'shop_follows') {
         // Route shop follows to stats.php
-        final uri = Uri.parse('$baseUrl/stats.php?api_key=$_apiKey');
+        final uri = Uri.parse('$baseUrl/stats.php');
         final actionMap = action == 'CREATE' ? 'follow' : 'unfollow';
         final payload = jsonEncode({'action': actionMap, ...data});
         debugPrint('PUSH → stats.php (follow)  uri=$uri');
@@ -580,7 +598,7 @@ class ApiService {
           body: payload,
         );
       } else if (entityType == 'stories' && action == 'DELETE') {
-        final uri = Uri.parse('$baseUrl/stories.php?api_key=$_apiKey');
+        final uri = Uri.parse('$baseUrl/stories.php');
         final payload = jsonEncode(data);
         debugPrint('PUSH → stories.php DELETE  uri=$uri');
         response = await http.delete(
@@ -589,7 +607,7 @@ class ApiService {
           body: payload,
         );
       } else if (entityType == 'orders') {
-        final uri = Uri.parse('$baseUrl/orders.php?api_key=$_apiKey');
+        final uri = Uri.parse('$baseUrl/orders.php');
         final payload = jsonEncode({'action': action, 'data': data});
         debugPrint('PUSH → orders.php  uri=$uri');
         response = await http.post(
@@ -598,7 +616,7 @@ class ApiService {
           body: payload,
         );
       } else if (entityType == 'deliveries') {
-        final uri = Uri.parse('$baseUrl/deliveries.php?api_key=$_apiKey');
+        final uri = Uri.parse('$baseUrl/deliveries.php');
         final payload = jsonEncode({'action': action, 'data': data});
         debugPrint('PUSH → deliveries.php  uri=$uri');
         response = await http.post(
@@ -608,7 +626,7 @@ class ApiService {
         );
       } else {
         final String endpoint = '$entityType.php';
-        final uri = Uri.parse('$baseUrl/$endpoint?api_key=$_apiKey');
+        final uri = Uri.parse('$baseUrl/$endpoint');
         final payload = jsonEncode(data);
         debugPrint('PUSH → $endpoint  uri=$uri  body_length=${payload.length}');
         response = await http.post(
@@ -672,7 +690,7 @@ class ApiService {
     required String reporterPhone,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/reports.php?api_key=$_apiKey');
+      final uri = Uri.parse('$baseUrl/reports.php');
       final response = await http.post(
         uri,
         headers: {..._commonHeaders, 'Content-Type': 'application/json'},
@@ -741,13 +759,14 @@ class ApiService {
     String folder = 'boutiques/profil',
     Duration? timeout,
   }) async {
+    final effectiveTimeout =
+        timeout ?? const Duration(seconds: 90);
     try {
-      final uri = Uri.parse('$baseUrl/upload.php').replace(
-        queryParameters: {'api_key': _apiKey},
-      );
+      final uri = Uri.parse('$baseUrl/upload.php');
       final request = http.MultipartRequest('POST', uri);
       request.headers['X-API-Key'] = _apiKey;
       request.fields['folder'] = folder;
+      request.fields['skip_thumbnail'] = '1';
       request.files.add(
         http.MultipartFile.fromBytes(
           'file',
@@ -757,9 +776,8 @@ class ApiService {
         ),
       );
 
-      final streamedResponse = timeout != null
-          ? await request.send().timeout(timeout)
-          : await request.send();
+      final streamedResponse =
+          await request.send().timeout(effectiveTimeout);
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
@@ -787,13 +805,14 @@ class ApiService {
     String folder = 'boutiques/profil',
     Duration? timeout,
   }) async {
+    final effectiveTimeout =
+        timeout ?? const Duration(seconds: 90);
     try {
-      final uri = Uri.parse('$baseUrl/upload.php').replace(
-        queryParameters: {'api_key': _apiKey},
-      );
+      final uri = Uri.parse('$baseUrl/upload.php');
       final request = http.MultipartRequest('POST', uri);
       request.headers['X-API-Key'] = _apiKey;
       request.fields['folder'] = folder;
+      request.fields['skip_thumbnail'] = '1';
       request.files.add(
         http.MultipartFile.fromBytes(
           'file',
@@ -803,9 +822,8 @@ class ApiService {
         ),
       );
 
-      final streamedResponse = timeout != null
-          ? await request.send().timeout(timeout)
-          : await request.send();
+      final streamedResponse =
+          await request.send().timeout(effectiveTimeout);
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
@@ -836,7 +854,7 @@ class ApiService {
     String? userPhone,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/platform_visits.php?api_key=$_apiKey');
+      final uri = Uri.parse('$baseUrl/platform_visits.php');
       final payload = jsonEncode({
         'event_type': eventType,
         'platform': platform,
@@ -871,7 +889,6 @@ class ApiService {
     try {
       final uri = Uri.parse('$baseUrl/admin_stats.php').replace(
         queryParameters: {
-          'api_key': _apiKey,
           'admin_phone': adminPhone,
           'preset': preset,
         },
@@ -904,7 +921,6 @@ class ApiService {
     try {
       final uri = Uri.parse('$baseUrl/reports.php').replace(
         queryParameters: {
-          'api_key': _apiKey,
           'admin_phone': adminPhone,
           'list': '1',
           'limit': '$limit',
@@ -937,7 +953,6 @@ class ApiService {
     try {
       final uri = Uri.parse('$baseUrl/stats.php').replace(
         queryParameters: {
-          'api_key': _apiKey,
           'shop_id': remoteShopId.toString(),
         },
       );
@@ -984,7 +999,7 @@ class ApiService {
     int? productId,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/stats.php?api_key=$_apiKey');
+      final uri = Uri.parse('$baseUrl/stats.php');
       final payload = jsonEncode({
         'action': 'track_contact',
         'shop_id': shopId,
@@ -1015,7 +1030,7 @@ class ApiService {
     required String interactionType,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/stats.php?api_key=$_apiKey');
+      final uri = Uri.parse('$baseUrl/stats.php');
       final payload = jsonEncode({
         'action': 'track_shop_interaction',
         'shop_id': shopId,

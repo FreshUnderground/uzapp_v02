@@ -13,6 +13,7 @@ import '../../ui/components/desktop_route_wrapper.dart';
 import '../../ui/components/desktop_shell.dart';
 import '../../ui/components/home_app_actions.dart';
 import '../../ui/screens/b2b_hub_screen.dart';
+import '../services/auth_service.dart';
 import '../../ui/screens/admin_screen.dart';
 import '../../ui/screens/cart_screen.dart';
 import '../../ui/screens/discover_feed_screen.dart';
@@ -96,6 +97,25 @@ class AppRouter {
     return GoRouter(
       navigatorKey: rootKey,
       initialLocation: initialLocation(),
+      redirect: (context, state) {
+        final path = state.uri.path;
+        if (path != '/admin' && !path.startsWith('/admin/')) {
+          return null;
+        }
+        try {
+          final auth = Provider.of<AuthService>(context, listen: false);
+          final user = auth.user;
+          if (user == null || user.uid.isEmpty) {
+            return '/';
+          }
+          if (!user.isAdmin) {
+            return '/';
+          }
+        } catch (_) {
+          return '/';
+        }
+        return null;
+      },
       routes: [
         StatefulShellRoute.indexedStack(
           builder: (context, state, navigationShell) {

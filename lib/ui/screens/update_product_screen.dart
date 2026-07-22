@@ -210,7 +210,7 @@ class _UpdateProductScreenState extends State<UpdateProductScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(trf(context, 'error_with_message', {'message': '$e'})),
+            content: Text(e.toString().replaceAll('Exception: ', '')),
           ),
         );
       }

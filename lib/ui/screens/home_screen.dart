@@ -10,6 +10,7 @@ import '../components/product_card.dart';
 import '../screens/product_detail_screen.dart';
 import '../screens/story_view_screen.dart';
 import 'shops_directory_screen.dart';
+import '../../data/models/ya_cope_listing.dart';
 import 'ya_cope_feed_screen.dart';
 import 'add_ya_cope_screen.dart';
 import 'story_feed_screen.dart';
@@ -22,6 +23,7 @@ import 'create_shop_screen.dart';
 import '../components/responsive_layout.dart';
 import 'create_story_screen.dart';
 import 'edit_product_screen.dart';
+import 'update_product_screen.dart';
 import '../../data/repositories/shop_repository.dart';
 import '../../data/repositories/story_repository.dart';
 import '../components/animated_bottom_nav.dart';
@@ -52,6 +54,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late int _selectedIndex;
+  /// Only build visited tabs — IndexedStack would otherwise init Discover,
+  /// Ya Cope (network) and Shops on every cold start.
+  final Set<int> _builtTabs = {};
   List<Story>? _overlayStories;
   int _overlayStoryIndex = 0;
   final _yaCopeFeedKey = GlobalKey<YaCopeFeedScreenState>();
@@ -62,11 +67,13 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _selectedIndex = widget.navigationShell?.currentIndex ??
         widget.initialIndex.clamp(0, 3);
+    _builtTabs.add(_selectedIndex);
 
     if (kIsWeb) {
       final shortcut = Uri.base.queryParameters['shortcut'];
       if (shortcut == 'shops') {
         _selectedIndex = 3;
+        _builtTabs.add(3);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _onItemTapped(3);
         });
@@ -102,8 +109,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onItemTapped(int index) {
     final safeIndex = index.clamp(0, 3);
-    if (_selectedIndex != safeIndex) {
-      setState(() => _selectedIndex = safeIndex);
+    if (_selectedIndex != safeIndex || !_builtTabs.contains(safeIndex)) {
+      setState(() {
+        _builtTabs.add(safeIndex);
+        _selectedIndex = safeIndex;
+      });
     }
     final shell = widget.navigationShell;
     if (shell != null) {
@@ -191,17 +201,27 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final List<Widget> pages = [
+  List<Widget> _buildPages() {
+    return [
       _HomeContent(
         onOpenStory: _openOverlayStory,
         isTabActive: _activeIndex == 0,
       ),
-      const DiscoverFeedScreen(),
-      YaCopeFeedScreen(key: _yaCopeFeedKey),
-      const ShopsDirectoryScreen(),
+      _builtTabs.contains(1)
+          ? const DiscoverFeedScreen()
+          : const SizedBox.shrink(),
+      _builtTabs.contains(2)
+          ? YaCopeFeedScreen(key: _yaCopeFeedKey)
+          : const SizedBox.shrink(),
+      _builtTabs.contains(3)
+          ? const ShopsDirectoryScreen()
+          : const SizedBox.shrink(),
     ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = _buildPages();
 
     return ResponsiveLayout(
       mobile: Scaffold(
@@ -254,8 +274,8 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       SlideUpRoute(page: const AddYaCopeScreen()),
     ).then((created) {
-      if (created == true) {
-        _yaCopeFeedKey.currentState?.refreshListings();
+      if (created is YaCopeListing) {
+        _yaCopeFeedKey.currentState?.prependListing(created);
       }
     }).whenComplete(() {
       _openingYaCopeAdd = false;
@@ -504,7 +524,17 @@ class _HomeContentState extends State<_HomeContent> {
 
   Future<void> _openCreateStory({bool isArrivage = false}) async {
     final shop = await resolveSellerShop(context);
-    if (!mounted || shop == null) return;
+    if (!mounted) return;
+    if (shop == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Connectez-vous et créez une boutique pour publier.',
+          ),
+        ),
+      );
+      return;
+    }
     Navigator.push(
       context,
       SlideUpRoute(
@@ -513,10 +543,64 @@ class _HomeContentState extends State<_HomeContent> {
     );
   }
 
+  Future<void> _openArrivageChooser() async {
+    final shop = await resolveSellerShop(context);
+    if (!mounted || shop == null) {
+      if (mounted && shop == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Connectez-vous et créez une boutique pour publier.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.auto_stories_outlined),
+              title: const Text('Story arrivage (4 jours)'),
+              subtitle: const Text('Photos / vidéo visibles dans le fil'),
+              onTap: () => Navigator.pop(ctx, 'story'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.inventory_2_outlined),
+              title: const Text('Mettre à jour un produit'),
+              subtitle: const Text('Marquer un produit du catalogue'),
+              onTap: () => Navigator.pop(ctx, 'product'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == 'story') {
+      Navigator.push(
+        context,
+        SlideUpRoute(
+          page: CreateStoryScreen(shopId: shop.id, isArrivage: true),
+        ),
+      );
+    } else {
+      Navigator.push(
+        context,
+        SlideUpRoute(
+          page: UpdateProductScreen(shopId: shop.id),
+        ),
+      );
+    }
+  }
+
   Future<void> _handleRefresh() async {
     try {
       final syncService = context.read<SyncService>();
-      await syncService.syncNow();
+      await syncService.refreshCatalogLight();
       setState(() => _hasReachedEnd = false);
       _reshuffleTrending();
     } catch (e) {
@@ -654,7 +738,7 @@ class _HomeContentState extends State<_HomeContent> {
                           itemBuilder: (context, index) {
                             if (index == 0) {
                               return _AddArrivageCard(
-                                onTap: () => _openCreateStory(isArrivage: true),
+                                onTap: _openArrivageChooser,
                               );
                             }
 
@@ -1059,6 +1143,14 @@ class _AddArrivageCard extends StatelessWidget {
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
                 color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+            Text(
+              'Story 4 jours',
+              style: TextStyle(
+                fontSize: 9,
+                color: Colors.grey[500],
               ),
               textAlign: TextAlign.center,
             ),

@@ -562,9 +562,9 @@ class _EditProductScreenState extends State<EditProductScreen> {
             await ProductUploadService.persistPendingImages(pendingUploads);
       }
 
-      final finalUrls = urlsBySlot.where((u) => u.isNotEmpty).toList();
-
-      final encryptedImages = finalUrls.isEmpty
+      final finalUrls = List<String>.from(urlsBySlot);
+      final hasAnyUrl = finalUrls.any((u) => u.isNotEmpty);
+      final encryptedImages = !hasAnyUrl
           ? ''
           : CryptoUtils.encrypt(finalUrls.join(','));
 
@@ -679,6 +679,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
       final syncService = context.read<SyncService>();
       final shopRepo = context.read<ShopRepository>();
       final navigator = Navigator.of(context);
+      final messenger = ScaffoldMessenger.of(context);
 
       int productId;
       String action;
@@ -704,27 +705,39 @@ class _EditProductScreenState extends State<EditProductScreen> {
           ? int.tryParse(widget.product!.remoteId!)
           : null;
 
-      // Queue for background sync
-      await syncService.addToQueue(action, 'products', {
-        'id': ?remoteProductId,
-        'local_id': productId, // kept for local remoteId mapping after push
-        'shop_id': remoteShopId,
-        'name': _nameController.text.trim(),
-        'description': _descController.text.trim(),
-        'price': double.tryParse(_priceController.text) ?? 0.0,
-        'image_urls': finalUrls.join(','), // Send raw URLs to server
-        'category_id': effectiveCategoryId,
-        'category': categoryName,
-        'stock_count': int.tryParse(_stockController.text),
-        'is_arrival': widget.product?.isArrival ?? false,
-        'is_promotion': _isFlashOffer,
-        'hide_price': _hidePrice,
-        'show_stock': _showStock,
-        'boost_status': _boostStatus,
-        'promotion_message': _promoMsgController.text.trim(),
-        'metadata': metadataJson,
-      });
+      // Queue for background sync — skip incomplete image_urls when uploads pending.
+      final syncImageUrls = finalUrls.where((u) => u.isNotEmpty).join(',');
+      if (pendingUploads.isEmpty) {
+        await syncService.addToQueue(action, 'products', {
+          'id': ?remoteProductId,
+          'local_id': productId,
+          'shop_id': remoteShopId,
+          'name': _nameController.text.trim(),
+          'description': _descController.text.trim(),
+          'price': double.tryParse(_priceController.text) ?? 0.0,
+          'image_urls': syncImageUrls,
+          'category_id': effectiveCategoryId,
+          'category': categoryName,
+          'stock_count': int.tryParse(_stockController.text),
+          'is_arrival': widget.product?.isArrival ?? false,
+          'is_promotion': _isFlashOffer,
+          'hide_price': _hidePrice,
+          'show_stock': _showStock,
+          'boost_status': _boostStatus,
+          'promotion_message': _promoMsgController.text.trim(),
+          'metadata': metadataJson,
+        });
+      }
 
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.product != null
+                ? 'Produit enregistré'
+                : 'Produit créé',
+          ),
+        ),
+      );
       navigator.pop();
 
       if (pendingUploads.isNotEmpty) {
@@ -735,6 +748,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
             productRepo: productRepo,
             shopRepo: shopRepo,
             syncService: syncService,
+            messenger: messenger,
           ),
         );
       } else {
@@ -745,7 +759,11 @@ class _EditProductScreenState extends State<EditProductScreen> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(
-          SnackBar(content: Text(trf(context, 'error_with_message', {'message': '$e'}))),
+          SnackBar(
+            content: Text(
+              e.toString().replaceAll('Exception: ', ''),
+            ),
+          ),
         );
       }
     } finally {
@@ -908,7 +926,11 @@ class _EditProductScreenState extends State<EditProductScreen> {
                     )
                   : Icon(Icons.check_circle, size: 24),
               label: Text(
-                _isSaving ? 'Enregistrement...' : 'Créer le produit',
+                _isSaving
+                    ? 'Enregistrement...'
+                    : (widget.product != null
+                        ? 'Enregistrer'
+                        : 'Créer le produit'),
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
@@ -1280,17 +1302,28 @@ class _EditProductScreenState extends State<EditProductScreen> {
     required ProductRepository productRepo,
     required ShopRepository shopRepo,
     required SyncService syncService,
+    ScaffoldMessengerState? messenger,
   }) async {
     final product = await productRepo.getProductById(productId);
     if (product == null) return;
-    await ProductUploadService.processPendingForProduct(
+    final failed = await ProductUploadService.processPendingForProduct(
       product: product,
       api: apiService,
       productRepo: productRepo,
       shopRepo: shopRepo,
       syncService: syncService,
     );
-    await syncService.forcePush();
+    unawaited(syncService.forcePush());
+    if (failed > 0) {
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Une photo n’a pas pu être envoyée. Utilisez Synchroniser.',
+          ),
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   Widget _buildStatusInfo(

@@ -6,6 +6,7 @@ import '../../core/res/uza_colors.dart';
 import '../../core/l10n/tr.dart';
 import '../../core/models/shop_visibility_models.dart';
 import '../../data/local/uza_database.dart';
+import 'auth/login_screen.dart';
 import 'manage_products_screen.dart';
 import 'edit_shop_screen.dart';
 import 'whatsapp_status_screen.dart';
@@ -31,12 +32,34 @@ class ShopDashboardScreen extends StatefulWidget {
 class _ShopDashboardScreenState extends State<ShopDashboardScreen> {
   @override
   Widget build(BuildContext context) {
-    final userId = context.read<AuthService>().user?.uid;
+    final auth = context.read<AuthService>();
+    final userId = auth.user?.uid;
+    if (userId == null || userId.isEmpty) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(tr(context, 'report_login_required')),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  );
+                },
+                child: Text(tr(context, 'login')),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final shopRepo = context.read<ShopRepository>();
 
     final shopStream = widget.shopId != null
         ? shopRepo.watchShopById(widget.shopId!)
-        : shopRepo.watchUserShop(userId ?? '');
+        : shopRepo.watchUserShop(userId);
 
     return StreamBuilder<Shop?>(
       stream: shopStream,

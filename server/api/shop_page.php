@@ -11,6 +11,7 @@ if (!is_file($dbFile)) {
 require_once $dbFile;
 require_once __DIR__ . '/phone_utils.php';
 require_once __DIR__ . '/shop_contact_utils.php';
+require_once __DIR__ . '/smart_open_bridge.php';
 
 $shopId = $_GET['id'] ?? '';
 if (!$shopId) {
@@ -237,8 +238,8 @@ if ($shop) {
           Contacter sur WhatsApp
         </a>
       <?php endif; ?>
-      <a href="uzaapp://shop/<?= htmlspecialchars($shopId) ?>" class="btn btn-outline" id="openApp">
-        Ouvrir dans l'app
+      <a href="<?= htmlspecialchars(landingWebUrl('shop', $shopId), ENT_QUOTES, 'UTF-8') ?>" class="btn" id="openApp">
+        Accéder à Uzaapp
       </a>
     </div>
     <?php else: ?>
@@ -252,9 +253,10 @@ if ($shop) {
 
     <div class="store-links">
       <p style="margin-top:16px; font-size:14px;">Pas encore l'app?</p>
-      <a href="https://play.google.com/store/apps/details?id=com.uzaapp" target="_blank">Play Store</a>
+      <a href="<?= htmlspecialchars(landingPlayStoreUrl(), ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer">Play Store</a>
     </div>
   </div>
 
+  <?php if ($shop): renderLandingOpenScript('shop', $shopId); endif; ?>
 </body>
 </html>

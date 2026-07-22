@@ -73,11 +73,6 @@ function authenticate() {
         header('Content-Type: application/json');
         echo json_encode([
             'error' => 'Unauthorized: Invalid or missing API key',
-            'debug' => [
-                'received_key' => $apiKey ? 'present' : 'missing',
-                'expected_prefix' => 'uza_sk_',
-                'headers_available' => array_keys($headers)
-            ]
         ]);
         exit;
     }

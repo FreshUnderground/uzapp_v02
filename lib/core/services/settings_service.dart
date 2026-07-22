@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/local/uza_database.dart';
@@ -51,13 +53,20 @@ class SettingsService extends ChangeNotifier {
   String? get userCommune => _userCommune;
 
   SettingsService(this._db) {
-    _loadSettings();
+    // Prefer Preferences for first paint; defer Drift until after first frame
+    // so migrations aren't competing with the home UI.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadSettings());
+    });
   }
 
   Future<void> _loadSettings() async {
     final sp = await SharedPreferences.getInstance();
     _waStatusAutoEnabled = sp.getBool(kPrefWaStatusEnabled) ?? true;
     _themeMode = sp.getString(_prefThemeMode) ?? '';
+    if (_themeMode.isNotEmpty) {
+      notifyListeners();
+    }
 
     final prefs = await (_db.select(
       _db.appPreferences,

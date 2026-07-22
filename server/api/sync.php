@@ -274,8 +274,23 @@ try {
         } else if ($action === 'DELETE') {
             $id = isset($data['id']) ? $data['id'] : null;
             if ($id) {
+                $mediaUrls = [];
+                $urlStmt = $db->prepare('SELECT image_urls FROM products WHERE id = ?');
+                $urlStmt->execute([$id]);
+                $row = $urlStmt->fetch(PDO::FETCH_ASSOC);
+                if ($row && !empty($row['image_urls'])) {
+                    foreach (explode(',', $row['image_urls']) as $part) {
+                        $u = trim($part);
+                        if ($u !== '') {
+                            $mediaUrls[] = $u;
+                        }
+                    }
+                }
                 $stmt = $db->prepare("DELETE FROM products WHERE id = ?");
                 $stmt->execute([$id]);
+                if (!empty($mediaUrls)) {
+                    uza_safe_unlink_uploads($db, $mediaUrls);
+                }
                 echo json_encode(['success' => true, 'id' => $id, 'action' => 'DELETE']);
                 exit;
             } else {

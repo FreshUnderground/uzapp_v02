@@ -78,6 +78,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isUploadingAvatar = false;
   final Set<String> _failedAvatarUrls = {};
   Uint8List? _coverBytes;
+  String? _coverUrl;
   bool _isUploadingCover = false;
   late RecentlyViewedRepository _recentlyViewed;
   late AuthService _authService;
@@ -128,6 +129,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _avatarUrl = null;
       _avatarBytes = null;
       _coverBytes = null;
+      _coverUrl = null;
       _failedAvatarUrls.clear();
     });
   }
@@ -187,7 +189,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _saveProfile({Shop? shop}) async {
     setState(() => _isSaving = true);
-    await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
 
     final name = _nameController.text.trim();
@@ -483,6 +484,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// Sources avatar : logo boutique, profil, puis couverture si le logo est cassé.
   List<String?> _avatarSourceCandidates(Shop? shop, MockUser? user) {
+    if (_avatarUrl != null && _avatarUrl!.isNotEmpty) {
+      return [_avatarUrl, shop?.logoUrl, user?.photoURL, shop?.bannerUrl];
+    }
     if (shop != null) {
       return [shop.logoUrl, _avatarUrl, user?.photoURL, shop.bannerUrl];
     }
@@ -550,11 +554,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: SizedBox(
         width: 96,
         height: 96,
-        child: ImageUtils.buildCachedImage(
-          avatarSource,
-          width: 96,
-          height: 96,
-          fit: BoxFit.cover,
+        child: KeyedSubtree(
+          key: ValueKey(resolved),
+          child: ImageUtils.buildCachedImage(
+            avatarSource,
+            width: 96,
+            height: 96,
+            fit: BoxFit.cover,
           placeholder: CircleAvatar(
             radius: 48,
             backgroundColor: Colors.white.withValues(alpha: 0.25),
@@ -579,6 +585,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -591,10 +598,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ? shop!.name
         : (user?.displayName ?? '');
     final phoneNumber = user?.phoneNumber ?? '';
-    final hasBanner = hasShopProfile &&
-        shop.bannerUrl != null &&
-        shop.bannerUrl!.isNotEmpty &&
-        ImageUtils.resolveImageUrl(shop.bannerUrl) != null;
+    final hasBanner = _coverUrl != null ||
+        (hasShopProfile &&
+            shop.bannerUrl != null &&
+            shop.bannerUrl!.isNotEmpty &&
+            ImageUtils.resolveImageUrl(shop.bannerUrl) != null);
+    final coverSource = _coverUrl ?? shop?.bannerUrl;
     final canEditCover =
         hasShopProfile && user != null && !_isUploadingCover;
 
@@ -619,12 +628,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     if (_coverBytes != null)
                       Image.memory(_coverBytes!, fit: BoxFit.cover)
-                    else if (hasBanner)
-                      ImageUtils.buildCachedImage(
-                        shop.bannerUrl,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
+                    else if (hasBanner && coverSource != null)
+                      KeyedSubtree(
+                        key: ValueKey(
+                          ImageUtils.resolveImageUrl(coverSource) ?? coverSource,
+                        ),
+                        child: ImageUtils.buildCachedImage(
+                          coverSource,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                        ),
                       )
                     else
                       const DecoratedBox(
@@ -2561,7 +2575,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               final syncService = context.read<SyncService>();
               Navigator.pop(context);
               await repo.deleteProductWithSync(product.id);
-              await syncService.forcePush();
+              unawaited(syncService.forcePush());
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -2644,28 +2658,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
 
+      final previousCover = _coverUrl ?? shop.bannerUrl;
+
       final prepared = await ImagePrepareUtils.prepareForUpload(
         bytes,
         prefix: 'shop_banner_${shop.id}',
       );
-      final uploadedUrl = await context.read<ApiService>().uploadFile(
+      final uploadedUrl = await context.read<ApiService>().uploadFileOrThrow(
         prepared.bytes,
         prepared.fileName,
         folder: 'boutiques',
       );
 
       if (!mounted) return;
-      if (uploadedUrl != null) {
-        await ProfileShopSync.syncToShop(
-          context,
-          shop: shop,
-          bannerUrl: uploadedUrl,
-        );
-        setState(() => _coverBytes = null);
-        _showSnackBar('Couverture mise à jour');
-      } else {
-        _showSnackBar(tr(context, 'upload_error'), isError: true);
+      await ImageUtils.evictCachedSources([previousCover, uploadedUrl]);
+      await ProfileShopSync.syncToShop(
+        context,
+        shop: shop,
+        bannerUrl: uploadedUrl,
+      );
+      await ImageUtils.prefetchUrls([uploadedUrl]);
+      if (mounted) {
+        setState(() {
+          _coverUrl = uploadedUrl;
+          _coverBytes = null;
+        });
       }
+      _showSnackBar('Couverture mise à jour');
     } catch (e) {
       if (mounted) {
         _showSnackBar('${tr(context, 'upload_error')}: $e', isError: true);
@@ -2693,56 +2712,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
       final apiService = context.read<ApiService>();
       final authService = context.read<AuthService>();
-      final uploadedUrl = await apiService.uploadFile(
+      final uploadedUrl = await apiService.uploadFileOrThrow(
         prepared.bytes,
         prepared.fileName,
         folder: 'boutiques',
       );
 
       if (!mounted) return;
-      if (uploadedUrl != null) {
-        final previousUrl = _avatarUrl ?? authService.user?.photoURL;
-        if (previousUrl != null) {
-          final resolvedPrevious = ImageUtils.resolveImageUrl(previousUrl);
-          if (resolvedPrevious != null) {
-            try {
-              await UzaImageCache.instance.removeFile(resolvedPrevious);
-            } catch (_) {}
-          }
+      final previousUrl = _avatarUrl ?? authService.user?.photoURL;
+      if (previousUrl != null) {
+        final resolvedPrevious = ImageUtils.resolveImageUrl(previousUrl);
+        if (resolvedPrevious != null) {
+          try {
+            await UzaImageCache.instance.removeFile(resolvedPrevious);
+          } catch (_) {}
         }
-
-        await ProfileShopSync.syncToProfile(
-          context,
-          avatarUrl: uploadedUrl,
-        );
-
-        final userId = authService.user?.uid;
-        if (userId != null) {
-          final shop = await context.read<ShopRepository>().getUserShop(userId);
-          if (shop != null && mounted) {
-            await ProfileShopSync.syncToShop(
-              context,
-              shop: shop,
-              logoUrl: uploadedUrl,
-            );
-          }
-        }
-
-        await ImageUtils.prefetchUrls([uploadedUrl]);
-        if (mounted) {
-          setState(() {
-            _avatarUrl = uploadedUrl;
-            _avatarBytes = null;
-            _failedAvatarUrls.clear();
-          });
-        }
-        _showSnackBar(tr(context, 'profile_updated'));
-      } else {
-        _showSnackBar(tr(context, 'upload_error'), isError: true);
       }
+
+      await ProfileShopSync.syncToProfile(
+        context,
+        avatarUrl: uploadedUrl,
+      );
+
+      final userId = authService.user?.uid;
+      if (userId != null) {
+        final shop = await context.read<ShopRepository>().getUserShop(userId);
+        if (shop != null && mounted) {
+          await ProfileShopSync.syncToShop(
+            context,
+            shop: shop,
+            logoUrl: uploadedUrl,
+          );
+        }
+      }
+
+      await ImageUtils.prefetchUrls([uploadedUrl]);
+      if (mounted) {
+        setState(() {
+          _avatarUrl = uploadedUrl;
+          _avatarBytes = null;
+          _failedAvatarUrls.clear();
+        });
+      }
+      _showSnackBar(tr(context, 'profile_updated'));
     } catch (e) {
       if (mounted) {
-        _showSnackBar('${tr(context, 'upload_error')}: $e', isError: true);
+        _showSnackBar(tr(context, 'upload_error'), isError: true);
       }
     } finally {
       if (mounted) {

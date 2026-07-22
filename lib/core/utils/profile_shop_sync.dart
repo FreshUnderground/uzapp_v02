@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/services/auth_service.dart';
 import '../../core/utils/crypto_utils.dart';
+import '../../core/utils/image_utils.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/shop_repository.dart';
@@ -19,6 +20,13 @@ class ProfileShopSync {
     String? bannerUrl,
   }) async {
     if (name == null && logoUrl == null && bannerUrl == null) return;
+
+    await ImageUtils.evictCachedSources([
+      shop.logoUrl,
+      shop.bannerUrl,
+      logoUrl,
+      bannerUrl,
+    ]);
 
     final shopRepo = context.read<ShopRepository>();
     final syncService = context.read<SyncService>();
@@ -66,6 +74,12 @@ class ProfileShopSync {
     if (name == null && avatarUrl == null) return;
 
     final authRepo = context.read<AuthRepository>();
+    final current = await authRepo.getCurrentUser();
+    await ImageUtils.evictCachedSources([
+      current?.avatarUrl,
+      avatarUrl,
+    ]);
+
     final authService = context.read<AuthService>();
     final syncService = context.read<SyncService>();
 

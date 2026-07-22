@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -6,8 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/res/uza_colors.dart';
 import '../../core/services/api_service.dart';
-import '../../core/utils/crypto_utils.dart';
-import '../../core/utils/image_prepare_utils.dart';
+import '../../core/services/product_upload_service.dart';
 import '../../core/utils/picker_utils.dart';
 import '../../data/local/uza_database.dart';
 import '../../data/repositories/product_repository.dart';
@@ -15,7 +16,7 @@ import '../../data/repositories/shop_repository.dart';
 import '../../data/services/sync_service.dart';
 import 'package:drift/drift.dart' as drift;
 
-/// Minimal 3-step product publish: photo → name/price → save.
+/// Minimal product publish: photo → name/price → local-first save.
 class QuickPostScreen extends StatefulWidget {
   final int shopId;
 
@@ -30,7 +31,6 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
   final _nameController = TextEditingController();
   final _priceController = TextEditingController();
   bool _saving = false;
-  String? _uploadProgress;
 
   @override
   void dispose() {
@@ -38,6 +38,9 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
     _priceController.dispose();
     super.dispose();
   }
+
+  String _friendlyError(Object e) =>
+      e.toString().replaceAll('Exception: ', '').trim();
 
   Future<void> _pickPhoto() async {
     final bytes = await PickerUtils.pickImage(context);
@@ -59,76 +62,81 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
       return;
     }
 
-    setState(() {
-      _saving = true;
-      _uploadProgress = 'Préparation…';
-    });
+    setState(() => _saving = true);
 
     try {
       final api = context.read<ApiService>();
       final productRepo = context.read<ProductRepository>();
       final syncService = context.read<SyncService>();
       final shopRepo = context.read<ShopRepository>();
+      final messenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(context);
 
-      setState(() => _uploadProgress = 'Envoi photo (1/1)…');
-      final prepared = await ImagePrepareUtils.prepareForUpload(
-        _photo!,
-        prefix: 'quick',
-      );
-      final bytes = await ImagePrepareUtils.ensureUploadSize(prepared.bytes);
-      final url = await api.uploadFileOrThrow(
-        bytes,
-        prepared.fileName,
-        folder: 'produits',
-        timeout: const Duration(seconds: 45),
-      );
-
-      final encrypted = CryptoUtils.encrypt(url);
       final price = double.tryParse(_priceController.text) ?? 0;
+      final pendingPaths = await ProductUploadService.persistPendingImages([
+        (slot: 0, bytes: _photo!),
+      ]);
+      final metadata = ProductUploadService.mergePendingPaths({}, pendingPaths);
 
       final companion = ProductsCompanion(
         shopId: drift.Value(widget.shopId),
         name: drift.Value(name),
         description: const drift.Value(''),
         price: drift.Value(price),
-        imageUrls: drift.Value(encrypted),
+        imageUrls: const drift.Value(''),
+        metadata: drift.Value(jsonEncode(metadata)),
         updatedAt: drift.Value(DateTime.now()),
       );
 
       final productId = await productRepo.addProduct(companion);
-      final shop = await shopRepo.getShopById(widget.shopId);
-      final remoteShopId = int.tryParse(shop?.remoteId ?? '') ?? widget.shopId;
-
-      await syncService.addToQueue('CREATE', 'products', {
-        'local_id': productId,
-        'shop_id': remoteShopId,
-        'name': name,
-        'price': price,
-        'image_urls': url,
-      });
-      await syncService.forcePush();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text(tr(context, 'product_published'))),
         );
-        Navigator.pop(context, true);
+        navigator.pop(true);
       }
+
+      unawaited(() async {
+        try {
+          final product = await productRepo.getProductById(productId);
+          if (product == null) return;
+          final failed = await ProductUploadService.processPendingForProduct(
+            product: product,
+            api: api,
+            productRepo: productRepo,
+            shopRepo: shopRepo,
+            syncService: syncService,
+          );
+          unawaited(syncService.forcePush());
+          if (failed > 0) {
+            messenger.showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Une photo n’a pas pu être envoyée. Utilisez Synchroniser.',
+                ),
+                duration: Duration(seconds: 4),
+              ),
+            );
+          }
+        } catch (e) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                'Publication en attente de synchronisation. ${_friendlyError(e)}',
+              ),
+            ),
+          );
+        }
+      }());
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(trf(context, 'error_with_message', {'message': '$e'})),
-          ),
+          SnackBar(content: Text(_friendlyError(e))),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-          _uploadProgress = null;
-        });
-      }
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -139,11 +147,12 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
         title: Text(tr(context, 'quick_publish')),
         actions: [
           if (_saving)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                _uploadProgress ?? '…',
-                style: const TextStyle(fontSize: 12),
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
               ),
             )
           else
@@ -195,7 +204,7 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
           TextField(
             controller: _priceController,
             decoration: const InputDecoration(
-              labelText: 'Prix (CDF)',
+              labelText: 'Prix (USD)',
               border: OutlineInputBorder(),
             ),
             keyboardType: TextInputType.number,
@@ -210,7 +219,7 @@ class _QuickPostScreenState extends State<QuickPostScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.publish),
-            label: Text(_saving ? 'Publication…' : 'Publier maintenant'),
+            label: Text(_saving ? 'Enregistrement…' : 'Publier maintenant'),
             style: FilledButton.styleFrom(
               minimumSize: const Size(double.infinity, 52),
               backgroundColor: UzaColors.primary,

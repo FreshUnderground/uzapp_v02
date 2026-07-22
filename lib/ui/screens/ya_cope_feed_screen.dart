@@ -28,13 +28,28 @@ class YaCopeFeedScreenState extends State<YaCopeFeedScreen> {
     _load();
   }
 
-  Future<void> refreshListings() => _load();
+  Future<void> refreshListings({bool showLoading = true}) =>
+      _load(showLoading: showLoading);
 
-  Future<void> _load() async {
+  void prependListing(YaCopeListing listing) {
     setState(() {
-      _loading = true;
+      _listings ??= [];
+      if (!_listings!.any((l) => l.id == listing.id)) {
+        _listings = [listing, ..._listings!];
+      }
+      _loading = false;
       _error = null;
     });
+    _load(showLoading: false);
+  }
+
+  Future<void> _load({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final repo = context.read<YaCopeRepository>();
       final items = await repo.fetchListings();
@@ -45,6 +60,7 @@ class YaCopeFeedScreenState extends State<YaCopeFeedScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+      if (!showLoading) return;
       setState(() {
         _error = '$e';
         _loading = false;

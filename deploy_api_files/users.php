@@ -31,6 +31,16 @@ function phone_variations($phone) {
     return array_values(array_unique(array_filter($variations)));
 }
 
+$ALLOWED_USER_COLUMNS = [
+    'phone', 'name', 'email', 'firebase_uid', 'avatar_url',
+    'is_phone_verified', 'password_hash', 'created_at', 'updated_at',
+];
+
+function strip_user_secrets(array $user): array {
+    unset($user['password_hash']);
+    return $user;
+}
+
 try {
     $db = DB::getInstance();
 
@@ -41,13 +51,19 @@ try {
         }
 
         $phone = isset($input['phone']) ? $input['phone'] : null;
-        $remoteId = isset($input['remote_id']) ? $input['remote_id'] : null;
 
         if (!$phone) {
             throw new Exception('Phone number is required');
         }
 
-        // Check if user exists by phone, accepting local and international DRC formats.
+        // Never allow role escalation via public users endpoint.
+        unset($input['role'], $input['id']);
+
+        $filtered = array_intersect_key($input, array_flip($ALLOWED_USER_COLUMNS));
+        if (empty($filtered['phone'])) {
+            $filtered['phone'] = $phone;
+        }
+
         $phoneVariations = phone_variations($phone);
         $placeholders = implode(',', array_fill(0, count($phoneVariations), '?'));
         $stmt = $db->prepare("SELECT id, phone FROM users WHERE phone IN ($placeholders) LIMIT 1");
@@ -55,10 +71,9 @@ try {
         $existing = $stmt->fetch();
 
         if ($existing) {
-            // UPDATE existing user (one number = one account)
             $fields = [];
             $params = [];
-            foreach ($input as $key => $value) {
+            foreach ($filtered as $key => $value) {
                 if ($key !== 'id' && $key !== 'phone') {
                     $fields[] = "`$key` = ?";
                     $params[] = $value;
@@ -71,44 +86,46 @@ try {
             }
             echo json_encode(['success' => true, 'phone' => $existing['phone'], 'action' => 'UPDATE']);
         } else {
-            // CREATE new user
-            $keys = array_keys($input);
-            $values = array_values($input);
+            $keys = array_keys($filtered);
+            $values = array_values($filtered);
             $placeholders = array_fill(0, count($keys), '?');
-            
             $stmt = $db->prepare("INSERT INTO users (" . implode(', ', $keys) . ") VALUES (" . implode(', ', $placeholders) . ")");
             $stmt->execute($values);
-            
             echo json_encode(['success' => true, 'id' => $db->lastInsertId(), 'action' => 'CREATE']);
         }
         exit;
     }
 
-    // GET Logic (Fetch by phone)
+    // GET — by phone only (no bulk list)
     $phone = isset($_GET['phone']) ? $_GET['phone'] : null;
-    if ($phone) {
-        $phoneVariations = phone_variations($phone);
-        $placeholders = implode(',', array_fill(0, count($phoneVariations), '?'));
-        $stmt = $db->prepare("SELECT * FROM users WHERE phone IN ($placeholders) LIMIT 1");
-        $stmt->execute($phoneVariations);
-        $user = $stmt->fetch();
-        if (!$user) {
-            $stmt = $db->prepare("SELECT * FROM users WHERE UPPER(name) = UPPER(?) LIMIT 1");
-            $stmt->execute([trim((string) $phone)]);
-            $user = $stmt->fetch();
-        }
-        if ($user) {
-            $user['is_phone_verified'] = (bool)$user['is_phone_verified'];
-        }
-        echo json_encode($user ? $user : ['error' => 'User not found']);
+    if (!$phone) {
+        http_response_code(400);
+        echo json_encode(['error' => 'phone parameter required']);
+        exit;
+    }
+
+    $phoneVariations = phone_variations($phone);
+    $placeholders = implode(',', array_fill(0, count($phoneVariations), '?'));
+    $stmt = $db->prepare(
+        "SELECT id, phone, name, email, role, firebase_uid, avatar_url, is_phone_verified, created_at, updated_at
+         FROM users WHERE phone IN ($placeholders) LIMIT 1"
+    );
+    $stmt->execute($phoneVariations);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$user) {
+        $stmt = $db->prepare(
+            "SELECT id, phone, name, email, role, firebase_uid, avatar_url, is_phone_verified, created_at, updated_at
+             FROM users WHERE UPPER(name) = UPPER(?) LIMIT 1"
+        );
+        $stmt->execute([trim((string) $phone)]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+    if ($user) {
+        $user['is_phone_verified'] = (bool)$user['is_phone_verified'];
+        $user = strip_user_secrets($user);
+        echo json_encode($user);
     } else {
-        // List all users (only for admin/sync purposes if needed)
-        $stmt = $db->query("SELECT * FROM users LIMIT 100");
-        $users = $stmt->fetchAll();
-        foreach ($users as &$user) {
-            $user['is_phone_verified'] = (bool)$user['is_phone_verified'];
-        }
-        echo json_encode($users);
+        echo json_encode(['error' => 'User not found']);
     }
 
 } catch (Exception $e) {

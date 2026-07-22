@@ -11,6 +11,7 @@ require_once $dbFile;
 require_once __DIR__ . '/phone_utils.php';
 require_once __DIR__ . '/product_contact_utils.php';
 require_once __DIR__ . '/ya_cope_utils.php';
+require_once __DIR__ . '/smart_open_bridge.php';
 
 $listingId = $_GET['id'] ?? '';
 if (!$listingId) {
@@ -207,8 +208,8 @@ if ($listing && $listingPhone) {
           Contacter sur WhatsApp
         </a>
       <?php endif; ?>
-      <a href="uzaapp://ya-cope/<?= htmlspecialchars($listingId) ?>" class="btn btn-outline">
-        Ouvrir dans l'app
+      <a href="<?= htmlspecialchars(landingWebUrl('ya-cope', $listingId), ENT_QUOTES, 'UTF-8') ?>" class="btn" id="openApp">
+        Accéder à Uzaapp
       </a>
     </div>
     <?php else: ?>
@@ -222,8 +223,10 @@ if ($listing && $listingPhone) {
 
     <div class="store-links">
       <p style="margin-top:16px; font-size:14px;">Pas encore l'app?</p>
-      <a href="https://play.google.com/store/apps/details?id=com.uzaapp" target="_blank">Play Store</a>
+      <a href="<?= htmlspecialchars(landingPlayStoreUrl(), ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer">Play Store</a>
     </div>
   </div>
+
+  <?php if ($listing): renderLandingOpenScript('ya-cope', $listingId); endif; ?>
 </body>
 </html>

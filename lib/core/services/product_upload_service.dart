@@ -84,7 +84,8 @@ class ProductUploadService {
   }
 
   /// Upload pending files, update product URLs, push sync queue.
-  static Future<void> processPendingForProduct({
+  /// Returns the number of pending slots that failed to upload.
+  static Future<int> processPendingForProduct({
     required Product product,
     required ApiService api,
     required ProductRepository productRepo,
@@ -92,10 +93,19 @@ class ProductUploadService {
     required SyncService syncService,
   }) async {
     final pending = readPendingPaths(product);
-    if (pending.isEmpty) return;
+    if (pending.isEmpty) return 0;
 
-    final images = ImageUtils.getDecryptedList(product.imageUrls);
-    final finalUrls = List<String>.from(images);
+    // Preserve slot indices (empty slots kept as '') from stored CSV.
+    final slotUrls = ImageUtils.getUrlSlots(product.imageUrls);
+    final maxPendingSlot = pending.keys.reduce((a, b) => a > b ? a : b);
+    final neededLen = maxPendingSlot + 1;
+    final finalUrls = List<String>.from(slotUrls);
+    while (finalUrls.length < neededLen) {
+      finalUrls.add('');
+    }
+
+    var failedCount = 0;
+    final remainingPending = <int, String>{};
 
     for (final entry in pending.entries) {
       try {
@@ -106,7 +116,10 @@ class ProductUploadService {
           bytes = base64Decode(encoded);
         } else {
           file = File(entry.value);
-          if (!await file.exists()) continue;
+          if (!await file.exists()) {
+            failedCount++;
+            continue;
+          }
           bytes = await file.readAsBytes();
         }
         final prepared = await ImagePrepareUtils.prepareForUpload(
@@ -130,12 +143,13 @@ class ProductUploadService {
           } catch (_) {}
         }
       } catch (e) {
+        failedCount++;
+        remainingPending[entry.key] = entry.value;
         debugPrint('Pending upload slot ${entry.key} failed: $e');
       }
     }
 
     final cleaned = finalUrls.where((u) => u.isNotEmpty).toList();
-    if (cleaned.isEmpty) return;
 
     Map<String, dynamic>? metaMap;
     if (product.metadata != null && product.metadata!.isNotEmpty) {
@@ -143,10 +157,27 @@ class ProductUploadService {
         metaMap = jsonDecode(product.metadata!) as Map<String, dynamic>;
       } catch (_) {}
     }
-    metaMap?.remove(_kPendingMetaKey);
+    if (remainingPending.isEmpty) {
+      metaMap?.remove(_kPendingMetaKey);
+    } else {
+      metaMap = mergePendingPaths(metaMap, remainingPending);
+    }
     final metaJson = metaMap != null && metaMap.isNotEmpty
         ? jsonEncode(metaMap)
         : null;
+
+    if (cleaned.isEmpty && remainingPending.isNotEmpty) {
+      await productRepo.updateProduct(
+        ProductsCompanion(
+          id: drift.Value(product.id),
+          metadata: drift.Value(metaJson),
+          updatedAt: drift.Value(DateTime.now()),
+        ),
+      );
+      return failedCount;
+    }
+
+    if (cleaned.isEmpty) return failedCount;
 
     await productRepo.updateProduct(
       ProductsCompanion(
@@ -160,8 +191,12 @@ class ProductUploadService {
     final shop = await shopRepo.resolveShopForStoredId(product.shopId);
     final remoteShopId = int.tryParse(shop?.remoteId ?? '') ?? product.shopId;
     final remoteProductId = int.tryParse(product.remoteId ?? '');
+    final action =
+        (product.remoteId == null || product.remoteId!.isEmpty)
+            ? 'CREATE'
+            : 'UPDATE';
 
-    await syncService.addToQueue('UPDATE', 'products', {
+    await syncService.addToQueue(action, 'products', {
       if (remoteProductId != null) 'id': remoteProductId,
       'local_id': product.id,
       'shop_id': remoteShopId,
@@ -172,6 +207,7 @@ class ProductUploadService {
       'category_id': product.categoryId,
       'metadata': metaJson,
     });
+    return failedCount;
   }
 
   /// Process all products with pending uploads in metadata.

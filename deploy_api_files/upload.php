@@ -35,12 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         mkdir($specificDir, 0755, true);
     }
 
-    // Generate unique filename
-    $extension = pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION);
-    $uniqueName = time() . '_' . bin2hex(random_bytes(8)) . '.' . $extension;
-    $targetFilePath = $specificDir . $uniqueName;
-
-    // Validate file type
+    // Validate file type first, then force extension from MIME (never trust client .php etc.)
     $allowedTypes = [
         'image/jpeg', 'image/png', 'image/gif', 'image/webp',
         'image/heic', 'image/heif',
@@ -87,6 +82,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
         exit;
     }
+
+    $mimeToExt = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/gif' => 'gif',
+        'image/webp' => 'webp',
+        'image/heic' => 'heic',
+        'image/heif' => 'heif',
+        'video/mp4' => 'mp4',
+        'video/quicktime' => 'mov',
+        'video/x-msvideo' => 'avi',
+        'video/webm' => 'webm',
+    ];
+    $extension = $mimeToExt[$fileType] ?? 'bin';
+    $uniqueName = time() . '_' . bin2hex(random_bytes(8)) . '.' . $extension;
+    $targetFilePath = $specificDir . $uniqueName;
 
     // Limit file size: 50MB for videos, 5MB for images
     $isVideo = strpos($fileType, 'video/') === 0;
@@ -150,7 +161,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
         $host = $_SERVER['HTTP_HOST'];
 
-        // Generate thumbnail
+        // Generate thumbnail (skip when client sends skip_thumbnail=1)
+        $skipThumbnail = isset($_POST['skip_thumbnail']) && $_POST['skip_thumbnail'] === '1';
         $thumbDir = dirname(__DIR__) . "/uploads/" . $folder . "/thumbnails";
         if (!is_dir($thumbDir)) {
             mkdir($thumbDir, 0755, true);
@@ -160,7 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $thumbnailUrl = null;
         // Only generate thumbnails for images, not videos
         $imageInfo = @getimagesize($targetFilePath);
-        if ($imageInfo) {
+        if (!$skipThumbnail && $imageInfo) {
             $srcWidth = $imageInfo[0];
             $srcHeight = $imageInfo[1];
             $thumbWidth = 200;

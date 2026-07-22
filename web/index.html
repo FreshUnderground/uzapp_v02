@@ -46,13 +46,10 @@
   <title>Uzaapp</title>
   <link rel="manifest" href="manifest.json">
 
-  <!-- Google Fonts Preload -->
+  <!-- Outfit matches UzaTheme (avoid loading unused Poppins at boot). -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-  <!-- sql.js is required for Drift web -->
-  <script src="sql-wasm.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <!-- Version Control & Force Update System -->
   <script>
@@ -323,6 +320,14 @@
   <div id="loading_screen" class="loading-container">
     <div class="spinner"></div>
   </div>
+  <!-- Drift web (IndexedDB) — defer so Flutter bootstrap can start in parallel. -->
+  <script src="sql-wasm.js" defer></script>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var el = document.getElementById('loading_screen');
+      if (el) el.remove();
+    });
+  </script>
   <!-- This script adds the flutter initialization JS code -->
   <script src="flutter_bootstrap.js" async></script>
 </body>

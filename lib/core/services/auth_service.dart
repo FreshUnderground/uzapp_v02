@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/shop_repository.dart';
@@ -160,7 +161,6 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Generate a 6-digit OTP code, or reuse existing one if it matches the phone
       final String otpCode;
       if (_lastOtpCode != null && _lastOtpPhone == phoneNumber) {
         otpCode = _lastOtpCode!;
@@ -169,38 +169,35 @@ class AuthService extends ChangeNotifier {
         otpCode = (100000 + random.nextInt(900000)).toString();
       }
 
-      // Send OTP via Africa's Talking SMS
       final smsSent = await SmsService.envoyerCodeOtp(phoneNumber, otpCode);
 
-      _isLoading = false;
-      notifyListeners();
-
       if (smsSent) {
-        // Store the OTP for verification
         _lastOtpCode = otpCode;
         _lastOtpPhone = phoneNumber;
         _lastOtpSentAt = DateTime.now();
-        debugPrint('AuthService: OTP code sent to $phoneNumber');
+        if (kDebugMode) {
+          debugPrint('AuthService: OTP SMS sent to $phoneNumber');
+        }
         onCodeSent(phoneNumber);
-      } else {
-        debugPrint(
-          'AuthService: Failed to send OTP via SMS, falling back to mock',
-        );
-        // Fallback: still allow login with any code (graceful degradation)
-        _lastOtpCode = null; // null means accept any code
+      } else if (kDebugMode) {
+        _lastOtpCode = null;
         _lastOtpPhone = phoneNumber;
         _lastOtpSentAt = DateTime.now();
+        debugPrint('AuthService: SMS failed — debug OTP bypass enabled');
         onCodeSent(phoneNumber);
+      } else {
+        throw Exception(
+          'Impossible d\'envoyer le SMS. Vérifiez votre connexion et réessayez.',
+        );
       }
     } catch (e) {
+      if (kDebugMode) {
+        debugPrint('AuthService: Error sending OTP: $e');
+      }
+      onFailed(e);
+    } finally {
       _isLoading = false;
       notifyListeners();
-      debugPrint('AuthService: Error sending OTP: $e');
-      // Graceful degradation: fall back to mock
-      _lastOtpCode = null;
-      _lastOtpPhone = phoneNumber;
-      _lastOtpSentAt = DateTime.now();
-      onCodeSent(phoneNumber);
     }
   }
 
@@ -217,47 +214,35 @@ class AuthService extends ChangeNotifier {
           ? normalizePhone(_lastOtpPhone!)
           : '';
 
-      debugPrint(
-        'AuthService: Verifying OTP - Entered: $enteredPhone, Stored: $storedPhone',
-      );
-      debugPrint(
-        'AuthService: OTP Code - Entered: $smsCode, Stored: $_lastOtpCode',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          'AuthService: Verifying OTP for phone=$enteredPhone',
+        );
+      }
 
       // Check if OTP has expired
       if (_lastOtpSentAt != null) {
         final elapsed = DateTime.now().difference(_lastOtpSentAt!);
         if (elapsed > _otpExpiryDuration) {
-          debugPrint(
-            'AuthService: OTP expired (${elapsed.inSeconds}s elapsed)',
-          );
           throw Exception('Code expiré. Veuillez demander un nouveau code.');
         }
       }
 
-      // If we have a stored OTP code, validate against it
       if (_lastOtpCode != null) {
-        // Check phone number match using normalized comparison
         if (enteredPhone != storedPhone) {
-          debugPrint(
-            'AuthService: Phone mismatch - entered: $enteredPhone, stored: $storedPhone',
-          );
           throw Exception('Numéro de téléphone non correspondant');
         }
-        // Check OTP code match
         if (smsCode != _lastOtpCode) {
-          debugPrint(
-            'AuthService: OTP code mismatch - entered: $smsCode, expected: $_lastOtpCode',
-          );
           throw Exception('Code OTP invalide ou expiré');
         }
-      } else {
-        // Fallback when SMS fails - accept any 6-digit code
-        debugPrint('AuthService: Accepting any code (SMS failed fallback)');
+      } else if (!kDebugMode) {
+        throw Exception('Code OTP invalide ou expiré');
       }
 
-      await Future.delayed(const Duration(milliseconds: 800));
-      await _completeSignIn(verificationId, isPhoneVerified: true);
+      await _completeSignIn(
+        verificationId,
+        isPhoneVerified: true,
+      );
 
       // Clear OTP after successful verification
       _lastOtpCode = null;
@@ -270,10 +255,12 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> signInWithoutOTP(String phoneNumber) async {
+    if (!kDebugMode) {
+      throw Exception('La vérification par SMS est obligatoire.');
+    }
     _isLoading = true;
     notifyListeners();
     try {
-      await Future.delayed(const Duration(milliseconds: 500));
       await _completeSignIn(phoneNumber, isPhoneVerified: false);
     } finally {
       _isLoading = false;
@@ -291,8 +278,8 @@ class AuthService extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
+    final sw = Stopwatch()..start();
     try {
-      // Hash the password
       final passwordHash = _hashPassword(password);
 
       // Check local database first, accepting common phone formats.
@@ -306,6 +293,10 @@ class AuthService extends ChangeNotifier {
             profile.phone,
             isPhoneVerified: profile.isPhoneVerified,
             passwordHash: passwordHash,
+            name: profile.name,
+            avatarUrl: profile.avatarUrl,
+            role: profile.role,
+            skipRemoteProfileFetch: true,
           );
           onSuccess();
         } else if (profile.passwordHash == null ||
@@ -326,12 +317,17 @@ class AuthService extends ChangeNotifier {
 
           if (loginResult != null && loginResult['success'] == true) {
             // Login successful - user exists and password is correct
-            final remoteProfile = loginResult['user'];
+            final remoteProfile =
+                loginResult['user'] as Map<String, dynamic>? ?? {};
             final remotePhone = remoteProfile['phone'] as String?;
             await _completeSignIn(
               remotePhone?.isNotEmpty == true ? remotePhone! : phoneNumber,
-              isPhoneVerified: remoteProfile['is_phone_verified'] ?? false,
+              isPhoneVerified: remoteProfile['is_phone_verified'] == true,
               passwordHash: passwordHash,
+              name: remoteProfile['name']?.toString(),
+              avatarUrl: remoteProfile['avatar_url']?.toString(),
+              role: remoteProfile['role']?.toString() ?? 'user',
+              skipRemoteProfileFetch: true,
             );
             onSuccess();
           } else if (loginResult != null && loginResult['error'] != null) {
@@ -350,6 +346,9 @@ class AuthService extends ChangeNotifier {
     } catch (e) {
       onFailed(e);
     } finally {
+      if (kDebugMode) {
+        debugPrint('PERF signInWithPassword: ${sw.elapsedMilliseconds}ms');
+      }
       _isLoading = false;
       notifyListeners();
     }
@@ -368,7 +367,10 @@ class AuthService extends ChangeNotifier {
     String? passwordHash,
     String? name,
     String? avatarUrl,
+    String? role,
+    bool skipRemoteProfileFetch = false,
   }) async {
+    final signInSw = Stopwatch()..start();
     final normalizedPhone = PhoneUtils.normalizeDrc(phone).isNotEmpty
         ? PhoneUtils.normalizeDrc(phone)
         : phone.trim();
@@ -377,14 +379,14 @@ class AuthService extends ChangeNotifier {
     String? existingAvatar = avatarUrl;
     _isPhoneVerified = isPhoneVerified;
 
-    // Check for existing profile on server
-    String userRole = 'user';
-    if (_syncService != null) {
+    // Check for existing profile on server (skip when login already returned user).
+    String userRole = role ?? 'user';
+    if (!skipRemoteProfileFetch && _syncService != null) {
       final remoteProfile = await _syncService!.api.fetchUserByPhone(uid);
       if (remoteProfile != null) {
         existingName ??= remoteProfile['name']?.toString();
         existingAvatar ??= remoteProfile['avatar_url']?.toString();
-        userRole = remoteProfile['role']?.toString() ?? 'user';
+        userRole = remoteProfile['role']?.toString() ?? userRole;
       }
     }
 
@@ -414,7 +416,15 @@ class AuthService extends ChangeNotifier {
     // This handles the case where a user logs back in after an app update
     // or logout — their shops should immediately be visible again.
     if (_shopRepository != null) {
-      await _shopRepository!.reconnectShopsForUser(uid);
+      unawaited(() async {
+        try {
+          await _shopRepository!.reconnectShopsForUser(uid);
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('AuthService: reconnectShopsForUser error: $e');
+          }
+        }
+      }());
     }
 
     // Queue for remote sync (to ensure server has latest)
@@ -442,6 +452,9 @@ class AuthService extends ChangeNotifier {
     }
 
     notifyListeners();
+    if (kDebugMode) {
+      debugPrint('PERF _completeSignIn: ${signInSw.elapsedMilliseconds}ms');
+    }
   }
 
   /// Called from the unified shop creation flow.
@@ -463,6 +476,7 @@ class AuthService extends ChangeNotifier {
         passwordHash: passwordHash,
         name: name,
         avatarUrl: avatarUrl,
+        skipRemoteProfileFetch: true,
       );
       if (name != null) {
         updateDisplayName(name);
@@ -474,6 +488,53 @@ class AuthService extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Reuses an OTP session from shop onboarding when the phone already matches.
+  Future<void> ensureRegisteredFromShopFlow(
+    String phone, {
+    bool isPhoneVerified = false,
+    String? name,
+    String? avatarUrl,
+    String? password,
+  }) async {
+    final normalizedPhone = PhoneUtils.normalizeDrc(phone).isNotEmpty
+        ? PhoneUtils.normalizeDrc(phone)
+        : phone.trim();
+    if (_currentUser != null && _isSamePhone(_currentUser!.uid, normalizedPhone)) {
+      final passwordHash = password != null ? _hashPassword(password) : null;
+      if (name != null) {
+        updateDisplayName(name);
+      }
+      if (avatarUrl != null) {
+        updatePhotoUrl(avatarUrl);
+      }
+      await _repository.updateProfile(
+        name: name,
+        avatarUrl: avatarUrl,
+        passwordHash: passwordHash,
+      );
+      if (_syncService != null &&
+          (name != null || avatarUrl != null || passwordHash != null)) {
+        await _syncService!.addToQueue('UPDATE', 'users', {
+          'remote_id': normalizedPhone,
+          'phone': normalizedPhone,
+          if (name != null) 'name': name,
+          if (avatarUrl != null) 'avatar_url': avatarUrl,
+          if (passwordHash != null) 'password_hash': passwordHash,
+        });
+      }
+      _isPhoneVerified = isPhoneVerified || _isPhoneVerified;
+      notifyListeners();
+      return;
+    }
+    await registerFromShopFlow(
+      phone,
+      isPhoneVerified: isPhoneVerified,
+      name: name,
+      avatarUrl: avatarUrl,
+      password: password,
+    );
   }
 
   /// Links local shops to the current user after shop creation.

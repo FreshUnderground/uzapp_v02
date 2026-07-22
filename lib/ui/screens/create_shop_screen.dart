@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -145,7 +146,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
   double? _longitude;
   bool _locationCaptured = false;
 
-  // OTP state
+  final _submitProgress = ValueNotifier<String>(
+    'Création de votre compte et boutique',
+  );
   String? _otpPhoneNumber;
   bool _otpVerified = false;
   bool _otpSkipped = false;
@@ -184,6 +187,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _countdownTimer?.cancel();
+    _submitProgress.dispose();
     for (final c in _otpControllers) {
       c.dispose();
     }
@@ -526,7 +530,13 @@ class _CreateShopScreenState extends State<CreateShopScreen>
 
   // ─── Submit ──────────────────────────────────────────────────────
 
+  void _setSubmitProgress(String message) {
+    _submitProgress.value = message;
+  }
+
   Future<void> _submitShop() async {
+    final submitSw = Stopwatch()..start();
+    _setSubmitProgress('Création de votre compte et boutique');
     _showLoadingDialog();
 
     try {
@@ -537,6 +547,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
       final phone = _resolvedPhone();
       final whatsapp = _resolvedWhatsapp();
 
+      _setSubmitProgress('Vérification locale...');
       // 1. Check for existing shop LOCALLY first (prevent duplicate)
       final allShops = await shopRepo.watchAllShops().first;
       final existingLocalShop = allShops
@@ -567,8 +578,9 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         return; // Stop the submission process
       }
 
-      // 2. Create / login user
-      await authService.registerFromShopFlow(
+      // 2. Create / login user (reuse OTP session when possible)
+      _setSubmitProgress('Création du compte...');
+      await authService.ensureRegisteredFromShopFlow(
         phone,
         isPhoneVerified: _otpVerified,
         name: _nameController.text.trim(),
@@ -591,33 +603,28 @@ class _CreateShopScreenState extends State<CreateShopScreen>
       // 3. Upload logo if any
       String finalLogoUrl = _logoUrl ?? '';
       if (_logoPreviewBytes != null) {
-        final fileName = ImagePrepareUtils.buildUploadFileName(
+        _setSubmitProgress('Envoi du logo...');
+        final prepared = await ImagePrepareUtils.prepareForUpload(
+          _logoPreviewBytes!,
           prefix: 'shop_logo',
         );
-        final uploadedUrl = await apiService.uploadFile(
-          _logoPreviewBytes!,
-          fileName,
+        final uploadedUrl = await apiService.uploadFileOrThrow(
+          prepared.bytes,
+          prepared.fileName,
         );
         if (!mounted) return;
-        if (uploadedUrl != null) {
-          finalLogoUrl = uploadedUrl;
-        }
+        finalLogoUrl = uploadedUrl;
       }
 
       final encryptedLogo = finalLogoUrl.isNotEmpty
           ? CryptoUtils.encrypt(finalLogoUrl)
           : '';
 
-      // 4. Check for existing shop on server (owner phone, any common format)
+      // 4. Quick server duplicate check (targeted, not full catalog)
+      _setSubmitProgress('Vérification sur le serveur...');
       try {
-        final shops = await apiService.fetchShops();
-        final ownerKeys = PhoneUtils.lookupKeys(userId).toSet();
-        final alreadyExists = shops.any((s) {
-          final serverOwner = s['owner_id']?.toString();
-          if (serverOwner == null || serverOwner.isEmpty) return false;
-          return PhoneUtils.lookupKeys(serverOwner).any(ownerKeys.contains);
-        });
-        if (alreadyExists && mounted) {
+        final existingServerShop = await apiService.fetchShopByOwner(userId);
+        if (existingServerShop != null && mounted) {
           final navigator = Navigator.of(context);
           final scaffoldMessenger = ScaffoldMessenger.of(context);
           navigator.pop();
@@ -639,6 +646,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
           : '';
 
       // 5. Create local shop
+      _setSubmitProgress('Enregistrement de la boutique...');
       final companion = ShopsCompanion.insert(
         name: _nameController.text.trim(),
         description: drift.Value(_descriptionController.text.trim()),
@@ -694,29 +702,12 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         'SHOP SYNC DATA: ${jsonEncode({'id': shopId, 'name': _nameController.text.trim(), 'type': _selectedType.name, 'owner_id': userId, 'phone': phone})}',
       );
 
-      // 8. Push immédiat puis vérifier users + shops sur le serveur
-      await syncService.forcePush();
+      // 8. Push immédiat sans télécharger tout le catalogue
+      _setSubmitProgress('Synchronisation avec le serveur...');
+      await syncService.pushOnboardingChanges();
 
-      final serverStatus = await syncService.verifyUserAndShopOnServer(
-        userId,
-        localShopId: shopId,
-      );
-      if (!serverStatus.userExists) {
-        throw Exception(
-          'Votre compte utilisateur n\'a pas été enregistré sur le serveur. '
-          'Vérifiez votre connexion internet et réessayez.',
-        );
-      }
-      if (!serverStatus.shopExists) {
-        throw Exception(
-          'Compte créé sur le serveur, mais la boutique n\'a pas été synchronisée. '
-          'Allez dans Paramètres > Synchroniser pour réessayer.',
-        );
-      }
-
-      // 9. Link shop to session and navigate to seller dashboard
-      await shopRepo.reconnectShopsForUser(userId);
-      await authService.refreshShopOwnership();
+      // 9. Link shop to session and navigate (verify in background)
+      unawaited(shopRepo.reconnectShopsForUser(userId));
 
       if (!mounted) return;
       Navigator.of(context).pop(); // Close loading dialog
@@ -732,9 +723,30 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         scaffoldMessenger.showSnackBar(
           SnackBar(content: Text(tr(context, 'shop_created_success'))),
         );
+        unawaited(syncService.pullRemoteUpdates());
         navigator.pushAndRemoveUntil(
           MaterialPageRoute(builder: (context) => const ShopDashboardScreen()),
           (route) => false,
+        );
+        unawaited(() async {
+          final status = await syncService.verifyUserAndShopOnServer(
+            userId,
+            localShopId: shopId,
+          );
+          if (!status.shopExists && navigator.mounted) {
+            scaffoldMessenger.showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Boutique en cours de synchronisation. '
+                  'Utilisez Paramètres > Synchroniser si elle n’apparaît pas.',
+                ),
+                duration: Duration(seconds: 5),
+              ),
+            );
+          }
+        }());
+        debugPrint(
+          'PERF createShop submit (to dashboard): ${submitSw.elapsedMilliseconds}ms',
         );
       }
     } catch (e) {
@@ -745,7 +757,7 @@ class _CreateShopScreenState extends State<CreateShopScreen>
         scaffoldMessenger.showSnackBar(
           SnackBar(
             content: Text(
-              trf(context, 'error_with_message', {'message': e.toString()}),
+              e.toString().replaceAll('Exception: ', ''),
             ),
           ),
         );
@@ -755,7 +767,6 @@ class _CreateShopScreenState extends State<CreateShopScreen>
 
   Future<void> _captureLocation() async {
     LocationService.showSecurityNotice(context);
-    await Future.delayed(const Duration(milliseconds: 500));
 
     if (!mounted) return;
     LocationService.showLocationLoading(context);
@@ -792,24 +803,27 @@ class _CreateShopScreenState extends State<CreateShopScreen>
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(color: UzaColors.primary),
-            const SizedBox(height: 24),
-            const Text(
-              "Enregistrement...",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "Création de votre compte et boutique",
-              style: TextStyle(color: Colors.grey[600], fontSize: 13),
-              textAlign: TextAlign.center,
-            ),
-          ],
+      builder: (context) => ValueListenableBuilder<String>(
+        valueListenable: _submitProgress,
+        builder: (context, message, _) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: UzaColors.primary),
+              const SizedBox(height: 24),
+              const Text(
+                "Enregistrement...",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1390,19 +1404,20 @@ class _CreateShopScreenState extends State<CreateShopScreen>
                 ),
               ),
             const SizedBox(height: 8),
-            Center(
-              child: TextButton(
-                onPressed: _isVerifyingOtp ? null : _skipOtp,
-                child: const Text(
-                  "Passer (non vérifié)",
-                  style: TextStyle(
-                    color: UzaColors.secondary,
-                    fontWeight: FontWeight.w500,
-                    fontSize: 14,
+            if (kDebugMode)
+              Center(
+                child: TextButton(
+                  onPressed: _isVerifyingOtp ? null : _skipOtp,
+                  child: const Text(
+                    "Passer (non vérifié)",
+                    style: TextStyle(
+                      color: UzaColors.secondary,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         ],
       ),

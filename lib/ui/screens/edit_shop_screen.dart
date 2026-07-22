@@ -14,11 +14,11 @@ import '../../core/utils/picker_utils.dart';
 import '../../core/utils/image_prepare_utils.dart';
 import '../../core/utils/phone_utils.dart';
 import '../../core/utils/crypto_utils.dart';
+import '../../core/utils/image_utils.dart';
+import '../../core/utils/profile_shop_sync.dart';
 import '../../data/repositories/location_data.dart';
 import '../../data/services/sync_service.dart';
 import '../../core/services/location_service.dart';
-import '../../core/utils/profile_shop_sync.dart';
-import '../../core/utils/image_utils.dart';
 
 class EditShopScreen extends StatefulWidget {
   final Shop shop;
@@ -121,7 +121,6 @@ class _EditShopScreenState extends State<EditShopScreen> {
 
   Future<void> _captureLocation() async {
     LocationService.showSecurityNotice(context);
-    await Future.delayed(const Duration(milliseconds: 500));
 
     if (!mounted) return;
     LocationService.showLocationLoading(context);
@@ -165,6 +164,13 @@ class _EditShopScreenState extends State<EditShopScreen> {
       final navigator = Navigator.of(context);
       final messenger = ScaffoldMessenger.of(context);
 
+      await ImageUtils.evictCachedSources([
+        widget.shop.logoUrl,
+        widget.shop.bannerUrl,
+        _logoController.text,
+        _bannerController.text,
+      ]);
+
       String finalLogoUrl = _logoController.text.trim();
       if (_previewBytes != null) {
         final prepared = await ImagePrepareUtils.prepareForUpload(
@@ -203,6 +209,13 @@ class _EditShopScreenState extends State<EditShopScreen> {
         if (uploadedUrl != null) finalVideoUrl = uploadedUrl;
       }
 
+      final storedLogo = finalLogoUrl.isNotEmpty
+          ? CryptoUtils.encrypt(finalLogoUrl)
+          : null;
+      final storedBanner = finalBannerUrl.isNotEmpty
+          ? CryptoUtils.encrypt(finalBannerUrl)
+          : null;
+
       final updatedShop = ShopsCompanion(
         id: drift.Value(widget.shop.id),
         name: drift.Value(_nameController.text),
@@ -214,8 +227,12 @@ class _EditShopScreenState extends State<EditShopScreen> {
         facebookUrl: drift.Value(_fbController.text),
         tiktokUrl: drift.Value(_ttController.text),
         instagramUrl: drift.Value(_igController.text),
-        logoUrl: drift.Value(finalLogoUrl),
-        bannerUrl: drift.Value(finalBannerUrl),
+        logoUrl: storedLogo != null
+            ? drift.Value(storedLogo)
+            : const drift.Value.absent(),
+        bannerUrl: storedBanner != null
+            ? drift.Value(storedBanner)
+            : const drift.Value.absent(),
         videoUrl: drift.Value(finalVideoUrl),
         bannerText: drift.Value(_bannerTextController.text),
         city: drift.Value(_selectedCity),
@@ -230,6 +247,7 @@ class _EditShopScreenState extends State<EditShopScreen> {
       );
 
       await shopRepo.updateShop(updatedShop);
+      await ImageUtils.prefetchUrls([finalLogoUrl, finalBannerUrl]);
 
       if (mounted) {
         await ProfileShopSync.syncToProfile(

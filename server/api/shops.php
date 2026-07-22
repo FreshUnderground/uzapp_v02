@@ -111,6 +111,35 @@ try {
 
     // GET Logic
     $updatedSince = isset($_GET['updated_since']) ? $_GET['updated_since'] : null;
+    $ownerId = isset($_GET['owner_id']) ? trim((string) $_GET['owner_id']) : '';
+
+    if ($ownerId !== '') {
+        $ownerKeys = phone_lookup_keys($ownerId);
+        if (empty($ownerKeys)) {
+            echo json_encode(null);
+            exit;
+        }
+        $placeholders = implode(',', array_fill(0, count($ownerKeys), '?'));
+        $stmt = $db->prepare(
+            "SELECT * FROM shops WHERE owner_id IN ($placeholders) ORDER BY updated_at DESC LIMIT 1"
+        );
+        $stmt->execute($ownerKeys);
+        $shop = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$shop) {
+            echo json_encode(null);
+            exit;
+        }
+        $shop['id'] = (int)$shop['id'];
+        $shop['boost_status'] = (int)$shop['boost_status'];
+        $shop['banner_status'] = (int)$shop['banner_status'];
+        $shop['is_boosted'] = (bool)$shop['is_boosted'];
+        $shop['is_verified'] = (bool)$shop['is_verified'];
+        if ($shop['verified_at']) {
+            $shop['verified_at'] = date('c', strtotime($shop['verified_at']));
+        }
+        echo json_encode($shop);
+        exit;
+    }
 
     if ($updatedSince) {
         $query = "SELECT * FROM shops WHERE updated_at > ? ORDER BY id DESC";

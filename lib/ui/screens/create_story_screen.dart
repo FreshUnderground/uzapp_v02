@@ -227,13 +227,10 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
       final syncService = context.read<SyncService>();
       final shopRepo = context.read<ShopRepository>();
 
-      // 1. Upload all media files
-      final List<String> remoteUrls = [];
-      final List<String> mediaTypes = [];
-
+      // 1. Prepare then upload all media in parallel
+      final preparedItems = <({Uint8List bytes, String fileName, String mediaType})>[];
       for (var i = 0; i < _selectedMedia.length; i++) {
         final media = _selectedMedia[i];
-
         Uint8List bytesToUpload = media.bytes;
         String fileName = _uploadFileName(media, i);
 
@@ -255,24 +252,42 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
             );
           }
         }
-
-        setState(() {
-          _uploadMessage =
-              'Envoi ${i + 1}/${_selectedMedia.length} (${ImagePrepareUtils.getFileSizeString(bytesToUpload.length)})...';
-        });
-
-        final remoteUrl = await apiService.uploadFileOrThrow(
-          bytesToUpload,
-          fileName,
-          folder: 'stories',
-          timeout: media.mediaType == 'video'
-              ? const Duration(seconds: 120)
-              : const Duration(seconds: 60),
-        );
-
-        remoteUrls.add(remoteUrl);
-        mediaTypes.add(media.mediaType);
+        preparedItems.add((
+          bytes: bytesToUpload,
+          fileName: fileName,
+          mediaType: media.mediaType,
+        ));
       }
+
+      setState(() {
+        _uploadMessage = 'Envoi 0/${preparedItems.length}…';
+      });
+
+      var completed = 0;
+      final uploaded = await Future.wait(
+        List.generate(preparedItems.length, (i) async {
+          final item = preparedItems[i];
+          final remoteUrl = await apiService.uploadFileOrThrow(
+            item.bytes,
+            item.fileName,
+            folder: 'stories',
+            timeout: item.mediaType == 'video'
+                ? const Duration(seconds: 120)
+                : const Duration(seconds: 60),
+          );
+          completed++;
+          if (mounted) {
+            setState(() {
+              _uploadMessage =
+                  'Envoi $completed/${preparedItems.length}…';
+            });
+          }
+          return (url: remoteUrl, mediaType: item.mediaType);
+        }),
+      );
+
+      final remoteUrls = uploaded.map((e) => e.url).toList();
+      final mediaTypes = uploaded.map((e) => e.mediaType).toList();
 
       // 2. Create story (with optional multi-media for arrivages)
       final nowUtc = DateTime.now().toUtc();
@@ -353,7 +368,7 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
       await syncService.addToQueue('CREATE', 'stories', syncPayload);
 
       // Trigger immediate push so the story appears on the server
-      await syncService.forcePush();
+      unawaited(syncService.forcePush());
 
       if (mounted) {
         final scaffoldMessenger = ScaffoldMessenger.of(context);
@@ -391,9 +406,12 @@ class _CreateStoryScreenState extends State<CreateStoryScreen> {
           _isUploading = false;
         });
         final scaffoldMessenger = ScaffoldMessenger.of(context);
+        final msg = e.toString().replaceAll('Exception: ', '');
         scaffoldMessenger.showSnackBar(
           SnackBar(
-            content: Text(trf(context, 'error_with_message', {'message': '$e'})),
+            content: Text(msg),
+            action: SnackBarAction(label: 'RÉESSAYER', onPressed: _submit),
+            duration: const Duration(seconds: 10),
           ),
         );
       }

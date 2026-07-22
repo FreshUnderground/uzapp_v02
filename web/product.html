@@ -75,10 +75,10 @@
       <div id="productCondition" class="condition"></div>
     </div>
 
-    <a href="#" class="btn" id="openApp">Ouvrir dans l'app</a>
+    <a href="#" class="btn" id="openApp">Accéder à Uzaapp</a>
     <div class="store-links">
       <p style="margin-top:16px; font-size:14px;">Pas encore l'app?</p>
-      <a href="https://play.google.com/store/apps/details?id=com.uzaapp" target="_blank">Play Store</a>
+      <a href="https://play.google.com/store/apps/details?id=com.investeegroup.uzaapp" target="_blank" rel="noopener noreferrer">Play Store</a>
     </div>
   </div>
 
@@ -88,13 +88,37 @@
     const productId = pathParts.length > 1 ? pathParts[1].replace(/\/$/, '') : null;
 
     if (productId) {
-      // Set deep link for app
-      document.getElementById('openApp').href = 'uzaapp://product/' + productId;
+      var webUrl = window.location.origin + '/product/' + encodeURIComponent(productId) + '?web=1';
+      var appUrl = 'uzaapp://product/' + productId;
+      var openBtn = document.getElementById('openApp');
+      openBtn.href = webUrl;
 
-      // Try to open the app, fallback stays on this page
-      setTimeout(function() {
-        window.location.href = 'uzaapp://product/' + productId;
-      }, 500);
+      openBtn.addEventListener('click', function (e) {
+        var ua = navigator.userAgent || '';
+        if (!/Android|iPhone|iPad|iPod/i.test(ua)) {
+          return;
+        }
+        e.preventDefault();
+        var opened = false;
+        var timer = setTimeout(function () {
+          if (!opened) window.location.href = webUrl;
+        }, 2200);
+        function cancelFallback() {
+          opened = true;
+          clearTimeout(timer);
+        }
+        document.addEventListener('visibilitychange', function () {
+          if (document.hidden) cancelFallback();
+        }, { once: true });
+        if (/Android/i.test(ua)) {
+          window.location.href =
+            'intent://product/' + encodeURIComponent(productId) +
+            '#Intent;scheme=uzaapp;package=com.investeegroup.uzaapp' +
+            ';S.browser_fallback_url=' + encodeURIComponent(webUrl) + ';end';
+        } else {
+          window.location.href = appUrl;
+        }
+      });
 
       // Fetch product info from API for display
       fetch('/api/products?id=' + productId)

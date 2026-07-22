@@ -6,6 +6,7 @@ import '../../../core/l10n/tr.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/res/uza_colors.dart';
 import '../../../core/utils/phone_utils.dart';
+import '../../../core/utils/post_auth_navigation.dart';
 import '../../utils/page_transitions.dart';
 import '../../components/tap_animator.dart';
 import '../../components/uza_phone_field.dart';
@@ -137,11 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _goToBestDestination() async {
     if (!mounted) return;
-
-    await Future.delayed(const Duration(milliseconds: 250));
-    if (!mounted) return;
-
-    context.go('/shops');
+    await goToPostAuthDestination(context);
   }
 
   @override
@@ -669,14 +666,52 @@ class _LoginScreenState extends State<LoginScreen> {
                                     foregroundColor: UzaColors.primary,
                                   ),
                                   onPressed: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          tr(context, 'login_forgot_snackbar'),
+                                    if (!_formKey.currentState!.validate()) {
+                                      return;
+                                    }
+                                    if (!_useAltIdentifier) {
+                                      _phoneNumber = PhoneUtils.normalizeDrc(
+                                        _identifierController.text,
+                                      );
+                                    }
+                                    if (_phoneNumber.isEmpty) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            tr(context, 'phone_number'),
+                                          ),
                                         ),
-                                        backgroundColor: Colors.orange.shade800,
-                                        behavior: SnackBarBehavior.floating,
-                                      ),
+                                      );
+                                      return;
+                                    }
+                                    final authService =
+                                        context.read<AuthService>();
+                                    authService.verifyPhone(
+                                      phoneNumber: _phoneNumber,
+                                      onCodeSent: (verificationId) {
+                                        Navigator.push(
+                                          context,
+                                          SlideUpRoute(
+                                            page: VerificationScreen(
+                                              verificationId: verificationId,
+                                              phoneNumber: _phoneNumber,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      onFailed: (e) {
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              e
+                                                  .toString()
+                                                  .replaceAll('Exception: ', ''),
+                                            ),
+                                          ),
+                                        );
+                                      },
                                     );
                                   },
                                   child: Text(tr(context, 'login_forgot_password')),

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/l10n/tr.dart';
 import '../../core/res/uza_colors.dart';
+import '../../core/utils/phone_utils.dart';
 import '../../core/utils/picker_utils.dart';
 import '../../data/repositories/ya_cope_repository.dart';
 
@@ -23,6 +24,7 @@ class _AddYaCopeScreenState extends State<AddYaCopeScreen> {
   final _addressController = TextEditingController();
   final List<Uint8List?> _images = [null, null, null];
   var _saving = false;
+  String? _progress;
   int? _pickingIndex;
 
   @override
@@ -34,6 +36,9 @@ class _AddYaCopeScreenState extends State<AddYaCopeScreen> {
   }
 
   int get _photoCount => _images.where((b) => b != null).length;
+
+  String _friendlyError(Object e) =>
+      e.toString().replaceAll('Exception: ', '').trim();
 
   Future<void> _pickImage(int index) async {
     setState(() => _pickingIndex = index);
@@ -58,22 +63,46 @@ class _AddYaCopeScreenState extends State<AddYaCopeScreen> {
       return;
     }
 
-    setState(() => _saving = true);
+    final phone = PhoneUtils.normalizeDrc(_phoneController.text);
+    if (!PhoneUtils.isValidDrc(phone)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Numéro WhatsApp invalide. Ex. 099XXXXXXX ou +2439XXXXXXXX',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _progress = 'Envoi des photos…';
+    });
     try {
-      await context.read<YaCopeRepository>().create(
+      final listing = await context.read<YaCopeRepository>().create(
             name: _nameController.text.trim(),
-            phone: _phoneController.text.trim(),
+            phone: phone,
             address: _addressController.text.trim(),
             imageBytes: photos,
+            onProgress: (msg) {
+              if (mounted) setState(() => _progress = msg);
+            },
           );
       if (!mounted) return;
-      Navigator.pop(context, true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr(context, 'ya_cope_published'))),
+      );
+      Navigator.pop(context, listing);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
+        SnackBar(content: Text(_friendlyError(e))),
       );
-      setState(() => _saving = false);
+      setState(() {
+        _saving = false;
+        _progress = null;
+      });
     }
   }
 
@@ -118,67 +147,44 @@ class _AddYaCopeScreenState extends State<AddYaCopeScreen> {
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           decoration: BoxDecoration(
-                            border: Border.all(
-                              color: _images[i] != null
-                                  ? UzaColors.primary
-                                  : Colors.grey[300]!,
-                              width: 2,
-                            ),
+                            color: Colors.grey[100],
                             borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey[300]!),
                           ),
-                          child: _pickingIndex == i
-                              ? const Center(
-                                  child: CircularProgressIndicator(),
+                          child: _images[i] != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.memory(
+                                    _images[i]!,
+                                    fit: BoxFit.cover,
+                                  ),
                                 )
-                              : _images[i] != null
-                                  ? Stack(
-                                      fit: StackFit.expand,
-                                      children: [
-                                        ClipRRect(
-                                          borderRadius:
-                                              BorderRadius.circular(10),
-                                          child: Image.memory(
-                                            _images[i]!,
-                                            fit: BoxFit.cover,
-                                          ),
+                              : Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    if (_pickingIndex == i)
+                                      const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
                                         ),
-                                        Positioned(
-                                          top: 4,
-                                          right: 4,
-                                          child: IconButton(
-                                            style: IconButton.styleFrom(
-                                              backgroundColor: Colors.black54,
-                                              foregroundColor: Colors.white,
-                                              padding: const EdgeInsets.all(4),
-                                              minimumSize: const Size(28, 28),
-                                            ),
-                                            icon: const Icon(Icons.close,
-                                                size: 16),
-                                            onPressed: () => setState(
-                                              () => _images[i] = null,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    )
-                                  : Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.add_a_photo_outlined,
-                                          color: Colors.grey[500],
-                                        ),
-                                        if (i == 0)
-                                          Text(
-                                            '*',
-                                            style: TextStyle(
-                                              color: UzaColors.primary,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                      ],
+                                      )
+                                    else
+                                      Icon(
+                                        Icons.add_a_photo_outlined,
+                                        color: UzaColors.primary,
+                                      ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      i == 0 ? '*' : '${i + 1}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey[600],
+                                      ),
                                     ),
+                                  ],
+                                ),
                         ),
                       ),
                     ),
@@ -212,8 +218,13 @@ class _AddYaCopeScreenState extends State<AddYaCopeScreen> {
                 border: const OutlineInputBorder(),
               ),
               keyboardType: TextInputType.phone,
-              validator: (v) =>
-                  (v == null || v.trim().length < 9) ? 'Requis' : null,
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) return 'Requis';
+                if (!PhoneUtils.isValidDrc(v)) {
+                  return 'Numéro WhatsApp invalide';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -237,7 +248,7 @@ class _AddYaCopeScreenState extends State<AddYaCopeScreen> {
                       ),
                     )
                   : const Icon(Icons.check),
-              label: Text(tr(context, 'save')),
+              label: Text(_progress ?? tr(context, 'save')),
               style: FilledButton.styleFrom(
                 backgroundColor: UzaColors.primary,
                 minimumSize: const Size.fromHeight(48),

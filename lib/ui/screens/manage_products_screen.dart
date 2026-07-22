@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/product_repository.dart';
@@ -8,6 +9,7 @@ import '../../core/l10n/tr.dart';
 import '../../core/utils/image_utils.dart';
 
 import 'edit_product_screen.dart';
+import 'quick_post_screen.dart';
 import 'update_product_screen.dart';
 import 'shop_stats_screen.dart';
 
@@ -78,7 +80,7 @@ class _ManageProductsScreenState extends State<ManageProductsScreen>
       ),
       body: UzaRefreshIndicator(
         onRefresh: () async {
-          await context.read<SyncService>().syncNow();
+          await context.read<SyncService>().refreshCatalogLight();
         },
         child: StreamBuilder<List<Product>>(
           stream: productRepo.watchProductsByShop(widget.shopId),
@@ -125,7 +127,7 @@ class _ManageProductsScreenState extends State<ManageProductsScreen>
                       subtitle: tr(context, 'no_products_manage_hint'),
                       actionLabel: tr(context, 'retry'),
                       onAction: () =>
-                          context.read<SyncService>().syncNow(),
+                          context.read<SyncService>().refreshCatalogLight(),
                     ),
                   ),
                 ],
@@ -148,7 +150,7 @@ class _ManageProductsScreenState extends State<ManageProductsScreen>
         onPressed: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => EditProductScreen(shopId: widget.shopId),
+            builder: (_) => QuickPostScreen(shopId: widget.shopId),
           ),
         ),
         backgroundColor: UzaColors.primary,
@@ -393,7 +395,7 @@ class _ProductHorizontalCard extends StatelessWidget {
               final syncService = context.read<SyncService>();
               Navigator.pop(context);
               await repo.deleteProductWithSync(product.id);
-              await syncService.forcePush();
+              unawaited(syncService.forcePush());
             },
             child: Text(tr(context, 'delete'), style: TextStyle(color: Colors.red)),
           ),
@@ -554,7 +556,7 @@ class _ProductManagementCard extends StatelessWidget {
               final syncService = context.read<SyncService>();
               Navigator.pop(context);
               await repo.deleteProductWithSync(product.id);
-              await syncService.forcePush();
+              unawaited(syncService.forcePush());
             },
             child: Text(tr(context, 'delete'), style: TextStyle(color: Colors.red)),
           ),

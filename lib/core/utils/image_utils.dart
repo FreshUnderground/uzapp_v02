@@ -40,15 +40,31 @@ class ImageUtils {
 
   /// URLs that failed to load after retries — used to deprioritize products.
   static final Set<String> _failedImageUrls = <String>{};
+  static final Map<String, DateTime> _failedImageAt = <String, DateTime>{};
+  static const Duration _failedUrlTtl = Duration(minutes: 8);
+
+  static void _purgeExpiredFailedUrls() {
+    final now = DateTime.now();
+    final expired = _failedImageAt.entries
+        .where((e) => now.difference(e.value) > _failedUrlTtl)
+        .map((e) => e.key)
+        .toList();
+    for (final url in expired) {
+      _failedImageUrls.remove(url);
+      _failedImageAt.remove(url);
+    }
+  }
 
   static void markImageLoadFailed(String? url) {
     if (url == null || url.isEmpty) return;
     _failedImageUrls.add(url);
+    _failedImageAt[url] = DateTime.now();
   }
 
   static void markImageLoadSuccess(String? url) {
     if (url == null || url.isEmpty) return;
     _failedImageUrls.remove(url);
+    _failedImageAt.remove(url);
   }
 
   /// True when bytes look like JPEG/PNG/GIF/WebP (not HTML error pages).
@@ -94,6 +110,7 @@ class ImageUtils {
 
   /// True when the product has at least one resolvable, non-failed image URL.
   static bool hasDisplayableImage(String? imageUrls) {
+    _purgeExpiredFailedUrls();
     if (isEmptyMediaValue(imageUrls)) return false;
     final urls = getDecryptedList(imageUrls);
     if (urls.isEmpty) return false;
@@ -656,6 +673,22 @@ class ImageUtils {
         .toList();
   }
 
+  /// Like [getDecryptedList] but keeps empty CSV slots (for pending upload indices).
+  static List<String> getUrlSlots(String? encryptedSource) {
+    if (isEmptyMediaValue(encryptedSource)) return [];
+    final decrypted = CryptoUtils.decrypt(encryptedSource!.trim());
+    if (decrypted.isEmpty) return [];
+    if (!decrypted.contains(',')) {
+      final single = _normalizeDecryptedUrl(decrypted.trim());
+      return [single ?? ''];
+    }
+    return decrypted.split(',').map((s) {
+      final t = s.trim();
+      if (t.isEmpty) return '';
+      return _normalizeDecryptedUrl(t) ?? '';
+    }).toList();
+  }
+
   static Widget buildPlaceholder({
     double? height,
     double? width,
@@ -774,7 +807,14 @@ class _RetryCachedImageState extends State<_RetryCachedImage> {
   void _scheduleRetry(Object error, String failedUrl) {
     if (_retryCount >= 1) return;
 
-    if (ImageUtils.isImageDecodeError(error)) {
+    final errText = error.toString().toLowerCase();
+    final isHttp404 = errText.contains('404') || errText.contains('not found');
+    final isNetwork = errText.contains('socket') ||
+        errText.contains('timeout') ||
+        errText.contains('failed host') ||
+        errText.contains('clientexception');
+
+    if (ImageUtils.isImageDecodeError(error) || isHttp404 || isNetwork) {
       ImageUtils.evictCorruptedCache(failedUrl);
       _fallbackUrl ??= ImageUtils.serveUploadFallbackUrl(widget.imageUrl);
     }

@@ -32,6 +32,7 @@ class SyncService extends ChangeNotifier {
   final NotificationService? notificationService;
   Timer? _syncTimer;
   bool _isSyncing = false;
+  bool _syncQueued = false;
   SyncStatus _syncStatus = SyncStatus.idle;
 
   DateTime? _lastSyncTime;
@@ -106,6 +107,9 @@ class SyncService extends ChangeNotifier {
   Future<void> requestBootstrapSync() async {
     if (_bootstrapSyncRequested) return;
     _bootstrapSyncRequested = true;
+    // Yield so the first home frame can paint from local DB before sync
+    // saturates the isolate / network (esp. first launch + web).
+    await Future<void>.delayed(const Duration(milliseconds: 350));
     await _runBootstrapSync();
   }
 
@@ -125,10 +129,19 @@ class SyncService extends ChangeNotifier {
         }
         return;
       }
-      await repairShopsWithoutRemoteId();
-      if (!_isSyncing) {
-        await syncNow();
-      }
+      // Returning users: repair then sync in background so UI stays responsive.
+      unawaited(
+        () async {
+          try {
+            await repairShopsWithoutRemoteId();
+            if (!_isSyncing) {
+              await syncNow();
+            }
+          } catch (e) {
+            debugPrint('Background bootstrap sync error: $e');
+          }
+        }(),
+      );
     } catch (e) {
       debugPrint('Bootstrap sync error: $e');
     }
@@ -136,7 +149,10 @@ class SyncService extends ChangeNotifier {
 
   /// Fast first-launch path: categories + shops + first product page only.
   Future<void> syncCatalogPreview() async {
-    if (_isSyncing) return;
+    if (_isSyncing) {
+      _syncQueued = true;
+      return;
+    }
 
     if (!isOnline) {
       _syncStatus = SyncStatus.offline;
@@ -159,6 +175,7 @@ class SyncService extends ChangeNotifier {
       _isSyncing = false;
       await _updatePendingCount();
       notifyListeners();
+      await _drainSyncQueueIfNeeded();
     }
   }
 
@@ -166,10 +183,10 @@ class SyncService extends ChangeNotifier {
   /// This repairs shops created before the remoteId mapping fix was deployed.
   Future<void> repairShopsWithoutRemoteId() async {
     try {
-      final shops = await db.select(db.shops).get();
-      final shopsWithoutRemoteId = shops
-          .where((s) => s.remoteId == null || s.remoteId!.isEmpty)
-          .toList();
+      // Filtered query — avoid loading the full shops table on every cold start.
+      final shopsWithoutRemoteId = await (db.select(db.shops)
+            ..where((s) => s.remoteId.isNull() | s.remoteId.equals('')))
+          .get();
 
       if (shopsWithoutRemoteId.isEmpty) return;
 
@@ -178,9 +195,10 @@ class SyncService extends ChangeNotifier {
       );
 
       // Check which shops are already in the sync queue to avoid duplicates
-      final queue = await db.select(db.syncQueue).get();
+      final queue = await (db.select(db.syncQueue)
+            ..where((q) => q.entityType.equals('shops')))
+          .get();
       final queuedShopLocalIds = queue
-          .where((item) => item.entityType == 'shops')
           .map((item) {
             try {
               final data = jsonDecode(item.entityData) as Map<String, dynamic>;
@@ -322,10 +340,6 @@ class SyncService extends ChangeNotifier {
   /// Trigger an immediate sync (push + pull) for real-time updates.
   /// This is called after creating content to make it visible to others quickly.
   Future<void> triggerImmediateSync() async {
-    if (_isSyncing) {
-      debugPrint("Immediate sync: already syncing, skipping");
-      return;
-    }
     debugPrint("IMMEDIATE SYNC: Triggering push+pull for real-time update");
     await syncNow();
   }
@@ -334,9 +348,85 @@ class SyncService extends ChangeNotifier {
     _syncTimer?.cancel();
   }
 
+  /// Push queue + incremental catalog pull (no repairs / pending product uploads).
+  Future<void> refreshCatalogLight() async {
+    if (!isOnline) {
+      _syncStatus = SyncStatus.offline;
+      notifyListeners();
+      return;
+    }
+    if (_isSyncing) {
+      _syncQueued = true;
+      debugPrint('refreshCatalogLight: sync in progress, queued');
+      return;
+    }
+
+    _isSyncing = true;
+    _syncStatus = SyncStatus.syncing;
+    notifyListeners();
+    final sw = Stopwatch()..start();
+
+    try {
+      await pushLocalChanges();
+      await pullRemoteUpdates();
+      _lastSyncTime = DateTime.now();
+      _syncStatus = SyncStatus.idle;
+      debugPrint('PERF refreshCatalogLight: ${sw.elapsedMilliseconds}ms');
+    } catch (e) {
+      debugPrint('refreshCatalogLight error: $e');
+      _syncStatus = SyncStatus.error;
+    } finally {
+      _isSyncing = false;
+      await _updatePendingCount();
+      notifyListeners();
+      await _drainSyncQueueIfNeeded();
+    }
+  }
+
+  Future<void> _drainSyncQueueIfNeeded() async {
+    if (_syncQueued) {
+      _syncQueued = false;
+      unawaited(
+        syncNow().catchError((e) {
+          debugPrint('Queued sync error: $e');
+        }),
+      );
+    }
+  }
+
+  void _scheduleMaintenanceRepairs() {
+    if (_isFirstSync) return;
+    unawaited(
+      () async {
+        final sw = Stopwatch()..start();
+        try {
+          await repairShopsWithoutRemoteId();
+          await repairProductShopLinks();
+          debugPrint('PERF maintenanceRepairs: ${sw.elapsedMilliseconds}ms');
+        } catch (e) {
+          debugPrint('Maintenance repair error: $e');
+        }
+      }(),
+    );
+  }
+
+  Future<void> _processPendingProductUploads() async {
+    if (productRepository == null || shopRepository == null) return;
+    final sw = Stopwatch()..start();
+    await ProductUploadService.processAllPending(
+      db: db,
+      api: api,
+      productRepo: productRepository!,
+      shopRepo: shopRepository!,
+      syncService: this,
+    );
+    debugPrint('PERF pendingProductUploads: ${sw.elapsedMilliseconds}ms');
+  }
+
   Future<void> syncNow() async {
     if (_isSyncing) {
-      debugPrint("Sync already in progress, skipping...");
+      _syncQueued = true;
+      debugPrint('Sync already in progress, queued follow-up');
       return;
     }
 
@@ -350,23 +440,27 @@ class SyncService extends ChangeNotifier {
     _syncStatus = SyncStatus.syncing;
     notifyListeners();
 
+    final totalSw = Stopwatch()..start();
+
     try {
-      debugPrint("Starting background sync...");
-      if (!_isFirstSync) {
-        await repairShopsWithoutRemoteId();
-        await repairProductShopLinks();
-      }
-      if (productRepository != null && shopRepository != null) {
-        await ProductUploadService.processAllPending(
-          db: db,
-          api: api,
-          productRepo: productRepository!,
-          shopRepo: shopRepository!,
-          syncService: this,
-        );
-      }
+      debugPrint('Starting background sync...');
+      _scheduleMaintenanceRepairs();
+      final pushSw = Stopwatch()..start();
       await pushLocalChanges();
+      debugPrint('PERF syncNow push: ${pushSw.elapsedMilliseconds}ms');
+      final pullSw = Stopwatch()..start();
       await pullRemoteUpdates();
+      debugPrint('PERF syncNow pull: ${pullSw.elapsedMilliseconds}ms');
+      unawaited(
+        () async {
+          try {
+            await _processPendingProductUploads();
+            await pushLocalChanges();
+          } catch (e) {
+            debugPrint('Background pending uploads/push error: $e');
+          }
+        }(),
+      );
       await _fireProductAlerts();
 
       // Clean up expired stories during each sync cycle
@@ -383,14 +477,17 @@ class SyncService extends ChangeNotifier {
 
       _lastSyncTime = DateTime.now();
       _syncStatus = SyncStatus.idle;
-      debugPrint("Sync completed at $_lastSyncTime");
+      debugPrint(
+        'Sync completed at $_lastSyncTime (PERF total: ${totalSw.elapsedMilliseconds}ms)',
+      );
     } catch (e) {
-      debugPrint("SYNC ERROR: $e");
+      debugPrint('SYNC ERROR: $e');
       _syncStatus = SyncStatus.error;
     } finally {
       _isSyncing = false;
       await _updatePendingCount();
       notifyListeners();
+      await _drainSyncQueueIfNeeded();
     }
   }
 
@@ -577,28 +674,33 @@ class SyncService extends ChangeNotifier {
 
   /// Immediately retries ALL queued items regardless of retry count.
   /// Useful when the user manually triggers a refresh.
-  Future<void> forcePush() async {
+  Future<void> forcePush({bool pullAfter = true}) async {
     debugPrint('FORCE PUSH: Resetting retry counters and pushing all items');
     // Reset retry counters so every item gets a fresh attempt
     _retryCounts.clear();
     await pushLocalChanges();
 
-    // IMMEDIATE PULL: After pushing, pull updates from server so other users' content appears quickly
-    debugPrint(
-      'FORCE PUSH: Triggering immediate pull to get other users\' content',
-    );
-    await pullRemoteUpdates();
+    if (pullAfter) {
+      // IMMEDIATE PULL: After pushing, pull updates from server so other users' content appears quickly
+      debugPrint(
+        'FORCE PUSH: Triggering immediate pull to get other users\' content',
+      );
+      await pullRemoteUpdates();
 
-    if (productRepository != null) {
-      final dupesRemoved = await productRepository!.repairDisplayDuplicates();
-      if (dupesRemoved > 0) {
-        debugPrint('FORCE PUSH: removed $dupesRemoved duplicate product row(s)');
-        notifyListeners();
+      if (productRepository != null) {
+        final dupesRemoved = await productRepository!.repairDisplayDuplicates();
+        if (dupesRemoved > 0) {
+          debugPrint('FORCE PUSH: removed $dupesRemoved duplicate product row(s)');
+          notifyListeners();
+        }
       }
     }
 
     await _updatePendingCount();
   }
+
+  /// Push queued changes without downloading the full catalog (onboarding).
+  Future<void> pushOnboardingChanges() => forcePush(pullAfter: false);
 
   /// Vérifie users + shops sur le serveur après création de boutique.
   /// Relance un push si la boutique manque encore.
@@ -607,11 +709,12 @@ class SyncService extends ChangeNotifier {
     int? localShopId,
   }) async {
     var status = await api.verifyUserAndShopOnServer(phone);
-    if (localShopId != null && (!status.userExists || !status.shopExists)) {
+    if (localShopId != null && !status.shopExists) {
       debugPrint(
         'VERIFY: retry push (user=${status.userExists} shop=${status.shopExists})',
       );
-      await forcePush();
+      _retryCounts.clear();
+      await pushLocalChanges();
       status = await api.verifyUserAndShopOnServer(phone);
     }
     return status;
@@ -986,6 +1089,10 @@ class SyncService extends ChangeNotifier {
               _mergeMediaUrlForLocal(
                 _coerceMediaField(s['logo_url']),
                 existingShop?.logoUrl,
+                localUpdatedAt: existingShop?.updatedAt,
+                serverUpdatedAt: DateTime.tryParse(
+                  s['updated_at']?.toString() ?? '',
+                ),
               ),
             ),
             type: ShopType.values.firstWhere(
@@ -1005,6 +1112,10 @@ class SyncService extends ChangeNotifier {
               _mergeMediaUrlForLocal(
                 _coerceMediaField(s['banner_url']),
                 existingShop?.bannerUrl,
+                localUpdatedAt: existingShop?.updatedAt,
+                serverUpdatedAt: DateTime.tryParse(
+                  s['updated_at']?.toString() ?? '',
+                ),
               ),
             ),
             boostStatus: Value(_toInt(s['boost_status']) ?? 0),
@@ -1014,6 +1125,10 @@ class SyncService extends ChangeNotifier {
               _mergeMediaUrlForLocal(
                 _coerceMediaField(s['video_url']),
                 existingShop?.videoUrl,
+                localUpdatedAt: existingShop?.updatedAt,
+                serverUpdatedAt: DateTime.tryParse(
+                  s['updated_at']?.toString() ?? '',
+                ),
               ),
             ),
             isBoosted: Value(_toBool(s['is_boosted'])),
@@ -1096,26 +1211,34 @@ class SyncService extends ChangeNotifier {
         debugPrint('PULL ERROR (categories): $e');
       }
 
-      // Shops: full fetch, or limited pages on first-launch preview.
+      // Shops: full paginated on first sync / preview; incremental otherwise.
       try {
-        remoteShops = catalogPreview && fullSync
-            ? await _fetchShopsPaginated(maxPages: _previewShopPages)
-            : await _fetchAllShopsPaginated();
+        if (fullSync) {
+          remoteShops = catalogPreview
+              ? await _fetchShopsPaginated(maxPages: _previewShopPages)
+              : await _fetchAllShopsPaginated();
+        } else {
+          remoteShops = await api
+              .fetchShops(updatedSince: updatedSince)
+              .timeout(_requestTimeout);
+        }
         shopsPullOk = true;
         debugPrint(
-          'PULL: shops (${catalogPreview ? "preview" : "full paginated"}) '
+          'PULL: shops (${fullSync ? (catalogPreview ? "preview" : "full paginated") : "incremental"}) '
           '→ ${remoteShops.length}',
         );
       } on TimeoutException {
         debugPrint('PULL TIMEOUT: shops (phase 1)');
         try {
-          remoteShops = await api
-              .fetchShops(updatedSince: updatedSince)
-              .timeout(_requestTimeout);
+          if (fullSync) {
+            remoteShops = await api
+                .fetchShops(updatedSince: updatedSince)
+                .timeout(_requestTimeout);
+          } else {
+            remoteShops = await _fetchShopsPaginated(maxPages: 2);
+          }
           shopsPullOk = remoteShops.isNotEmpty;
-          debugPrint(
-            'PULL: shops fallback (incremental) → ${remoteShops.length}',
-          );
+          debugPrint('PULL: shops fallback → ${remoteShops.length}');
         } catch (e) {
           debugPrint('PULL ERROR (shops fallback): $e');
         }
@@ -1866,12 +1989,33 @@ class SyncService extends ChangeNotifier {
     return existing ?? '';
   }
 
-  static String? _mergeMediaUrlForLocal(String? remote, String? existing) {
+  static String? _mergeMediaUrlForLocal(
+    String? remote,
+    String? existing, {
+    DateTime? localUpdatedAt,
+    DateTime? serverUpdatedAt,
+  }) {
+    if (existing != null &&
+        existing.isNotEmpty &&
+        _localMediaIsNewer(localUpdatedAt, serverUpdatedAt)) {
+      return existing;
+    }
     final fromServer = _normalizeServerMedia(remote);
     if (fromServer != null) return fromServer;
     if (existing != null && existing.isNotEmpty) return existing;
     return null;
   }
+
+  static bool _localMediaIsNewer(
+    DateTime? localUpdatedAt,
+    DateTime? serverUpdatedAt,
+  ) {
+    if (localUpdatedAt == null) return false;
+    if (serverUpdatedAt == null) return true;
+    return localUpdatedAt.isAfter(serverUpdatedAt);
+  }
+
+  static String? _resolvedLocalMedia(String? stored) => _plainMediaUrl(stored);
 
   /// Warm disk cache from local DB — call on startup so images survive restarts.
   Future<void> warmMediaCache() => _prefetchPriorityMedia(force: true);
@@ -1880,6 +2024,7 @@ class SyncService extends ChangeNotifier {
     if (!isOnline) return;
 
     try {
+      final pendingShopRemoteIds = await _pendingRemoteIds('shops');
       final remoteProducts = await _fetchAllProductsPaginated();
       final remoteShops = await _fetchAllShopsPaginated();
       final localProducts = await db.select(db.products).get();
@@ -1936,6 +2081,14 @@ class SyncService extends ChangeNotifier {
 
           final local = shopByRemoteId[rId];
           if (local == null) continue;
+          if (pendingShopRemoteIds.contains(rId)) continue;
+
+          final serverUpdatedAt = DateTime.tryParse(
+            remote['updated_at']?.toString() ?? '',
+          );
+          if (_localMediaIsNewer(local.updatedAt, serverUpdatedAt)) {
+            continue;
+          }
 
           final remoteLogo =
               _normalizeServerMedia(remote['logo_url'] as String?);
@@ -1944,12 +2097,16 @@ class SyncService extends ChangeNotifier {
           final remoteVideo =
               _normalizeServerMedia(remote['video_url'] as String?);
 
+          final localLogo = _resolvedLocalMedia(local.logoUrl);
+          final localBanner = _resolvedLocalMedia(local.bannerUrl);
+          final localVideo = _resolvedLocalMedia(local.videoUrl);
+
           final logoNeedsUpdate =
-              remoteLogo != null && local.logoUrl != remoteLogo;
+              remoteLogo != null && localLogo != remoteLogo;
           final bannerNeedsUpdate =
-              remoteBanner != null && local.bannerUrl != remoteBanner;
+              remoteBanner != null && localBanner != remoteBanner;
           final videoNeedsUpdate =
-              remoteVideo != null && local.videoUrl != remoteVideo;
+              remoteVideo != null && localVideo != remoteVideo;
 
           if (!logoNeedsUpdate && !bannerNeedsUpdate && !videoNeedsUpdate) {
             continue;

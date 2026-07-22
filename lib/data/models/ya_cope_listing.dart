@@ -70,4 +70,18 @@ class YaCopeListing {
       .map((e) => e.trim())
       .where((e) => e.isNotEmpty)
       .toList();
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'phone': phone,
+        'address': address,
+        'image_urls': imageUrls,
+        'condition': condition,
+        'views_count': viewsCount,
+        'shares_count': sharesCount,
+        'is_sold': isSold,
+        'created_at': createdAt?.toIso8601String(),
+        'expires_at': expiresAt?.toIso8601String(),
+      };
 }

@@ -58,7 +58,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await DeepLinkService.captureLaunchUri().timeout(
-      const Duration(seconds: 2),
+      // Keep first render fast: deep links are usually instant; if not,
+      // we'll still handle later via the uriLinkStream after bootstrap.
+      const Duration(milliseconds: 500),
       onTimeout: () => debugPrint('DeepLinkService.captureLaunchUri timeout'),
     );
   } catch (e) {
@@ -75,8 +77,8 @@ void main() async {
     debugPrint('Stack trace: ${details.stack}');
   };
 
-  // Allow fetching fonts from the internet if AssetManifest.json is missing on web
-  GoogleFonts.config.allowRuntimeFetching = true;
+  // Web: Outfit is preloaded in index.html — skip extra font downloads at boot.
+  GoogleFonts.config.allowRuntimeFetching = !kIsWeb;
 
   // Notifications bootstrap runs after first frame — must not block runApp().
   if (!kIsWeb) {
@@ -116,6 +118,7 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
   DeepLinkService? _deepLinkService;
   Timer? _waStatusTimer;
   WhatsAppStatusScheduler? _waStatusScheduler;
+  Future<void>? _dbReadyFuture;
 
   @override
   void dispose() {
@@ -191,13 +194,16 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
     try {
       final database = UzaDatabase();
 
-      // Ensure migrations finish before parallel DB access (SettingsService, sync).
-      try {
-        await database.customSelect('SELECT 1').getSingle();
-      } catch (e) {
-        debugPrint('Database warmup error: $e');
-        rethrow;
-      }
+      // Don't block first UI render on DB migrations.
+      // We'll await this later in deferred startup tasks.
+      _dbReadyFuture = database
+          .customSelect('SELECT 1')
+          .getSingle()
+          .then((_) => null)
+          .catchError((e) {
+        debugPrint('Database warmup error (deferred): $e');
+        throw e;
+      });
 
       const String baseUrl = 'https://uzaapp.com/api';
 
@@ -206,7 +212,10 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
       final notificationService = NotificationService();
       final connectivityService = ConnectivityService();
       final apiService = ApiService(baseUrl: baseUrl);
-      unawaited(PlatformAnalyticsService.trackAppOpen(apiService));
+      // Analytics after first paint — don't compete with DB/UI bootstrap.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(PlatformAnalyticsService.trackAppOpen(apiService));
+      });
       final syncService = SyncService(
         database,
         apiService,
@@ -249,7 +258,7 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
       authService.syncService = syncService;
       authService.shopRepository = shopRepository;
 
-      await syncService.checkFirstSync();
+      // First-sync decision depends on DB; done in deferred startup.
 
       final productUpdateRepository = ProductUpdateRepository(database);
       final productUpdateService = ProductUpdateService(
@@ -308,6 +317,13 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
   }
 
   Future<void> _runDeferredStartupTasksImpl(_UzaServices services) async {
+    // Ensure DB/migrations are ready before we decide isFirstSync
+    // and before we trigger the initial catalog sync.
+    final dbReadyFuture = _dbReadyFuture;
+    if (dbReadyFuture != null) {
+      await dbReadyFuture;
+    }
+
     if (kIsWeb) {
       unawaited(
         WebNotificationService.requestPermission().catchError((e) {
@@ -659,12 +675,24 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
     });
   }
 
+  /// Web uses the HTML spinner until [flutter-first-frame]; no Flutter splash.
+  Widget _buildWebBootPlaceholder() {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: const Scaffold(
+        backgroundColor: Colors.white,
+        body: SizedBox.shrink(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<void>(
       future: _initializationFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
+          if (kIsWeb) return _buildWebBootPlaceholder();
           return _buildSplashScreen();
         }
 
@@ -697,6 +725,11 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
   }
 
   Widget _buildSplashScreen() {
+    final brightness = WidgetsBinding
+        .instance.platformDispatcher.platformBrightness;
+    final isDark = brightness == Brightness.dark;
+    final splashBg = isDark ? Colors.black : Colors.white;
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Uzaapp',
@@ -705,51 +738,28 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
       localizationsDelegates: AppTranslations.localizationsDelegates,
       supportedLocales: AppTranslations.materialLocales,
       home: Scaffold(
-        backgroundColor: UzaColors.surfaceOf(context),
+        backgroundColor: splashBg,
         body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // App Logo
-              Image.asset(
-                'assets/logo.png',
-                width: 120,
-                height: 120,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      color: UzaColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: const Icon(
-                      Icons.shopping_bag_outlined,
-                      size: 56,
-                      color: UzaColors.primary,
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'UzaApp',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
+          // Android/iOS launch screens are typically just an image centered.
+          // This splash is intentionally minimal to look identical.
+          child: Image.asset(
+            'assets/logo.png',
+            width: 168,
+            height: 185,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              return Container(
+                width: 168,
+                height: 185,
+                color: isDark ? Colors.black : Colors.white,
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.shopping_bag_outlined,
+                  size: 56,
                   color: UzaColors.primary,
                 ),
-              ),
-              const SizedBox(height: 32),
-              const SizedBox(
-                width: 40,
-                height: 40,
-                child: CircularProgressIndicator(
-                  strokeWidth: 3,
-                  color: UzaColors.primary,
-                ),
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),
@@ -758,6 +768,7 @@ class _UzaAppState extends State<UzaApp> with WidgetsBindingObserver {
 
   Widget _buildMainApp() {
     if (_services == null) {
+      if (kIsWeb) return _buildWebBootPlaceholder();
       return _buildSplashScreen();
     }
 

@@ -5,7 +5,9 @@ DEPLOIEMENT URGENT - Corriger /product/8 et #/shop/1
    - Remplacer .htaccess par: web/.htaccess
    - Remplacer product_page.php par: web/product_page.php
    - Ajouter shop_page.php depuis: web/shop_page.php
-   - Rebuild Flutter web (flutter build web) puis uploader index.html + build/web/*
+   - Rebuild Flutter web:
+     flutter build web --release -O4 --no-web-resources-cdn
+     puis uploader index.html + build/web/*
 
 2) SUPPRIMER sur le serveur (s'ils existent) :
    - /product/ (dossier physique - cause erreur 500)

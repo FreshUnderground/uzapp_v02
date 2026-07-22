@@ -22,6 +22,7 @@ class AppTranslations {
       'ya_cope_whatsapp': 'Téléphone WhatsApp',
       'ya_cope_address': 'Adresse (optionnel)',
       'ya_cope_photo_required': 'Ajoutez au moins une photo',
+      'ya_cope_published': 'Annonce publiée',
       'ya_cope_badge': 'Annonce Ya Cope · sans boutique',
       'ya_cope_ttl_hint':
           'Chaque annonce reste visible 4 jours puis disparaît automatiquement.',
@@ -810,6 +811,7 @@ class AppTranslations {
       'ya_cope_whatsapp': 'WhatsApp phone',
       'ya_cope_address': 'Address (optional)',
       'ya_cope_photo_required': 'Add at least one photo',
+      'ya_cope_published': 'Listing published',
       'ya_cope_badge': 'Ya Cope listing · no shop required',
       'ya_cope_ttl_hint':
           'Each listing stays visible for 4 days then is removed automatically.',
@@ -1606,6 +1608,7 @@ class AppTranslations {
       'ya_cope_whatsapp': 'Téléphone WhatsApp',
       'ya_cope_address': 'Adresse (optionnel)',
       'ya_cope_photo_required': 'Bakisa foto moko',
+      'ya_cope_published': 'Annonce ebiomi',
       'ya_cope_badge': 'Ya Cope · sans boutique',
       'ya_cope_ttl_hint':
           'Lisolo ezali komonana mikolo 4, sima elongolamaka.',
@@ -2403,6 +2406,7 @@ class AppTranslations {
       'ya_cope_whatsapp': 'Simu ya WhatsApp',
       'ya_cope_address': 'Anwani (si lazima)',
       'ya_cope_photo_required': 'Ongeza angalau picha moja',
+      'ya_cope_published': 'Tangazo limechapishwa',
       'ya_cope_badge': 'Tangazo Ya Cope · bila duka',
       'ya_cope_ttl_hint':
           'Tangazo linaonekana siku 4 kisha linafutwa kiotomatiki.',
